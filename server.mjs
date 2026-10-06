@@ -39,4 +39,6 @@ send(res,200,{clear:result.clear,message:result.message,example:result.example})
 }finally{active--;}
 }catch(e){send(res,502,{error:e.name==='TimeoutError'?'AI判定がタイムアウトしました。再挑戦してください。':'判定結果を取得できませんでした。再挑戦してください。'});}
 });
-server.listen(Number(process.env.PORT||3000),process.env.HOST||'127.0.0.1',()=>console.log('Task Quest: http://localhost:'+(process.env.PORT||3000)));
+server.listen(Number(process.env.PORT || 10000), '0.0.0.0', () => {
+  console.log('Task Quest server ready');
+});
