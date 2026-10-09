@@ -2,13 +2,13 @@
 <html lang="ja">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>タスククエスト | TASK QUEST</title>
 <style>
-:root{--ink:#16322f;--green:#086958;--muted:#637771;--bg:#f3f6ef;--line:#dce5da}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}button,textarea{font:inherit}button{cursor:pointer}button:focus-visible,summary:focus-visible{outline:3px solid #dba337;outline-offset:3px}header{max-width:1120px;margin:auto;padding:28px 24px;display:flex;align-items:center;justify-content:space-between;gap:15px}.brand{font-size:21px;font-weight:850;letter-spacing:.06em}.brand small{display:block;font-size:11px;letter-spacing:.16em;color:var(--muted);margin-top:5px}.badge{font-size:12px;border:1px solid var(--line);border-radius:30px;padding:8px 12px;background:white}main{max-width:1120px;margin:auto;padding:6px 24px 40px}.intro h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:10px 0}.intro p{color:var(--muted);line-height:1.8;margin:0 0 25px}.layout{display:grid;grid-template-columns:285px 1fr;gap:24px}.panel{background:white;border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 8px 28px #193a2910}.side{padding:20px}.overline{font-size:11px;letter-spacing:.14em;font-weight:800;color:var(--muted)}.stats{display:flex;justify-content:space-between;margin:12px 0}.bar{height:7px;background:#eaf0e7;border-radius:20px;overflow:hidden;margin-bottom:20px}.bar span{display:block;height:100%;background:var(--green);transition:width .3s}.tasklist{display:grid;gap:7px}.taskbtn{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:white;border:1px solid var(--line);border-radius:12px;padding:12px;color:var(--ink)}.taskbtn.active{background:#eaf5ef;border-color:var(--green)}.taskbtn .num{font-size:12px;color:var(--muted);width:22px}.taskbtn .title{flex:1;font-size:14px;font-weight:650}.taskbtn .mark{color:var(--green)}.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.quiet{background:#f5f7f2;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12px;color:var(--ink)}.questhead{display:flex;align-items:center;gap:14px;margin-bottom:22px}.emoji{display:grid;place-items:center;width:58px;height:58px;background:#f0f5e8;border-radius:16px;font-size:28px}.questhead h2{margin:3px 0;font-size:24px}.situation{padding:20px;background:#f6f8f3;border-radius:14px;margin-bottom:15px}.situation p,.mission p{font-size:18px;line-height:1.65;margin:7px 0 0}.mission{border-left:4px solid #dda840;padding:3px 16px;margin:20px 0}.translation{font-size:14px;color:var(--muted);line-height:1.7}.translation summary{cursor:pointer;margin:16px 0 8px}.translation p{margin:6px 0}label{display:block;font-weight:700;font-size:14px;margin:24px 0 10px}textarea{display:block;width:100%;min-height:115px;resize:vertical;border:1px solid #b9cbc1;border-radius:12px;padding:16px;font-size:18px;line-height:1.6;color:var(--ink);background:white}textarea:focus{outline:3px solid #08695825;border-color:var(--green)}.answerfoot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px}.primary{background:var(--green);border:0;color:white;border-radius:12px;padding:13px 22px;font-weight:750}.primary:disabled{opacity:.5;cursor:default}.secondary{border:1px solid var(--line);background:white;border-radius:12px;padding:12px 16px;color:var(--ink)}.actions{display:flex;gap:9px;flex-wrap:wrap}.count{font-size:12px;color:var(--muted)}.feedback{margin-top:20px;border-radius:14px;padding:18px;background:#fff7e3;border:1px solid #ecdbad;line-height:1.7}.feedback.good{background:#eaf6ee;border-color:#a8d2b5}.feedback strong{font-size:19px;display:block}.feedback p{margin:7px 0}.hint{margin-top:15px;padding:15px;background:#f6f8f3;border-radius:12px;line-height:1.7;font-size:14px}.hidden{display:none!important}.note{font-size:12px;color:var(--muted);line-height:1.8;margin:18px 0 0}footer{color:var(--muted);font-size:12px;line-height:1.8;text-align:center;padding:20px}.allclear{background:#fff4d2;border:1px solid #e8ce84;padding:15px;border-radius:12px;margin-bottom:18px}.history{margin-top:20px;border-top:1px solid var(--line);padding-top:12px;color:var(--muted);font-size:13px}.history ul{padding-left:20px;line-height:1.8}.modal{position:fixed;inset:0;background:#16322f77;display:grid;place-items:center;padding:24px;z-index:5}.modal .panel{max-width:400px} @media(max-width:760px){header{padding:20px}.layout{grid-template-columns:1fr}.tasklist{grid-template-columns:repeat(2,minmax(0,1fr))}.side{padding:16px}.panel{padding:20px}.intro p{font-size:14px}main{padding:0 16px 30px}.questhead h2{font-size:21px}.taskbtn{padding:10px 8px}.answerfoot{align-items:flex-start;flex-direction:column}.actions{width:100%}.primary{flex:1}.badge{font-size:10px} .situation p,.mission p{font-size:16px}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+:root{--ink:#16322f;--green:#086958;--muted:#637771;--bg:#f3f6ef;--line:#dce5da}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}button,textarea{font:inherit}button{cursor:pointer}button:focus-visible,summary:focus-visible{outline:3px solid #dba337;outline-offset:3px}header{max-width:1120px;margin:auto;padding:28px 24px;display:flex;align-items:center;justify-content:space-between;gap:15px}.brand{font-size:21px;font-weight:850;letter-spacing:.06em}.brand small{display:block;font-size:11px;letter-spacing:.16em;color:var(--muted);margin-top:5px}.badge{font-size:12px;border:1px solid var(--line);border-radius:30px;padding:8px 12px;background:white}main{max-width:1120px;margin:auto;padding:6px 24px 40px}.intro h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:10px 0}.intro p{color:var(--muted);line-height:1.8;margin:0 0 25px}.layout{display:grid;grid-template-columns:285px 1fr;gap:24px}.panel{background:white;border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 8px 28px #193a2910}.side{padding:20px}.overline{font-size:11px;letter-spacing:.14em;font-weight:800;color:var(--muted)}.stats{display:flex;justify-content:space-between;margin:12px 0}.bar{height:7px;background:#eaf0e7;border-radius:20px;overflow:hidden;margin-bottom:20px}.bar span{display:block;height:100%;background:var(--green);transition:width .3s}.tasklist{display:grid;gap:7px;max-height:440px;overflow-y:auto;padding:3px}.taskbtn{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:white;border:1px solid var(--line);border-radius:12px;padding:12px;color:var(--ink)}.taskbtn.active{background:#eaf5ef;border-color:var(--green)}.taskbtn .num{font-size:12px;color:var(--muted);width:22px}.taskbtn .title{flex:1;font-size:14px;font-weight:650}.taskbtn .mark{color:var(--green)}.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.quiet{background:#f5f7f2;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12px;color:var(--ink)}.questhead{display:flex;align-items:center;gap:14px;margin-bottom:22px}.emoji{display:grid;place-items:center;width:58px;height:58px;background:#f0f5e8;border-radius:16px;font-size:28px}.questhead h2{margin:3px 0;font-size:24px}.situation{padding:20px;background:#f6f8f3;border-radius:14px;margin-bottom:15px}.situation p,.mission p{font-size:18px;line-height:1.65;margin:7px 0 0}.mission{border-left:4px solid #dda840;padding:3px 16px;margin:20px 0}.translation{font-size:14px;color:var(--muted);line-height:1.7}.translation summary{cursor:pointer;margin:16px 0 8px}.translation p{margin:6px 0}label{display:block;font-weight:700;font-size:14px;margin:24px 0 10px}textarea{display:block;width:100%;min-height:115px;resize:vertical;border:1px solid #b9cbc1;border-radius:12px;padding:16px;font-size:18px;line-height:1.6;color:var(--ink);background:white}textarea:focus{outline:3px solid #08695825;border-color:var(--green)}.answerfoot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px}.primary{background:var(--green);border:0;color:white;border-radius:12px;padding:13px 22px;font-weight:750}.primary:disabled{opacity:.5;cursor:default}.secondary{border:1px solid var(--line);background:white;border-radius:12px;padding:12px 16px;color:var(--ink)}.actions{display:flex;gap:9px;flex-wrap:wrap}.count{font-size:12px;color:var(--muted)}.feedback{margin-top:20px;border-radius:14px;padding:18px;background:#fff7e3;border:1px solid #ecdbad;line-height:1.7}.feedback.good{background:#eaf6ee;border-color:#a8d2b5}.feedback strong{font-size:19px;display:block}.feedback p{margin:7px 0}.hint{margin-top:15px;padding:15px;background:#f6f8f3;border-radius:12px;line-height:1.7;font-size:14px}.hidden{display:none!important}.note{font-size:12px;color:var(--muted);line-height:1.8;margin:18px 0 0}footer{color:var(--muted);font-size:12px;line-height:1.8;text-align:center;padding:20px}.allclear{background:#fff4d2;border:1px solid #e8ce84;padding:15px;border-radius:12px;margin-bottom:18px}.history{margin-top:20px;border-top:1px solid var(--line);padding-top:12px;color:var(--muted);font-size:13px}.history ul{padding-left:20px;line-height:1.8}.modal{position:fixed;inset:0;background:#16322f77;display:grid;place-items:center;padding:24px;z-index:5}.modal .panel{max-width:400px} @media(max-width:760px){header{padding:20px}.layout{grid-template-columns:1fr}.tasklist{grid-template-columns:repeat(2,minmax(0,1fr))}.side{padding:16px}.panel{padding:20px}.intro p{font-size:14px}main{padding:0 16px 30px}.questhead h2{font-size:21px}.taskbtn{padding:10px 8px}.answerfoot{align-items:flex-start;flex-direction:column}.actions{width:100%}.primary{flex:1}.badge{font-size:10px} .situation p,.mission p{font-size:16px}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
 button:disabled{opacity:.6;cursor:wait}@media(max-width:700px){.layout{display:flex;flex-direction:column}.layout>section{order:-1}header,main{padding-left:14px;padding-right:14px}.panel{padding:18px}.actions{flex-wrap:wrap}button{min-height:44px}.tasklist{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style></head>
 <body>
 <header><div class="brand">TASK QUEST<small>タスククエスト</small></div><span class="badge">Gemini AI判定</span></header>
 <main><section class="intro"><div class="overline">ENGLISH FOR A PURPOSE</div><h1>英語で、ミッションを達成しよう。</h1><p>場面を読んで、相手に伝える英語を考えよう。困ったらヒントを使って、何度でも挑戦！</p></section>
-<div id="allclear" class="allclear hidden" role="status">🏆 全10タスク達成！もう一度挑戦したり、別の表現でも伝えてみよう。</div>
+<div id="allclear" class="allclear hidden" role="status">🏆 全50タスク達成！もう一度挑戦したり、別の表現でも伝えてみよう。</div>
 <div class="layout"><aside class="panel side"><div class="overline">YOUR QUESTS</div><div class="stats"><b>クリアしたタスク</b><span id="progress"></span></div><div class="bar"><span id="bar"></span></div><nav id="tasklist" class="tasklist" aria-label="タスクを選ぶ"></nav><div class="tools"><button class="quiet" id="random">🎲 ランダム</button><button class="quiet" id="reset">記録をリセット</button></div><p class="note" id="storageNote">挑戦回数とクリア記録は、このブラウザに保存されます。</p></aside>
 <section class="panel"><div class="questhead"><div class="emoji" id="emoji"></div><div><div class="overline" id="questnum"></div><h2 id="title"></h2></div></div>
 <div class="situation"><div class="overline">SITUATION / 場面</div><p id="situation" lang="en"></p></div><div class="mission"><div class="overline">YOUR TASK / お題</div><p id="task" lang="en"></p></div>
@@ -17,29 +17,769 @@ button:disabled{opacity:.6;cursor:wait}@media(max-width:700px){.layout{display:f
 <div id="hint" class="hint hidden" aria-live="polite"></div><div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div><button id="next" class="primary hidden" style="margin-top:16px">次のタスクへ →</button><details class="history" id="history"><summary>このタスクの挑戦記録</summary><ul id="historylist"></ul></details>
 <p class="note">多少の文法ミスがあっても、相手に伝わりお題を達成していればCLEAR。回答は判定のためGoogleへ送信されます。名前などの個人情報は入力しないでください。AIの判定に迷ったら先生と確認しよう。</p>
 </section></div></main><footer>タスクの目的は「相手に伝えて、行動につなげること」。答え方は一つではありません。</footer>
-<div class="modal hidden" id="resetModal" role="dialog" aria-modal="true" aria-labelledby="resetTitle"><div class="panel"><h2 id="resetTitle">記録をリセットしますか？</h2><p>10タスクのクリア記録と挑戦回数を消去します。</p><div class="actions"><button class="secondary" id="cancelReset">戻る</button><button class="primary" id="confirmReset">リセットする</button></div></div></div>
+<div class="modal hidden" id="resetModal" role="dialog" aria-modal="true" aria-labelledby="resetTitle"><div class="panel"><h2 id="resetTitle">記録をリセットしますか？</h2><p>50タスクのクリア記録と挑戦回数を消去します。</p><div class="actions"><button class="secondary" id="cancelReset">戻る</button><button class="primary" id="confirmReset">リセットする</button></div></div></div>
 <script>
 'use strict';
 // タスクを追加・編集する場合はこの配列を変更してください。
 const TASKS=[
-{id:'hotel',icon:'🏨',title:'早めにチェックイン',situation:'You are at a hotel. You arrived two hours before the check-in time.',task:'Ask the hotel staff if you can check in early.',jaS:'ホテルに、チェックイン時刻の2時間前に着きました。',jaT:'スタッフに、早めにチェックインできるか尋ねよう。',hints:['「早めにチェックインできる？」と質問してみよう。','Can I …? / Is it possible to …? ＋ check in early', '例：Could I check in early, please?'],sample:'Could I check in early, please?',groups:[[/check\s*in/],[/early|now|before/],[/can i|could i|may i|can we|could we|is it|would it|possible|allowed|let me|let us/]],missing:['「チェックインする」を表す言葉を加えてみよう。','早めに／今、というタイミングも伝えてみよう。','状況の説明に加えて、できるかどうか尋ねてみよう。']},
-{id:'restaurant',icon:'🍽️',title:'水をお願いする',situation:'You are having lunch at a restaurant. You are thirsty.',task:'Ask the waiter for a glass of water.',jaS:'レストランで昼食中。喉が渇きました。',jaT:'ウェイターに水をお願いしよう。',hints:['欲しいものは「水」。相手にお願いしてみよう。','Can I have …? / Could you bring …? / …, please.', '例：Could I have a glass of water, please?'],sample:'Could I have a glass of water, please?',groups:[[/\bwater\b/],[/can i|could i|may i|can we|could we|please|could you|can you|would you|i would like|i'd like/]],missing:['欲しいものが水だと伝えてみよう。','水が欲しいことを、相手へのお願いにしてみよう。']},
-{id:'station',icon:'🚉',title:'駅への道を尋ねる',situation:'You are visiting a new town. You want to go to the train station, but you are lost.',task:'Ask someone how to get to the station.',jaS:'初めての町で、駅へ行きたいのに道に迷いました。',jaT:'駅の場所や行き方を尋ねよう。',hints:['駅に行きたい気持ちだけでなく、場所や行き方を質問しよう。','Where is …? / How can I get to …?', '例：Excuse me, how can I get to the station?'],sample:'Excuse me, how can I get to the station?',groups:[[/\bstation\b/],[/where|how|way to|directions|show me|tell me.*get|which way/]],missing:['目的地が駅だと伝えてみよう。','駅がどこか、またはどう行くかを尋ねてみよう。']},
-{id:'shop',icon:'👕',title:'小さいサイズを探す',situation:'You are trying on a shirt in a shop. It is too big for you.',task:'Ask the shop assistant for a smaller size.',jaS:'お店でシャツを試着したら、大きすぎました。',jaT:'店員に、もっと小さいサイズがあるか尋ねよう。',hints:['大きすぎると説明するだけでなく、小さいものをお願いしよう。','Do you have …? / Can I try …? ＋ a smaller size', '例：Do you have this in a smaller size?'],sample:'Do you have this in a smaller size?',groups:[[/smaller|\bsmall\b|size s\b/],[/do you have|have you got|can i|could i|may i|please|could you|can you|i'd like|i would like|is there/]],missing:['「もっと小さいサイズ」を伝えてみよう。','小さいサイズがあるか尋ねるか、用意してもらうお願いをしよう。']},
-{id:'photo',icon:'📸',title:'写真を撮ってもらう',situation:'You are sightseeing with your friend. You want a photo of both of you.',task:'Ask someone to take a photo of you and your friend.',jaS:'友達と観光中。二人で写った写真が欲しいです。',jaT:'誰かに、自分と友達の写真を撮ってもらおう。',hints:['写真を「撮ってもらう」お願いにしてみよう。','Could you take …? ＋ a photo of us', '例：Could you take a photo of us, please?'],sample:'Could you take a photo of us, please?',groups:[[/\bphoto\b|\bpicture\b/],[/\bus\b|me and|my friend and me|my friend and i|both/],[/could you|can you|would you|will you|please.*take|take.*please|would you mind/]],missing:['写真という言葉を入れてみよう。','写真に写るのは自分と友達。us などで二人を伝えよう。','相手に写真を撮ってもらうお願いをしよう。']},
-{id:'late',icon:'⏰',title:'遅刻を伝える',situation:'You are meeting a friend at 3 p.m. Your bus is delayed. You will arrive ten minutes late.',task:'Apologize and tell your friend that you will be ten minutes late.',jaS:'15時に友達と会う予定。バスが遅れていて、10分遅刻します。',jaT:'謝って、10分遅れると伝えよう。',hints:['謝罪と「10分遅れる」の両方を伝えよう。','Sorry, … ＋ ten minutes late', '例：Sorry, I will be ten minutes late.'],sample:'Sorry, I will be ten minutes late.',groups:[[/sorry|apolog/],[/(ten|10)\s*(minutes?|mins?)\b/],[/\blate\b|delayed|behind schedule/]],missing:['友達への謝罪も加えてみよう。','どれくらい遅れるか、10分という情報を伝えよう。','時間だけでなく、遅れることも伝えよう。']},
-{id:'repeat',icon:'👂',title:'もう一度言ってもらう',situation:'Someone speaks to you in English, but you do not catch what they say.',task:'Ask the person to say it again.',jaS:'英語で話しかけられましたが、聞き取れませんでした。',jaT:'もう一度言ってもらうようお願いしよう。',hints:['分からないと言うだけでなく、繰り返してもらおう。','Could you say … again? / Could you repeat …?', '例：Could you say that again, please?'],sample:'Could you say that again, please?',groups:[[/\brepeat\b|say.*again|once more|one more time/],[/could you|can you|would you|will you|please|would you mind/]],missing:['もう一度言う／繰り返す、という内容を入れよう。','相手へのお願いにしてみよう。']},
-{id:'allergy',icon:'🥜',title:'アレルギーを確認する',situation:'You are at a café. You are allergic to nuts and want to order a cake.',task:'Tell the staff about your nut allergy and ask if the cake contains nuts.',jaS:'カフェでケーキを注文したいですが、ナッツのアレルギーがあります。',jaT:'アレルギーを伝え、ケーキにナッツが入っているか尋ねよう。',hints:['「アレルギーがある」と「ナッツが入っている？」の2点を伝えよう。','I am allergic to … ＋ Does this cake contain …?', '例：I am allergic to nuts. Does this cake contain nuts?'],sample:'I am allergic to nuts. Does this cake contain nuts?',groups:[[/allerg/],[/\bnuts?\b|peanuts?/],[/(does|is|are|do|has).*\b(cake|it|this)\b.*(nuts?|peanuts?)|nuts?.*\b(cake|it|this)\b.*\?|nut.free.*\?/]],missing:['アレルギーがあることを伝えよう。','何のアレルギーか、ナッツという言葉も加えよう。','ケーキにナッツが含まれるかを質問しよう。']},
-{id:'borrow',icon:'✏️',title:'ペンを借りる',situation:'You are in class. You forgot your pen and need to write something.',task:'Ask your classmate if you can borrow a pen.',jaS:'授業中、ペンを忘れてしまいました。書くためのペンが必要です。',jaT:'クラスメイトにペンを借りられるか尋ねよう。',hints:['ペンがないという説明に加えて、借りるお願いをしよう。','Can I borrow …? / Could you lend me …?', '例：Can I borrow a pen, please?'],sample:'Can I borrow a pen, please?',groups:[[/\bpen\b/],[/borrow|lend|use/],[/can i|could i|may i|could you|can you|would you|please|is it/]],missing:['借りたいものがペンだと伝えよう。','borrow / lend / use などで、借りることを伝えよう。','相手にお願いする形にしてみよう。']},
-{id:'invite',icon:'🎬',title:'映画に誘う',situation:'You want to go to the movies with your friend this Saturday.',task:'Invite your friend to watch a movie with you this Saturday.',jaS:'今週の土曜日、友達と映画に行きたいです。',jaT:'土曜日に一緒に映画を見に行こうと誘ってみよう。',hints:['映画への誘いと、土曜日という予定を伝えよう。','Would you like to …? / Do you want to …? / Let’s …', '例：Would you like to see a movie with me this Saturday?'],sample:'Would you like to see a movie with me this Saturday?',groups:[[/movie|film|cinema/],[/saturday/],[/would you like|do you want|want to|let's|lets|shall we|how about|why don't we|can you|could you|will you/]],missing:['一緒に何をするのか、映画だと伝えよう。','いつ行くのか、土曜日という情報を加えよう。','自分の希望だけでなく、相手を誘う表現を使ってみよう。']}
+  {
+    "id": "quest50-01",
+    "icon": "💬",
+    "title": "色違いのセーター",
+    "situation": "You are at a clothing store to buy a sweater.",
+    "task": "Ask if there are other colors.",
+    "jaS": "セーターを買いに洋服店に来ています。",
+    "jaT": "ほかの色があるか尋ねよう。",
+    "hints": [
+      "ほかの色があるか尋ねよう。",
+      "使える表現：Do you have …? / other colors",
+      "例：Do you have this sweater in other colors?"
+    ],
+    "sample": "Do you have this sweater in other colors?"
+  },
+  {
+    "id": "quest50-02",
+    "icon": "💬",
+    "title": "メニューをお願いする",
+    "situation": "You are at a restaurant.",
+    "task": "Ask the waiter for a menu.",
+    "jaS": "レストランにいます。",
+    "jaT": "ウェイターにメニューをお願いしよう。",
+    "hints": [
+      "ウェイターにメニューをお願いしよう。",
+      "使える表現：Could I have …?",
+      "例：Could I have a menu, please?"
+    ],
+    "sample": "Could I have a menu, please?"
+  },
+  {
+    "id": "quest50-03",
+    "icon": "💬",
+    "title": "最寄りのバス停",
+    "situation": "You are lost in a new city.",
+    "task": "Ask where the nearest bus stop is.",
+    "jaS": "初めての街で道に迷っています。",
+    "jaT": "最寄りのバス停がどこか尋ねよう。",
+    "hints": [
+      "最寄りのバス停がどこか尋ねよう。",
+      "使える表現：Where is …? / nearest",
+      "例：Excuse me, where is the nearest bus stop?"
+    ],
+    "sample": "Excuse me, where is the nearest bus stop?"
+  },
+  {
+    "id": "quest50-04",
+    "icon": "💬",
+    "title": "友達の飲み物",
+    "situation": "You are at a café with a friend.",
+    "task": "Ask what they want to drink.",
+    "jaS": "友達とカフェにいます。",
+    "jaT": "友達が何を飲みたいか尋ねよう。",
+    "hints": [
+      "友達が何を飲みたいか尋ねよう。",
+      "使える表現：What …? / would like to drink",
+      "例：What would you like to drink?"
+    ],
+    "sample": "What would you like to drink?"
+  },
+  {
+    "id": "quest50-05",
+    "icon": "💬",
+    "title": "搭乗ゲート",
+    "situation": "You are at the airport.",
+    "task": "Ask where your departure gate is.",
+    "jaS": "空港にいます。",
+    "jaT": "自分の搭乗ゲートがどこか尋ねよう。",
+    "hints": [
+      "自分の搭乗ゲートがどこか尋ねよう。",
+      "使える表現：Where is …? / departure gate",
+      "例：Excuse me, where is my departure gate?"
+    ],
+    "sample": "Excuse me, where is my departure gate?"
+  },
+  {
+    "id": "quest50-06",
+    "icon": "💬",
+    "title": "初対面の自己紹介",
+    "situation": "You meet someone for the first time in a park.",
+    "task": "Introduce yourself and ask the name.",
+    "jaS": "公園で初めて会う人と話します。",
+    "jaT": "自己紹介をして、相手の名前を尋ねよう。",
+    "hints": [
+      "自己紹介をして、相手の名前を尋ねよう。",
+      "使える表現：I'm … / What's your name?",
+      "例：Hi, I'm Haru. What's your name?"
+    ],
+    "sample": "Hi, I'm Haru. What's your name?"
+  },
+  {
+    "id": "quest50-07",
+    "icon": "💬",
+    "title": "充電器を探す",
+    "situation": "You are at a convenience store.",
+    "task": "Ask if they sell phone chargers.",
+    "jaS": "コンビニにいます。",
+    "jaT": "携帯電話の充電器を売っているか尋ねよう。",
+    "hints": [
+      "携帯電話の充電器を売っているか尋ねよう。",
+      "使える表現：Do you sell …?",
+      "例：Do you sell phone chargers?"
+    ],
+    "sample": "Do you sell phone chargers?"
+  },
+  {
+    "id": "quest50-08",
+    "icon": "💬",
+    "title": "バンクーバー行きの電車",
+    "situation": "You are at a train station.",
+    "task": "Ask what time the next train to Vancouver is.",
+    "jaS": "鉄道の駅にいます。",
+    "jaT": "次のバンクーバー行きの電車が何時か尋ねよう。",
+    "hints": [
+      "次のバンクーバー行きの電車が何時か尋ねよう。",
+      "使える表現：What time …? / next train to …",
+      "例：What time is the next train to Vancouver?"
+    ],
+    "sample": "What time is the next train to Vancouver?"
+  },
+  {
+    "id": "quest50-09",
+    "icon": "💬",
+    "title": "好きな作家の本",
+    "situation": "You are at a bookstore.",
+    "task": "Ask if they have books by your favorite author.",
+    "jaS": "書店にいます。",
+    "jaT": "好きな作家の本があるか尋ねよう。",
+    "hints": [
+      "好きな作家の本があるか尋ねよう。",
+      "使える表現：Do you have …? / books by …",
+      "例：Do you have any books by J. K. Rowling?"
+    ],
+    "sample": "Do you have any books by J. K. Rowling?"
+  },
+  {
+    "id": "quest50-10",
+    "icon": "💬",
+    "title": "トーストとコーヒー",
+    "situation": "You are at a café.",
+    "task": "Ask for two slices of toast and a cup of coffee.",
+    "jaS": "カフェにいます。",
+    "jaT": "トースト2枚とコーヒー1杯をお願いしよう。",
+    "hints": [
+      "トースト2枚とコーヒー1杯をお願いしよう。",
+      "使える表現：two slices of … / a cup of …",
+      "例：Could I have two slices of toast and a cup of coffee, please?"
+    ],
+    "sample": "Could I have two slices of toast and a cup of coffee, please?"
+  },
+  {
+    "id": "quest50-11",
+    "icon": "💬",
+    "title": "卵の売り場",
+    "situation": "You are at a supermarket.",
+    "task": "Ask where the eggs are.",
+    "jaS": "スーパーにいます。",
+    "jaT": "卵の売り場を尋ねよう。",
+    "hints": [
+      "卵の売り場を尋ねよう。",
+      "使える表現：Where are …?",
+      "例：Excuse me, where are the eggs?"
+    ],
+    "sample": "Excuse me, where are the eggs?"
+  },
+  {
+    "id": "quest50-12",
+    "icon": "💬",
+    "title": "頭痛の薬",
+    "situation": "You are at a pharmacy.",
+    "task": "Tell the clerk you need something for a headache.",
+    "jaS": "薬局にいます。",
+    "jaT": "頭痛に効くものが必要だと店員に伝えよう。",
+    "hints": [
+      "頭痛に効くものが必要だと店員に伝えよう。",
+      "使える表現：I need … / for a headache",
+      "例：I need something for a headache."
+    ],
+    "sample": "I need something for a headache."
+  },
+  {
+    "id": "quest50-13",
+    "icon": "💬",
+    "title": "日本への郵送料",
+    "situation": "You are at the post office.",
+    "task": "Ask how much it costs to send a letter to Japan.",
+    "jaS": "郵便局にいます。",
+    "jaT": "日本に手紙を送る料金を尋ねよう。",
+    "hints": [
+      "日本に手紙を送る料金を尋ねよう。",
+      "使える表現：How much does it cost to …?",
+      "例：How much does it cost to send a letter to Japan?"
+    ],
+    "sample": "How much does it cost to send a letter to Japan?"
+  },
+  {
+    "id": "quest50-14",
+    "icon": "💬",
+    "title": "2週間の貸し出し",
+    "situation": "You are at a library.",
+    "task": "Ask if you can borrow a book for two weeks.",
+    "jaS": "図書館にいます。",
+    "jaT": "本を2週間借りられるか尋ねよう。",
+    "hints": [
+      "本を2週間借りられるか尋ねよう。",
+      "使える表現：Can I borrow …? / for two weeks",
+      "例：Can I borrow this book for two weeks?"
+    ],
+    "sample": "Can I borrow this book for two weeks?"
+  },
+  {
+    "id": "quest50-15",
+    "icon": "💬",
+    "title": "ホテルまでのタクシー",
+    "situation": "You are in a taxi.",
+    "task": "Ask the driver to take you to your hotel.",
+    "jaS": "タクシーに乗っています。",
+    "jaT": "運転手に自分のホテルまで行ってもらうよう頼もう。",
+    "hints": [
+      "運転手に自分のホテルまで行ってもらうよう頼もう。",
+      "使える表現：Could you take me to …?",
+      "例：Could you take me to my hotel, please?"
+    ],
+    "sample": "Could you take me to my hotel, please?"
+  },
+  {
+    "id": "quest50-16",
+    "icon": "💬",
+    "title": "ジムの入会費",
+    "situation": "You are at a gym.",
+    "task": "Find out how much it costs to join.",
+    "jaS": "ジムにいます。",
+    "jaT": "入会にいくらかかるか尋ねよう。",
+    "hints": [
+      "入会にいくらかかるか尋ねよう。",
+      "使える表現：How much does it cost to …? / join",
+      "例：How much does it cost to join this gym?"
+    ],
+    "sample": "How much does it cost to join this gym?"
+  },
+  {
+    "id": "quest50-17",
+    "icon": "💬",
+    "title": "空港行きのバス",
+    "situation": "You are at a bus stop.",
+    "task": "Ask if the bus goes to the airport.",
+    "jaS": "バス停にいます。",
+    "jaT": "そのバスが空港に行くか尋ねよう。",
+    "hints": [
+      "そのバスが空港に行くか尋ねよう。",
+      "使える表現：Does this bus go to …?",
+      "例：Does this bus go to the airport?"
+    ],
+    "sample": "Does this bus go to the airport?"
+  },
+  {
+    "id": "quest50-18",
+    "icon": "💬",
+    "title": "映画券を買う会話",
+    "situation": "You are at a movie theater.",
+    "task": "Start a conversation to buy a ticket for the latest movie.",
+    "jaS": "映画館にいます。",
+    "jaT": "最新の映画のチケットを買うため、会話を始めよう。",
+    "hints": [
+      "最新の映画のチケットを買うため、会話を始めよう。",
+      "使える表現：Excuse me / I'd like to buy …",
+      "例：Excuse me, I'd like to buy a ticket for the latest movie."
+    ],
+    "sample": "Excuse me, I'd like to buy a ticket for the latest movie."
+  },
+  {
+    "id": "quest50-19",
+    "icon": "💬",
+    "title": "映画券を1枚",
+    "situation": "You are at a movie theater.",
+    "task": "Ask for one ticket to the latest movie.",
+    "jaS": "映画館にいます。",
+    "jaT": "最新の映画のチケットを1枚お願いしよう。",
+    "hints": [
+      "最新の映画のチケットを1枚お願いしよう。",
+      "使える表現：One ticket for …, please.",
+      "例：One ticket for the latest movie, please."
+    ],
+    "sample": "One ticket for the latest movie, please."
+  },
+  {
+    "id": "quest50-20",
+    "icon": "💬",
+    "title": "博物館の閉館時間",
+    "situation": "You are at a museum.",
+    "task": "Ask what time it closes.",
+    "jaS": "博物館にいます。",
+    "jaT": "何時に閉館するか尋ねよう。",
+    "hints": [
+      "何時に閉館するか尋ねよう。",
+      "使える表現：What time does … close?",
+      "例：What time does this museum close?"
+    ],
+    "sample": "What time does this museum close?"
+  },
+  {
+    "id": "quest50-21",
+    "icon": "💬",
+    "title": "パンダの場所",
+    "situation": "You are at the zoo.",
+    "task": "Ask where the pandas are.",
+    "jaS": "動物園にいます。",
+    "jaT": "パンダがどこにいるか尋ねよう。",
+    "hints": [
+      "パンダがどこにいるか尋ねよう。",
+      "使える表現：Where are …?",
+      "例：Where are the pandas?"
+    ],
+    "sample": "Where are the pandas?"
+  },
+  {
+    "id": "quest50-22",
+    "icon": "💬",
+    "title": "バスの運賃",
+    "situation": "You are at a bus station.",
+    "task": "Ask how much the ticket to Vancouver is.",
+    "jaS": "バスターミナルにいます。",
+    "jaT": "バンクーバー行きのチケットの値段を尋ねよう。",
+    "hints": [
+      "バンクーバー行きのチケットの値段を尋ねよう。",
+      "使える表現：How much is …? / a ticket to …",
+      "例：How much is a ticket to Vancouver?"
+    ],
+    "sample": "How much is a ticket to Vancouver?"
+  },
+  {
+    "id": "quest50-23",
+    "icon": "💬",
+    "title": "ピーナッツアレルギー",
+    "situation": "You are at a restaurant.",
+    "task": "Tell the waiter you are allergic to peanuts.",
+    "jaS": "レストランにいます。",
+    "jaT": "ピーナッツアレルギーがあるとウェイターに伝えよう。",
+    "hints": [
+      "ピーナッツアレルギーがあるとウェイターに伝えよう。",
+      "使える表現：I'm allergic to …",
+      "例：I'm allergic to peanuts."
+    ],
+    "sample": "I'm allergic to peanuts."
+  },
+  {
+    "id": "quest50-24",
+    "icon": "💬",
+    "title": "新鮮ないちご",
+    "situation": "You are at a grocery store.",
+    "task": "Ask if they have any fresh strawberries.",
+    "jaS": "食料品店にいます。",
+    "jaT": "新鮮ないちごがあるか尋ねよう。",
+    "hints": [
+      "新鮮ないちごがあるか尋ねよう。",
+      "使える表現：Do you have any …? / fresh",
+      "例：Do you have any fresh strawberries?"
+    ],
+    "sample": "Do you have any fresh strawberries?"
+  },
+  {
+    "id": "quest50-25",
+    "icon": "💬",
+    "title": "最新の携帯の値段",
+    "situation": "You are at a phone store.",
+    "task": "Ask how much the newest phone costs.",
+    "jaS": "携帯電話のお店にいます。",
+    "jaT": "最新の携帯電話の値段を尋ねよう。",
+    "hints": [
+      "最新の携帯電話の値段を尋ねよう。",
+      "使える表現：How much does … cost?",
+      "例：How much does the newest phone cost?"
+    ],
+    "sample": "How much does the newest phone cost?"
+  },
+  {
+    "id": "quest50-26",
+    "icon": "💬",
+    "title": "本の貸し出し期間",
+    "situation": "You are at a library.",
+    "task": "Ask how long you can borrow a book.",
+    "jaS": "図書館にいます。",
+    "jaT": "本をどれくらいの期間借りられるか尋ねよう。",
+    "hints": [
+      "本をどれくらいの期間借りられるか尋ねよう。",
+      "使える表現：How long can I …?",
+      "例：How long can I borrow this book?"
+    ],
+    "sample": "How long can I borrow this book?"
+  },
+  {
+    "id": "quest50-27",
+    "icon": "💬",
+    "title": "週末にしたこと",
+    "situation": "You are in class.",
+    "task": "Ask your partner what they did on the weekend.",
+    "jaS": "授業中です。",
+    "jaT": "ペアの相手に週末に何をしたか尋ねよう。",
+    "hints": [
+      "ペアの相手に週末に何をしたか尋ねよう。",
+      "使える表現：What did you do …?",
+      "例：What did you do on the weekend?"
+    ],
+    "sample": "What did you do on the weekend?"
+  },
+  {
+    "id": "quest50-28",
+    "icon": "💬",
+    "title": "友達の家のトイレ",
+    "situation": "You are at a friend’s house.",
+    "task": "Ask if you can use their bathroom.",
+    "jaS": "友達の家にいます。",
+    "jaT": "トイレを使ってよいか尋ねよう。",
+    "hints": [
+      "トイレを使ってよいか尋ねよう。",
+      "使える表現：Can I use …?",
+      "例：Can I use your bathroom?"
+    ],
+    "sample": "Can I use your bathroom?"
+  },
+  {
+    "id": "quest50-29",
+    "icon": "💬",
+    "title": "マシンの使い方",
+    "situation": "You are at the gym.",
+    "task": "Ask how to use a machine.",
+    "jaS": "ジムにいます。",
+    "jaT": "マシンの使い方を尋ねよう。",
+    "hints": [
+      "マシンの使い方を尋ねよう。",
+      "使える表現：how to use … / Could you show me …?",
+      "例：Could you show me how to use this machine?"
+    ],
+    "sample": "Could you show me how to use this machine?"
+  },
+  {
+    "id": "quest50-30",
+    "icon": "💬",
+    "title": "駅に止まるバス",
+    "situation": "You are on a bus.",
+    "task": "Ask if it stops at the station.",
+    "jaS": "バスに乗っています。",
+    "jaT": "このバスが駅に止まるか尋ねよう。",
+    "hints": [
+      "このバスが駅に止まるか尋ねよう。",
+      "使える表現：Does this bus stop at …?",
+      "例：Does this bus stop at the station?"
+    ],
+    "sample": "Does this bus stop at the station?"
+  },
+  {
+    "id": "quest50-31",
+    "icon": "💬",
+    "title": "ジャケットの試着",
+    "situation": "You are shopping for clothes.",
+    "task": "Tell the staff you want to try on a jacket.",
+    "jaS": "洋服を買いに来ています。",
+    "jaT": "ジャケットを試着したいと店員に伝えよう。",
+    "hints": [
+      "ジャケットを試着したいと店員に伝えよう。",
+      "使える表現：I'd like to … / try on",
+      "例：I'd like to try on this jacket."
+    ],
+    "sample": "I'd like to try on this jacket."
+  },
+  {
+    "id": "quest50-32",
+    "icon": "💬",
+    "title": "4人で電話予約",
+    "situation": "You are planning to go to a restaurant.",
+    "task": "Make a reservation by phone for four people.",
+    "jaS": "レストランに行く予定で、電話をしています。",
+    "jaT": "4人分の予約をしよう。",
+    "hints": [
+      "4人分の予約をしよう。",
+      "使える表現：make a reservation / for four people",
+      "例：Hello, I'd like to make a reservation for four people."
+    ],
+    "sample": "Hello, I'd like to make a reservation for four people."
+  },
+  {
+    "id": "quest50-33",
+    "icon": "💬",
+    "title": "博物館の開館と閉館",
+    "situation": "You are visiting a museum.",
+    "task": "Find out what time it opens and closes.",
+    "jaS": "博物館を訪れています。",
+    "jaT": "開館時間と閉館時間の両方を尋ねよう。",
+    "hints": [
+      "開館時間と閉館時間の両方を尋ねよう。",
+      "使える表現：What time …? / open and close",
+      "例：What time does this museum open and close?"
+    ],
+    "sample": "What time does this museum open and close?"
+  },
+  {
+    "id": "quest50-34",
+    "icon": "💬",
+    "title": "友達への手紙",
+    "situation": "You are at a post office.",
+    "task": "Send a letter to your friend.",
+    "jaS": "郵便局にいます。",
+    "jaT": "友達に手紙を送りたいと伝えよう。",
+    "hints": [
+      "友達に手紙を送りたいと伝えよう。",
+      "使える表現：I'd like to send … / to my friend",
+      "例：I'd like to send this letter to my friend."
+    ],
+    "sample": "I'd like to send this letter to my friend."
+  },
+  {
+    "id": "quest50-35",
+    "icon": "💬",
+    "title": "モールのトイレ",
+    "situation": "You are at a shopping mall.",
+    "task": "Ask where the bathroom is.",
+    "jaS": "ショッピングモールにいます。",
+    "jaT": "トイレがどこか尋ねよう。",
+    "hints": [
+      "トイレがどこか尋ねよう。",
+      "使える表現：Where is …? / bathroom",
+      "例：Excuse me, where is the bathroom?"
+    ],
+    "sample": "Excuse me, where is the bathroom?"
+  },
+  {
+    "id": "quest50-36",
+    "icon": "💬",
+    "title": "銀行口座を開く",
+    "situation": "You are at a bank.",
+    "task": "Ask how to open an account.",
+    "jaS": "銀行にいます。",
+    "jaT": "口座の開き方を尋ねよう。",
+    "hints": [
+      "口座の開き方を尋ねよう。",
+      "使える表現：How can I …? / open an account",
+      "例：How can I open an account?"
+    ],
+    "sample": "How can I open an account?"
+  },
+  {
+    "id": "quest50-37",
+    "icon": "💬",
+    "title": "猫の年齢",
+    "situation": "You are at a pet shop.",
+    "task": "Ask how old the cat is.",
+    "jaS": "ペットショップにいます。",
+    "jaT": "その猫が何歳か尋ねよう。",
+    "hints": [
+      "その猫が何歳か尋ねよう。",
+      "使える表現：How old is …?",
+      "例：How old is this cat?"
+    ],
+    "sample": "How old is this cat?"
+  },
+  {
+    "id": "quest50-38",
+    "icon": "💬",
+    "title": "次の電車の発車",
+    "situation": "You are at a train station.",
+    "task": "Ask when the next train leaves.",
+    "jaS": "鉄道の駅にいます。",
+    "jaT": "次の電車がいつ発車するか尋ねよう。",
+    "hints": [
+      "次の電車がいつ発車するか尋ねよう。",
+      "使える表現：When does … leave?",
+      "例：When does the next train leave?"
+    ],
+    "sample": "When does the next train leave?"
+  },
+  {
+    "id": "quest50-39",
+    "icon": "💬",
+    "title": "小説の売り場",
+    "situation": "You are at a bookshop.",
+    "task": "Find out the section for novels.",
+    "jaS": "書店にいます。",
+    "jaT": "小説の売り場を尋ねよう。",
+    "hints": [
+      "小説の売り場を尋ねよう。",
+      "使える表現：Where is …? / novels section",
+      "例：Where is the novels section?"
+    ],
+    "sample": "Where is the novels section?"
+  },
+  {
+    "id": "quest50-40",
+    "icon": "💬",
+    "title": "りんごの値段",
+    "situation": "You are at a grocery store.",
+    "task": "Ask how much the apples are.",
+    "jaS": "食料品店にいます。",
+    "jaT": "りんごの値段を尋ねよう。",
+    "hints": [
+      "りんごの値段を尋ねよう。",
+      "使える表現：How much are …?",
+      "例：How much are these apples?"
+    ],
+    "sample": "How much are these apples?"
+  },
+  {
+    "id": "quest50-41",
+    "icon": "💬",
+    "title": "図書館のパソコン",
+    "situation": "You are at a library.",
+    "task": "Ask if you can use a computer.",
+    "jaS": "図書館にいます。",
+    "jaT": "パソコンを使えるか尋ねよう。",
+    "hints": [
+      "パソコンを使えるか尋ねよう。",
+      "使える表現：Can I use …?",
+      "例：Can I use a computer here?"
+    ],
+    "sample": "Can I use a computer here?"
+  },
+  {
+    "id": "quest50-42",
+    "icon": "💬",
+    "title": "漫画を探す",
+    "situation": "You are at a bookstore.",
+    "task": "Ask if they have comic books.",
+    "jaS": "書店にいます。",
+    "jaT": "漫画があるか尋ねよう。",
+    "hints": [
+      "漫画があるか尋ねよう。",
+      "使える表現：Do you have any …?",
+      "例：Do you have any comic books?"
+    ],
+    "sample": "Do you have any comic books?"
+  },
+  {
+    "id": "quest50-43",
+    "icon": "💬",
+    "title": "2人分の席",
+    "situation": "You just arrived at a café.",
+    "task": "Tell the staff you need a table for two.",
+    "jaS": "カフェに着いたところです。",
+    "jaT": "2人分の席が必要だと店員に伝えよう。",
+    "hints": [
+      "2人分の席が必要だと店員に伝えよう。",
+      "使える表現：a table for two / We'd like …",
+      "例：We'd like a table for two, please."
+    ],
+    "sample": "We'd like a table for two, please."
+  },
+  {
+    "id": "quest50-44",
+    "icon": "💬",
+    "title": "ホテルの予約",
+    "situation": "You are at a hotel.",
+    "task": "Tell the staff you have a reservation.",
+    "jaS": "ホテルにいます。",
+    "jaT": "予約があるとスタッフに伝えよう。",
+    "hints": [
+      "予約があるとスタッフに伝えよう。",
+      "使える表現：I have a reservation.",
+      "例：Hello, I have a reservation."
+    ],
+    "sample": "Hello, I have a reservation."
+  },
+  {
+    "id": "quest50-45",
+    "icon": "💬",
+    "title": "切符を買う場所",
+    "situation": "You are at a train station.",
+    "task": "Ask where to buy a ticket.",
+    "jaS": "鉄道の駅にいます。",
+    "jaT": "切符をどこで買えるか尋ねよう。",
+    "hints": [
+      "切符をどこで買えるか尋ねよう。",
+      "使える表現：Where can I buy …?",
+      "例：Where can I buy a ticket?"
+    ],
+    "sample": "Where can I buy a ticket?"
+  },
+  {
+    "id": "quest50-46",
+    "icon": "💬",
+    "title": "バーガーと飲み物",
+    "situation": "You are at a fast food restaurant.",
+    "task": "Order a burger and a drink.",
+    "jaS": "ファストフード店にいます。",
+    "jaT": "バーガーと飲み物を注文しよう。",
+    "hints": [
+      "バーガーと飲み物を注文しよう。",
+      "使える表現：I'd like … / a burger and a drink",
+      "例：I'd like a burger and a drink, please."
+    ],
+    "sample": "I'd like a burger and a drink, please."
+  },
+  {
+    "id": "quest50-47",
+    "icon": "💬",
+    "title": "シャツを返品する",
+    "situation": "You are at a clothing store. You want to return a shirt.",
+    "task": "Ask the staff if it’s possible.",
+    "jaS": "洋服店にいます。シャツを返品したいです。",
+    "jaT": "返品できるか店員に尋ねよう。",
+    "hints": [
+      "返品できるか店員に尋ねよう。",
+      "使える表現：Can I …? / return this shirt",
+      "例：Can I return this shirt?"
+    ],
+    "sample": "Can I return this shirt?"
+  },
+  {
+    "id": "quest50-48",
+    "icon": "💬",
+    "title": "欲しい物の値段",
+    "situation": "You are at a gift shop.",
+    "task": "Ask the price of what you want.",
+    "jaS": "お土産屋さんにいます。",
+    "jaT": "欲しい物の値段を尋ねよう。",
+    "hints": [
+      "欲しい物の値段を尋ねよう。",
+      "使える表現：How much is …?",
+      "例：How much is this?"
+    ],
+    "sample": "How much is this?"
+  },
+  {
+    "id": "quest50-49",
+    "icon": "💬",
+    "title": "カードで支払う",
+    "situation": "You are at a grocery store.",
+    "task": "Tell the cashier you want to pay by credit card.",
+    "jaS": "食料品店にいます。",
+    "jaT": "クレジットカードで支払いたいとレジの人に伝えよう。",
+    "hints": [
+      "クレジットカードで支払いたいとレジの人に伝えよう。",
+      "使える表現：I'd like to pay … / by credit card",
+      "例：I'd like to pay by credit card."
+    ],
+    "sample": "I'd like to pay by credit card."
+  },
+  {
+    "id": "quest50-50",
+    "icon": "💬",
+    "title": "次のバスの時刻",
+    "situation": "You are at a bus stop.",
+    "task": "Ask someone when the next bus comes.",
+    "jaS": "バス停にいます。",
+    "jaT": "次のバスがいつ来るか誰かに尋ねよう。",
+    "hints": [
+      "次のバスがいつ来るか誰かに尋ねよう。",
+      "使える表現：When does … come?",
+      "例：When does the next bus come?"
+    ],
+    "sample": "When does the next bus come?"
+  }
 ];
-const $=id=>document.getElementById(id), KEY='taskquest-gemini-v1';let records={},current=0,hintLevel=0,storageOK=true;
+const $=id=>document.getElementById(id), KEY='taskquest-gemini-50-v1';let records={},current=0,hintLevel=0,storageOK=true;
 try{const raw=JSON.parse(localStorage.getItem(KEY)||'{}');if(raw&&typeof raw==='object'&&!Array.isArray(raw)) for(const t of TASKS){const r=raw[t.id];if(r&&typeof r==='object')records[t.id]={clear:r.clear===true,tries:Number.isFinite(r.tries)?Math.max(0,r.tries):0,history:Array.isArray(r.history)?r.history.filter(x=>x&&typeof x.answer==='string'&&typeof x.clear==='boolean').slice(-12):[]};}}catch(e){storageOK=false;}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(records));}catch(e){storageOK=false;}if(!storageOK)$('storageNote').textContent='この環境では記録を保存できません。記録はページを開いている間のみ保持されます。';}
 function record(){return records[TASKS[current].id]||(records[TASKS[current].id]={clear:false,tries:0,history:[]});}
 function nav(){const n=TASKS.filter(t=>records[t.id]?.clear).length;$('progress').textContent=n+' / '+TASKS.length;$('bar').style.width=(n/TASKS.length*100)+'%';$('allclear').classList.toggle('hidden',n!==TASKS.length);$('tasklist').replaceChildren();TASKS.forEach((t,i)=>{const b=document.createElement('button');b.className='taskbtn'+(i===current?' active':'');b.setAttribute('aria-current',i===current?'true':'false');for(const [cls,txt]of [['num',String(i+1).padStart(2,'0')],['title',t.title],['mark',records[t.id]?.clear?'✓':'○']]){const s=document.createElement('span');s.className=cls;s.textContent=txt;b.append(s);}b.onclick=()=>open(i);$('tasklist').append(b);});}
 function history(){const r=record();$('attempt').textContent='挑戦回数：'+r.tries+'回';$('historylist').replaceChildren();if(!r.history.length){const li=document.createElement('li');li.textContent='まだ挑戦していません。';$('historylist').append(li);}else for(const h of r.history){const li=document.createElement('li');li.textContent=(h.clear?'✓ CLEAR：':'↻ TRY：')+h.answer;$('historylist').append(li);}}
-function open(i){current=i;hintLevel=0;const t=TASKS[i];$('emoji').textContent=t.icon;$('questnum').textContent='QUEST '+String(i+1).padStart(2,'0')+' / 10';$('title').textContent=t.title;$('situation').textContent=t.situation;$('task').textContent=t.task;$('jaSituation').textContent=t.jaS;$('jaTask').textContent=t.jaT;$('answer').value='';$('translation').open=false;$('history').open=false;for(const id of ['hint','feedback','next'])$(id).classList.add('hidden');$('hintbtn').textContent='💡 ヒント';nav();history();}
+function open(i){current=i;hintLevel=0;const t=TASKS[i];$('emoji').textContent=t.icon;$('questnum').textContent='QUEST '+String(i+1).padStart(2,'0')+' / '+TASKS.length;$('title').textContent=t.title;$('situation').textContent=t.situation;$('task').textContent=t.task;$('jaSituation').textContent=t.jaS;$('jaTask').textContent=t.jaT;$('answer').value='';$('translation').open=false;$('history').open=false;for(const id of ['hint','feedback','next'])$(id).classList.add('hidden');$('hintbtn').textContent='💡 ヒント';nav();history();}
 let busy=false;
 function setBusy(value){busy=value;document.querySelectorAll('button,textarea').forEach(el=>el.disabled=value);$('check').textContent=value?'AIが考えています…':'伝わるかチェック →';$('form').setAttribute('aria-busy',String(value));}
 $('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const answer=$('answer').value.trim();if(!answer)return;
