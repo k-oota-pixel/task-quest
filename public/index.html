@@ -802,10 +802,10 @@ function setBusy(value){busy=value;document.querySelectorAll('button,textarea').
 $('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const answer=$('answer').value.trim();if(!answer)return;
 if(location.protocol==='file:'){$('connection').textContent='AI判定はサーバーから開く必要があります。同梱の説明書に沿って起動してください。';return;}
 setBusy(true);const box=$('feedback');box.className='feedback';box.textContent='回答を確認しています…';$('next').classList.add('hidden');
-try{const response=await fetch('/api/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:TASKS[current].id,answer}),signal:AbortSignal.timeout(45000)});const result=await response.json();if(!response.ok)throw new Error(result.error||'判定できませんでした。');if(typeof result.clear!=='boolean'||typeof result.message!=='string')throw new Error('判定結果を読み取れませんでした。');
+try{const response=await fetch('https://task-quest.onrender.com/api/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:TASKS[current].id,answer}),signal:AbortSignal.timeout(45000)});const result=await response.json();if(!response.ok)throw new Error(result.error||'判定できませんでした。');if(typeof result.clear!=='boolean'||typeof result.message!=='string')throw new Error('判定結果を読み取れませんでした。');
 const r=record();r.tries++;r.clear=r.clear||result.clear;r.history.push({answer,clear:result.clear});r.history=r.history.slice(-12);save();window.taskQuestCloud?.syncRecords?.(records,{markPlayed:true});nav();history();box.className='feedback'+(result.clear?' good':'');box.replaceChildren();const title=document.createElement('strong');title.textContent=result.clear?'🎉 TASK CLEAR!':'🔄 TRY AGAIN';const p=document.createElement('p');p.textContent=result.message;box.append(title,p);if(result.example){const ex=document.createElement('p');ex.textContent='表現例：'+result.example;box.append(ex);}$('next').classList.toggle('hidden',!result.clear);
 }catch(err){box.className='feedback';box.textContent=(err.name==='TimeoutError'?'時間がかかっています。少し待って再挑戦してください。':err.message)+' この回答は挑戦回数に含めていません。';}finally{setBusy(false);}};
-if(location.protocol==='file:'){$('connection').textContent='お題とヒントはそのまま確認できます。AI判定は、同梱サーバーから開くと使えます。';}else{fetch('/api/status').then(r=>r.json()).then(s=>{$('connection').textContent=s.ready?'AI判定の準備ができています。':'先生へ：サーバーのGEMINI_API_KEYを設定して再起動してください。';}).catch(()=>{$('connection').textContent='サーバーに接続できません。';});}
+if(location.protocol==='file:'){$('connection').textContent='お題とヒントはそのまま確認できます。AI判定は、同梱サーバーから開くと使えます。';}else{fetch('https://task-quest.onrender.com/api/status').then(r=>r.json()).then(s=>{$('connection').textContent=s.ready?'AI判定の準備ができています。':'先生へ：サーバーのGEMINI_API_KEYを設定して再起動してください。';}).catch(()=>{$('connection').textContent='サーバーに接続できません。';});}
 $('hintbtn').onclick=()=>{hintLevel=Math.min(3,hintLevel+1);$('hint').classList.remove('hidden');$('hint').textContent='ヒント '+hintLevel+' / 3：'+TASKS[current].hints[hintLevel-1];$('hintbtn').textContent=hintLevel>=3?'💡 例文を確認':'💡 次のヒント';};
 $('next').onclick=()=>{let i=(current+1)%TASKS.length;for(let n=1;n<=TASKS.length;n++){const candidate=(current+n)%TASKS.length;if(!records[TASKS[candidate].id]?.clear){i=candidate;break;}}open(i);$('answer').focus();};
 $('random').onclick=()=>{const pool=TASKS.map((t,i)=>i).filter(i=>i!==current&&!records[TASKS[i].id]?.clear);const fallback=TASKS.map((t,i)=>i).filter(i=>i!==current);const options=pool.length?pool:fallback;open(options[Math.floor(Math.random()*options.length)]);};
@@ -835,7 +835,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
-provider.setCustomParameters({prompt:"select_account"});
+
 
 const LOCAL_KEY = "taskquest-gemini-50-v1";
 const APP_ID = "task-quest";
@@ -974,24 +974,9 @@ loginBtn.addEventListener("click",async()=>{
   try{
     await signInWithPopup(auth,provider);
   }catch(err){
-    console.error("Firebase Google login error:", err);
-    const code = err?.code || "unknown";
-    let detail = code;
-    if(code==="auth/unauthorized-domain"){
-      detail = `未承認ドメイン: ${location.hostname}`;
-    }else if(code==="auth/popup-blocked"){
-      detail = "ポップアップがブロックされています";
-    }else if(code==="auth/popup-closed-by-user"){
-      detail = "ログイン画面が閉じられました";
-    }else if(code==="auth/web-storage-unsupported"){
-      detail = "ブラウザのCookie/ストレージ制限";
-    }else if(code==="auth/operation-not-allowed"){
-      detail = "Google認証がFirebaseで無効";
-    }else if(code==="auth/network-request-failed"){
-      detail = "ネットワークエラー";
-    }
-    setAuthUI("error","Googleログイン",detail);
-    alert(`Googleログインに失敗しました。\n\nエラー: ${code}\nホスト: ${location.hostname}\n\nこの2行を先生に見せてください。`);
+    console.error(err);
+    setAuthUI("error","Googleログイン",
+      err?.code==="auth/popup-blocked"?"ポップアップを許可してください":"もう一度お試しください");
     loginBtn.disabled=false;
   }
 });
@@ -1012,7 +997,7 @@ onAuthStateChanged(auth,async user=>{
     loginBtn.disabled=false;
     const s=summarize(readLocal());
     setAuthUI("","Googleログイン",
-      s.attempts?`端末: ${s.completedCount} / ${s.totalTasks}`:`端末保存 · ${location.hostname}`);
+      s.attempts?`端末: ${s.completedCount} / ${s.totalTasks}`:"端末保存");
     return;
   }
 
