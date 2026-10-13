@@ -46,13 +46,37 @@ function send(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
+const GITHUB_ORIGIN='https://k-oota-pixel.github.io';
+function originAllowed(req){
+ const origin=req.headers.origin;
+ if(!origin)return true;
+ try{
+  const u=new URL(origin);
+  return origin===GITHUB_ORIGIN||u.host===req.headers.host;
+ }catch{return false;}
+}
+function applyCors(req,res){
+ if(req.headers.origin===GITHUB_ORIGIN){
+  res.setHeader('Access-Control-Allow-Origin',GITHUB_ORIGIN);
+  res.setHeader('Vary','Origin');
+  res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers','Content-Type');
+  res.setHeader('Access-Control-Max-Age','86400');
+ }
+}
+
 export const server=http.createServer(async(req,res)=>{
+applyCors(req,res);
 res.setHeader('X-Content-Type-Options','nosniff');
+if(req.method==='OPTIONS'){
+ if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
+ res.writeHead(204);return res.end();
+}
+if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
 if(req.method==='GET'&&req.url==='/api/status')return send(res,200,{ready:!!key});
 if(req.method==='GET'&&(req.url==='/'||req.url==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
 if(req.url!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
 if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
-if(req.headers.origin){try{if(new URL(req.headers.origin).host!==req.headers.host)return send(res,403,{error:'このサイトから送信してください。'});}catch{return send(res,403,{error:'送信元を確認できません。'});}}
 if(!key)return send(res,503,{error:'先生へ：GEMINI_API_KEYをサーバーに設定してください。'});
 if(!req.headers['content-type']?.startsWith('application/json'))return send(res,415,{error:'JSONで送信してください。'});
 try{
@@ -78,4 +102,3 @@ send(res,200,{clear:result.clear,message:result.message,example:result.example})
 server.listen(Number(process.env.PORT || 10000), '0.0.0.0', () => {
   console.log('Task Quest server ready');
 });
-
