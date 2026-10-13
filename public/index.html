@@ -974,9 +974,24 @@ loginBtn.addEventListener("click",async()=>{
   try{
     await signInWithPopup(auth,provider);
   }catch(err){
-    console.error(err);
-    setAuthUI("error","Googleログイン",
-      err?.code==="auth/popup-blocked"?"ポップアップを許可してください":"もう一度お試しください");
+    console.error("Firebase Google login error:", err);
+    const code = err?.code || "unknown";
+    let detail = code;
+    if(code==="auth/unauthorized-domain"){
+      detail = `未承認ドメイン: ${location.hostname}`;
+    }else if(code==="auth/popup-blocked"){
+      detail = "ポップアップがブロックされています";
+    }else if(code==="auth/popup-closed-by-user"){
+      detail = "ログイン画面が閉じられました";
+    }else if(code==="auth/web-storage-unsupported"){
+      detail = "ブラウザのCookie/ストレージ制限";
+    }else if(code==="auth/operation-not-allowed"){
+      detail = "Google認証がFirebaseで無効";
+    }else if(code==="auth/network-request-failed"){
+      detail = "ネットワークエラー";
+    }
+    setAuthUI("error","Googleログイン",detail);
+    alert(`Googleログインに失敗しました。\n\nエラー: ${code}\nホスト: ${location.hostname}\n\nこの2行を先生に見せてください。`);
     loginBtn.disabled=false;
   }
 });
@@ -997,7 +1012,7 @@ onAuthStateChanged(auth,async user=>{
     loginBtn.disabled=false;
     const s=summarize(readLocal());
     setAuthUI("","Googleログイン",
-      s.attempts?`端末: ${s.completedCount} / ${s.totalTasks}`:"端末保存");
+      s.attempts?`端末: ${s.completedCount} / ${s.totalTasks}`:`端末保存 · ${location.hostname}`);
     return;
   }
 
