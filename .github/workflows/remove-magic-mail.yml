@@ -1,0 +1,34 @@
+name: Remove magic-link email endpoint
+on:
+  push:
+    paths:
+      - '.github/workflows/remove-magic-mail.yml'
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove unused magic-link mail code
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('server.mjs')
+          s=p.read_text()
+          start=s.find('const magicMailWindows=new Map();')
+          end=s.find('async function handleProfileNickname(req,res){')
+          if start!=-1 and end!=-1 and end>start:
+              s=s[:start]+s[end:]
+          s=s.replace("  if(path==='/api/auth/magic-link')return handleMagicLinkMail(req,res);\n",'')
+          p.write_text(s)
+          PY
+          node --check server.mjs
+      - name: Commit cleanup
+        run: |
+          rm .github/workflows/remove-magic-mail.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add server.mjs .github/workflows/remove-magic-mail.yml
+          git commit -m 'Remove unused magic-link email endpoint'
+          git push
