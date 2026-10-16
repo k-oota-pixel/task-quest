@@ -88,6 +88,19 @@ const PET_PERSONALITIES=Object.freeze({
   penguin:'You are a penguin: earnest, polite, dependable, and a little formal in a charming way.'
 });
 function petPersonality(species){return PET_PERSONALITIES[species]||PET_PERSONALITIES.cat;}
+const PET_TOPICS=Object.freeze({
+  school:'school life, classes, lunch, clubs, and small moments at school',
+  food:'food and drinks the student likes or wants to try',
+  hobbies:'hobbies, games, sports, and things the student enjoys doing',
+  weekend:'weekend plans and relaxing ways to spend free time',
+  music:'music, movies, videos, books, and entertainment',
+  places:'places the student likes, wants to visit, or has enjoyed visiting',
+  favorites:'favorite things and simple choices between two options',
+  weather:'weather, seasons, and what the student likes doing in different weather',
+  dreams:'things the student wants to try, learn, or become better at',
+  memories:'funny, happy, surprising, or interesting recent memories'
+});
+function petTopic(id){return PET_TOPICS[id]||PET_TOPICS.school;}
 function cleanPetMessage(value,max=500){return String(value??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,'').trim().slice(0,max);}
 async function handlePetChat(req,res){
   try{
@@ -98,6 +111,7 @@ async function handlePetChat(req,res){
     const species=String(body.species||'cat');
     if(!Object.hasOwn(PET_PERSONALITIES,species))throw fail('ペットの種類を確認できません。',400);
     const petName=cleanPetMessage(body.petName,24)||'your pet';
+    const topicId=Object.hasOwn(PET_TOPICS,String(body.topic||''))?String(body.topic):'school';
     const message=cleanPetMessage(body.message,500);
     if(!message)throw fail('メッセージを入力してください。',400);
     const history=Array.isArray(body.history)?body.history.slice(-10).map(x=>({role:x?.role==='assistant'?'model':'user',text:cleanPetMessage(x?.text,500)})).filter(x=>x.text):[];
@@ -112,10 +126,12 @@ async function handlePetChat(req,res){
     const systemText=`
 You are ${petName}, a pet companion in an English-learning app for Japanese high school students.
 ${petPersonality(species)}
-Have a friendly everyday conversation in English.
+Today's conversation theme is: ${petTopic(topicId)}.
+Have a friendly everyday conversation in English and gently keep the conversation connected to today's theme, while naturally following what the student says.
 Use simple, natural English around CEFR A1-B1 unless the student clearly uses more advanced English.
 Keep each reply short: usually 1-3 sentences, no more than about 45 words.
 Usually end with one easy, natural question so the conversation can continue.
+After deciding your reply, also create exactly 3 short possible student responses to your final question. Each suggestion must be natural, easy English, useful for continuing the conversation, and no more than 10 words. Make the 3 suggestions meaningfully different.
 If the student's English has a small mistake, understand the meaning and keep talking. Do not turn every reply into a correction lesson.
 If a correction would genuinely help, model the natural expression gently inside your reply without scolding or grading.
 If the student writes Japanese, still answer in easy English.
@@ -125,12 +141,16 @@ Do not claim to be a human. Stay in character as the student's pet.
     try{
       const contents=history.map(x=>({role:x.role,parts:[{text:x.text}]}));
       contents.push({role:'user',parts:[{text:message}]});
-      const upstream=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(petModel)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':petKey},signal:AbortSignal.timeout(35000),body:JSON.stringify({systemInstruction:{parts:[{text:systemText}]},contents,generationConfig:{temperature:0.85,maxOutputTokens:180,thinkingConfig:{thinkingLevel:'minimal'}}})});
+      const upstream=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(petModel)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':petKey},signal:AbortSignal.timeout(35000),body:JSON.stringify({systemInstruction:{parts:[{text:systemText}]},contents,generationConfig:{temperature:0.85,maxOutputTokens:320,thinkingConfig:{thinkingLevel:'minimal'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{reply:{type:'STRING'},suggestions:{type:'ARRAY',items:{type:'STRING'},minItems:3,maxItems:3}},required:['reply','suggestions']}}})});
       if(!upstream.ok){console.error('Pet Gemini HTTP status:',upstream.status);const code=upstream.status;return send(res,code===429?429:502,{error:code===429?'Geminiの利用上限に達しました。少し待ってから話しかけてください。':code===400||code===403?'ペット会話用Geminiキー・モデル設定を確認してください。':'ペットと通信できません。少し待ってから試してください。'});}
       const data=await upstream.json(),candidate=data.candidates?.[0];
-      const reply=cleanPetMessage(candidate?.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join(''),1200);
+      const raw=candidate?.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join('')||'';
+      let result={};try{result=JSON.parse(raw);}catch{}
+      const reply=cleanPetMessage(result.reply,1200);
+      const suggestions=Array.isArray(result.suggestions)?result.suggestions.map(x=>cleanPetMessage(x,100)).filter(Boolean).slice(0,3):[];
       if(!reply)throw Error('invalid pet response');
-      send(res,200,{reply});
+      while(suggestions.length<3)suggestions.push(['Tell me more!','How about you?','That sounds interesting!'][suggestions.length]);
+      send(res,200,{reply,suggestions,topic:topicId});
     }finally{petActive=Math.max(0,petActive-1);}
   }catch(e){send(res,e.status||500,{error:e.message||'ペットとおしゃべりできませんでした。'});}
 }
