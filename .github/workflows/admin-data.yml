@@ -1,0 +1,16 @@
+name: Admin read efficiency
+on:
+  push:
+    paths: ['server.mjs', 'admin-data.mjs', 'admin-data.test.mjs', '.github/workflows/admin-data.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --check server.mjs
+      - run: node --test admin-data.test.mjs
