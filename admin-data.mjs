@@ -81,5 +81,6 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
     }
   }
   function invalidate(uid){cache.delete('detail:'+uid);for(const [key,e]of cache)if(key.startsWith('page:')&&(!e.value||e.value.users.some(u=>u.uid===uid)))cache.delete(key);}
-  return {handle,updateCoins,invalidate};
+  async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
+  return {handle,updateCoins,invalidate,activeIds};
 }
