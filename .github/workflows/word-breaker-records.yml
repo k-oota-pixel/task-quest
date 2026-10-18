@@ -1,0 +1,17 @@
+name: WORD BREAKER leaderboard
+on:
+  push:
+    paths:
+      - 'word-breaker-records.mjs'
+      - 'word-breaker-records.test.mjs'
+      - '.github/workflows/word-breaker-records.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node word-breaker-records.test.mjs
