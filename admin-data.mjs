@@ -22,16 +22,33 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
     const d=await r.json();if(!r.ok)throw fail(d?.error?.status==='RESOURCE_EXHAUSTED'?'Firestoreの利用上限に達しています。時間を置いてから更新してください。':'一覧情報を取得できませんでした。',r.status===429?429:502);
     return decodeFields(d.fields||{});
   }
+  async function authDirectory(){
+    return cached('auth:recent',async()=>{
+      const users=[];let token='';
+      do{
+        const url=new URL(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet`);
+        url.searchParams.set('maxResults','1000');if(token)url.searchParams.set('nextPageToken',token);
+        const auth=await json(url);users.push(...(auth.users||[]));token=auth.nextPageToken||'';
+      }while(token);
+      users.sort((a,b)=>Number(b.lastLoginAt||0)-Number(a.lastLoginAt||0)||Number(b.createdAt||0)-Number(a.createdAt||0)||String(a.localId||'').localeCompare(String(b.localId||'')));
+      return users;
+    });
+  }
+  function pageOffset(token){
+    if(!token)return 0;
+    if(!/^\d+$/.test(token))throw fail('ページ情報が不正です。',400);
+    const offset=Number(token);if(!Number.isSafeInteger(offset)||offset<0||offset%10!==0)throw fail('ページ情報が不正です。',400);
+    return offset;
+  }
   async function page(token){
-    return cached('page:'+token,async()=>{
-      const url=new URL(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet`);
-      url.searchParams.set('maxResults','10');if(token)url.searchParams.set('nextPageToken',token);
-      const auth=await json(url);
-      const users=await Promise.all((auth.users||[]).slice(0,10).map(async u=>{
+    const offset=pageOffset(token);
+    return cached('page:'+offset,async()=>{
+      const directory=await authDirectory(),slice=directory.slice(offset,offset+10);
+      const users=await Promise.all(slice.map(async u=>{
         const p=await summary(u.localId),nickname=normalizeNickname(p.nickname);
         return {uid:u.localId,nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,disabled:!!u.disabled};
       }));
-      return {users,nextPageToken:auth.nextPageToken||null,pageSize:10,fetchedAt:now()};
+      return {users,nextPageToken:offset+10<directory.length?String(offset+10):null,pageSize:10,fetchedAt:now()};
     });
   }
   async function detail(uid){
@@ -47,7 +64,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
       await verifyAdmin(req); // Cache never bypasses authentication or authorization.
       const url=new URL(req.url,'http://localhost');
-      if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.7'});return;}
+      if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.8'});return;}
       if(url.pathname==='/api/admin/user'){
         const uid=url.searchParams.get('uid')||'';if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
         send(res,200,await detail(uid));return;
