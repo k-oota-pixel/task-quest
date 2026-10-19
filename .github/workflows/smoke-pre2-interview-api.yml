@@ -1,0 +1,31 @@
+name: Smoke test Pre-2 interview API
+
+on:
+  push:
+    paths:
+      - '.github/workflows/smoke-pre2-interview-api.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call grading endpoint
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 35 \
+            -H 'Content-Type: application/json' \
+            -d '{"questionType":4,"question":"Do you think students should learn how to use AI at school?","answer":"Yes, I do. I think it is useful because AI helps students find information quickly.","repeatCount":0}' \
+            https://task-quest.onrender.com/api/pre2-interview-grade > response.json
+          cat response.json
+      - name: Validate response
+        run: |
+          python - <<'PY'
+          import json
+          data=json.load(open('response.json',encoding='utf-8'))
+          score=data.get('score')
+          assert isinstance(score,int) and 0 <= score <= 5, data
+          assert isinstance(data.get('feedback'),str) and data['feedback'], data
+          assert isinstance(data.get('strengths'),str) and data['strengths'], data
+          assert isinstance(data.get('corrections'),list), data
+          assert isinstance(data.get('betterAnswer'),str) and data['betterAnswer'], data
+          print('Pre-2 interview grading API smoke test passed.')
+          PY
