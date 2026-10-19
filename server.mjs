@@ -1,5 +1,6 @@
 import {createWordBreakerRecords} from './word-breaker-records.mjs';
 import {createAdminData} from './admin-data.mjs';
+import {createTalkQuest} from './talk-quest.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -164,6 +165,7 @@ Do not claim to be a human. Stay in character as the student's pet.
   }catch(e){send(res,e.status||500,{error:e.message||'ペットとおしゃべりできませんでした。'});}
 }
 
+const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
@@ -171,6 +173,7 @@ export const server=http.createServer(async(req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(path==='/api/word-breaker/records')return wordBreakerRecords.handle(req,res);
   if(path==='/api/pet-chat')return handlePetChat(req,res);
+  if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
