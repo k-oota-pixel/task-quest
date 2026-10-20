@@ -75,6 +75,8 @@ export function createPetCatchRecords({base,accessToken,verifyUser,decodeFields,
       if(data.petCatchDailyDate!==today)return snapshot();
       const score=scoreOf(data.petCatchDailyBest);if(!score)return snapshot();
       const name=petNameOf(data.petName);
+      const sameDayCache=cached?.day===today?cached:null;
+      if(sameDayCache&&score<scoreOf(sameDayCache.value?.score))return publicRecord(sameDayCache.value,today);
       let stored=await readStored(token,today);
       for(let attempt=0;attempt<3;attempt++){
         const next=sanitizeStored(stored.value,today),recordScore=scoreOf(next.score);let changed=false;
