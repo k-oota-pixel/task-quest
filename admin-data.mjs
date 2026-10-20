@@ -15,12 +15,14 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
     return body;
   }
   async function summary(uid){
-    const url=new URL(`${base}/documents/users/${encodeURIComponent(uid)}/apps/english-playroom`);
-    for(const field of ['nickname','coins'])url.searchParams.append('mask.fieldPaths',field);
-    const token=await accessToken();const r=await request(url,{headers:{Authorization:`Bearer ${token}`}});
-    if(r.status===404)return {};
-    const d=await r.json();if(!r.ok)throw fail(d?.error?.status==='RESOURCE_EXHAUSTED'?'Firestoreの利用上限に達しています。時間を置いてから更新してください。':'一覧情報を取得できませんでした。',r.status===429?429:502);
-    return decodeFields(d.fields||{});
+    return cached('summary:'+uid,async()=>{
+      const url=new URL(`${base}/documents/users/${encodeURIComponent(uid)}/apps/english-playroom`);
+      for(const field of ['nickname','coins'])url.searchParams.append('mask.fieldPaths',field);
+      const token=await accessToken();const r=await request(url,{headers:{Authorization:`Bearer ${token}`}});
+      if(r.status===404)return {};
+      const d=await r.json();if(!r.ok)throw fail(d?.error?.status==='RESOURCE_EXHAUSTED'?'Firestoreの利用上限に達しています。時間を置いてから更新してください。':'一覧情報を取得できませんでした。',r.status===429?429:502);
+      return decodeFields(d.fields||{});
+    });
   }
   async function authDirectory(){
     return cached('auth:recent',async()=>{
@@ -32,6 +34,17 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       }while(token);
       users.sort((a,b)=>Number(b.lastLoginAt||0)-Number(a.lastLoginAt||0)||Number(b.createdAt||0)-Number(a.createdAt||0)||String(a.localId||'').localeCompare(String(b.localId||'')));
       return users;
+    });
+  }
+  async function nicknameDirectory(){
+    return cached('nicknames',async()=>{
+      const rows=[];let token='';
+      do{
+        const url=new URL(`${base}/documents/nickname_registry`);
+        url.searchParams.set('pageSize','1000');if(token)url.searchParams.set('pageToken',token);
+        const body=await json(url);rows.push(...(body.documents||[]));token=body.nextPageToken||'';
+      }while(token);
+      return rows.map(doc=>decodeFields(doc.fields||{})).map(data=>({uid:String(data.uid||''),nickname:normalizeNickname(data.nickname)})).filter(row=>row.uid&&validNickname(row.nickname));
     });
   }
   function pageOffset(token){
@@ -51,6 +64,26 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       return {users,nextPageToken:offset+10<directory.length?String(offset+10):null,pageSize:10,fetchedAt:now()};
     });
   }
+  async function search(query){
+    const normalized=normalizeNickname(query),needle=normalized.toLocaleLowerCase('ja-JP');
+    const length=[...normalized].length;if(!normalized||length>20)throw fail('検索語は1〜20文字で入力してください。',400);
+    const [directory,nicknames]=await Promise.all([authDirectory(),nicknameDirectory()]);
+    const authByUid=new Map(directory.map(user=>[String(user.localId||''),user]));
+    const matches=nicknames.filter(row=>authByUid.has(row.uid)&&row.nickname.toLocaleLowerCase('ja-JP').includes(needle));
+    matches.sort((a,b)=>{
+      const ak=a.nickname.toLocaleLowerCase('ja-JP'),bk=b.nickname.toLocaleLowerCase('ja-JP');
+      const aq=ak===needle?0:ak.startsWith(needle)?1:2,bq=bk===needle?0:bk.startsWith(needle)?1:2;
+      if(aq!==bq)return aq-bq;
+      const au=authByUid.get(a.uid)||{},bu=authByUid.get(b.uid)||{};
+      return Number(bu.lastLoginAt||0)-Number(au.lastLoginAt||0)||a.nickname.localeCompare(b.nickname,'ja-JP');
+    });
+    const selected=matches.slice(0,100);
+    const users=await Promise.all(selected.map(async row=>{
+      const u=authByUid.get(row.uid)||{},p=await summary(row.uid),nickname=normalizeNickname(p.nickname)||row.nickname;
+      return {uid:row.uid,nickname,hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,disabled:!!u.disabled};
+    }));
+    return {users,query:normalized,total:matches.length,truncated:matches.length>users.length,fetchedAt:now()};
+  }
   async function detail(uid){
     return cached('detail:'+uid,async()=>{
       const prefix=`projects/${projectId}/databases/(default)/documents/users/${uid}/apps/`;
@@ -64,23 +97,26 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
       await verifyAdmin(req); // Cache never bypasses authentication or authorization.
       const url=new URL(req.url,'http://localhost');
-      if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.8'});return;}
+      if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.9'});return;}
       if(url.pathname==='/api/admin/user'){
         const uid=url.searchParams.get('uid')||'';if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
         send(res,200,await detail(uid));return;
       }
+      const query=url.searchParams.get('search')||'';
+      if(query){send(res,200,await search(query));return;}
       const token=url.searchParams.get('pageToken')||'';
       if(token.length>4096||url.searchParams.has('limit')&&url.searchParams.get('limit')!=='10')throw fail('一覧は10人ずつ取得してください。',400);
       send(res,200,await page(token));
     }catch(error){send(res,error.status||500,{error:error.message||'管理情報を取得できませんでした。'});}
   }
   function updateCoins(uid,coins){
-    for(const e of cache.values()){
+    for(const [key,e] of cache){
       if(e.value?.users)for(const user of e.value.users)if(user.uid===uid)user.coins=coins;
       if(e.value?.uid===uid&&e.value.apps?.['english-playroom'])e.value.apps['english-playroom'].coins=coins;
+      if(key==='summary:'+uid&&e.value)e.value.coins=coins;
     }
   }
-  function invalidate(uid){cache.delete('detail:'+uid);for(const [key,e]of cache)if(key.startsWith('page:')&&(!e.value||e.value.users.some(u=>u.uid===uid)))cache.delete(key);}
+  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');for(const [key,e]of cache)if(key.startsWith('page:')&&(!e.value||e.value.users.some(u=>u.uid===uid)))cache.delete(key);}
   async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
   return {handle,updateCoins,invalidate,activeIds};
 }
