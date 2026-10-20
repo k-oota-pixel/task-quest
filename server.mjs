@@ -74,10 +74,51 @@ function normalizeNickname(value){return String(value??'').normalize('NFKC').tri
 function validNickname(value){const n=normalizeNickname(value),length=[...n].length;return length>=1&&length<=20&&!/[\u0000-\u001f\u007f]/.test(n);}
 function nicknameKey(value){return normalizeNickname(value).toLocaleLowerCase('ja-JP');}
 async function getUserDoc(accessToken,uid){const url=`${FIRESTORE_BASE}/documents/users/${encodeURIComponent(uid)}/apps/english-playroom`;const response=await fetch(url,{headers:{Authorization:`Bearer ${accessToken}`}});if(response.status===404)return {};let data={};try{data=await response.json();}catch{}if(!response.ok)throw fail('ユーザー情報を取得できませんでした。',502);return decodeFields(data.fields||{});}
+function japanDateKey(date=new Date()){
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+  const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+function validPetName(value){
+  const name=String(value??'').normalize('NFKC').trim();
+  return [...name].length>0&&[...name].length<=12&&!/[\\u0000-\\u001f\\u007f]/.test(name);
+}
+async function queryDailyCoinWallets(accessToken,today){
+  const documents=[];let cursor=null;
+  while(documents.length<10000){
+    const structuredQuery={from:[{collectionId:'apps',allDescendants:true}],where:{fieldFilter:{field:{fieldPath:'coinEarnedDate'},op:'EQUAL',value:{stringValue:today}}},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:500};
+    if(cursor)structuredQuery.startAt={values:[{referenceValue:cursor}],before:false};
+    const response=await fetch(`${FIRESTORE_BASE}/documents:runQuery`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery})});
+    const raw=await response.text();let rows=[];
+    try{const parsed=JSON.parse(raw);rows=Array.isArray(parsed)?parsed:[parsed];}catch{try{rows=raw.split(/\\r?\\n/).filter(Boolean).map(line=>JSON.parse(line));}catch{}}
+    if(!response.ok)throw fail('本日のランキングを取得できませんでした。',502);
+    const page=rows.map(row=>row?.document).filter(document=>document?.name);
+    documents.push(...page);
+    if(page.length<500)break;
+    const last=page[page.length-1].name;
+    if(!last||last===cursor)break;
+    cursor=last;
+  }
+  if(documents.length>=10000)throw fail('ランキングの対象者が多いため、時間をおいて再度お試しください。',503);
+  return documents;
+}
 async function grantCoins(accessToken,uid,amount){const docName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:docName,fields:{coinSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['coinSchemaVersion']},updateTransforms:[{fieldPath:'coins',increment:{integerValue:String(amount)}},{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok)throw fail('コインを付与できませんでした。',502);const doc=await getUserDoc(accessToken,uid);return Math.max(0,Math.floor(Number(doc.coins)||0));}
 async function registerNickname(accessToken,uid,value){const nickname=normalizeNickname(value);if(!validNickname(nickname))throw fail('ニックネームは1〜20文字で入力してください。',400);const current=await getUserDoc(accessToken,uid);if(validNickname(current.nickname))return normalizeNickname(current.nickname);const key=nicknameKey(nickname),registryId=Buffer.from(key,'utf8').toString('base64url');const userDocName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`,registryName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/nickname_registry/${registryId}`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:registryName,fields:{uid:{stringValue:uid},nickname:{stringValue:nickname}}},currentDocument:{exists:false}},{update:{name:userDocName,fields:{nickname:{stringValue:nickname},nicknameKey:{stringValue:key},nicknameSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['nickname','nicknameKey','nicknameSchemaVersion']},updateTransforms:[{fieldPath:'nicknameUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok){if(response.status===409||data?.error?.status==='ALREADY_EXISTS')throw fail('そのニックネームはすでに使われています。別の名前を入力してください。',409);throw fail('ニックネームを登録できませんでした。',502);}return nickname;}
 
 async function handleProfileNickname(req,res){try{if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await verifyUser(req),body=await readJson(req,1024),access=await getGoogleAccessToken(),nickname=await registerNickname(access,user.uid,body.nickname);adminData.invalidate(user.uid);send(res,200,{ok:true,nickname});}catch(e){send(res,e.status||500,{error:e.message||'ニックネームを登録できませんでした。'});}}
+async function handleDailyCoinLeaderboard(req,res){
+  try{
+    if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
+    const user=await verifyUser(req),access=await getGoogleAccessToken(),today=japanDateKey();
+    const [mine,documents]=await Promise.all([getUserDoc(access,user.uid),queryDailyCoinWallets(access,today)]);
+    const ranked=documents.filter(document=>document.name.endsWith('/apps/english-playroom')).map(document=>{
+      const data=decodeFields(document.fields||{}),uid=document.name.split('/documents/')[1]?.split('/')[1]||'';
+      return {uid,petName:String(data.petName??'').normalize('NFKC').trim(),coinsToday:Math.max(0,Math.floor(Number(data.coinsEarnedToday)||0))};
+    }).filter(entry=>entry.uid&&entry.coinsToday>0&&validPetName(entry.petName));
+    ranked.sort((a,b)=>b.coinsToday-a.coinsToday||a.petName.localeCompare(b.petName,'ja'));
+    send(res,200,{today,coinsToday:mine.coinEarnedDate===today?Math.max(0,Math.floor(Number(mine.coinsEarnedToday)||0)):0,top3:ranked.slice(0,3).map(({petName,coinsToday})=>({petName,coinsToday}))});
+  }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
+}
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
 const wordBreakerRecords=createWordBreakerRecords({base:FIRESTORE_BASE,activeIds:adminData.activeIds,accessToken:getGoogleAccessToken,decodeFields,send,fail});
 const petCatchRecords=createPetCatchRecords({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
@@ -181,6 +222,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/pre2-interview-grade')return handlePre2Interview(req,res);
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
+  if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
   if(req.method==='GET'&&path==='/api/status')return send(res,200,{ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7'});
