@@ -5,7 +5,7 @@ const cleanEntry=value=>{
   if(!value||typeof value.uid!=='string'||!value.uid)return null;
   const petName=String(value.petName??'').normalize('NFKC').trim();
   const coinsToday=Math.max(0,Math.floor(Number(value.coinsToday)||0));
-  return coinsToday>0&&petName&&[...petName].length<=12&&!/[\\u0000-\\u001f\\u007f]/.test(petName)?{uid:value.uid,petName,coinsToday}:null;
+  return coinsToday>0&&petName&&[...petName].length<=12&&!/[\u0000-\u001f\u007f]/.test(petName)?{uid:value.uid,petName,coinsToday}:null;
 };
 const compareEntries=(a,b)=>b.coinsToday-a.coinsToday||a.petName.localeCompare(b.petName,'ja')||a.uid.localeCompare(b.uid);
 const cleanLeaders=leaders=>Array.isArray(leaders)?leaders.map(cleanEntry).filter(Boolean).sort(compareEntries).slice(0,3):[];
@@ -65,7 +65,7 @@ async function commitCandidate({access,today,candidate,stored,readSummary,writeS
     if(sameLeaders(board.leaders,leaders))return {stored:current,leaders:board.leaders,changed:false};
     try{
       const written=await writeSummary(access,next,current.updateTime||'');
-      return {stored:written,leaders:board.leaders===next.leaders?leaders:next.leaders,changed:true};
+      return {stored:written,leaders,changed:true};
     }catch(error){
       if(!error?.retryable||attempt===2)throw error;
       current=await readSummary(access);
