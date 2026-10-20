@@ -3,7 +3,7 @@ import {createWordBreakerRecords} from './word-breaker-records.mjs';
 import {createAdminData} from './admin-data.mjs';
 import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
-import {readDailyCoinBoard} from './daily-coins.mjs';
+import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -24,7 +24,7 @@ const FIREBASE_WEB_API_KEY=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygM
 const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||'').trim().toLowerCase();
 const FIRESTORE_BASE=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)`;
 let googleAccessToken='',googleAccessTokenUntil=0;
-const dailyCoinRankingCache={today:'',expiresAt:0,result:null,pending:null};
+const dailyCoinRankingCache={viewerSnapshots:new Map(),viewerSnapshotsDay:''};
 
 const system=`
 あなたは日本の高校生の英語学習を支援する先生です。
@@ -114,19 +114,59 @@ async function queryDailyCoinWallets(accessToken,today){
   if(documents.length>=10000)throw fail('ランキングの対象者が多いため、時間をおいて再度お試しください。',503);
   return documents;
 }
+
+function encodeFirestoreValue(value){
+  if(value===null)return {nullValue:null};
+  if(typeof value==='string')return {stringValue:value};
+  if(typeof value==='boolean')return {booleanValue:value};
+  if(Number.isSafeInteger(value))return {integerValue:String(value)};
+  if(typeof value==='number'&&Number.isFinite(value))return {doubleValue:value};
+  if(Array.isArray(value))return {arrayValue:{values:value.map(encodeFirestoreValue)}};
+  if(value&&typeof value==='object')return {mapValue:{fields:Object.fromEntries(Object.entries(value).map(([key,item])=>[key,encodeFirestoreValue(item)]))}};
+  return {nullValue:null};
+}
+function encodeFirestoreFields(fields){return Object.fromEntries(Object.entries(fields).map(([key,value])=>[key,encodeFirestoreValue(value)]));}
+async function readDailyCoinSummary(accessToken){
+  const response=await fetch(FIRESTORE_BASE+'/documents/leaderboards/daily-coins',{headers:{Authorization:'Bearer '+accessToken}});
+  if(response.status===404)return null;
+  let data={};try{data=await response.json();}catch{}
+  if(!response.ok)throw fail('本日のランキングを取得できませんでした。',response.status===429?429:502);
+  return {value:decodeFields(data.fields||{}),updateTime:data.updateTime||''};
+}
+async function writeDailyCoinSummary(accessToken,value,updateTime=''){
+  const name='projects/'+FIREBASE_PROJECT_ID+'/databases/(default)/documents/leaderboards/daily-coins';
+  const write={update:{name,fields:encodeFirestoreFields(value)},updateMask:{fieldPaths:['schemaVersion','today','leaders']},
+    currentDocument:updateTime?{updateTime}:{exists:false}};
+  const response=await fetch(FIRESTORE_BASE+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({writes:[write]})});
+  let data={};try{data=await response.json();}catch{}
+  if(!response.ok){
+    const firestoreStatus=String(data?.error?.status||'');
+    const firestoreCode=Number(data?.error?.code);
+    const conflict=response.status===409||response.status===412||['ABORTED','FAILED_PRECONDITION','ALREADY_EXISTS'].includes(firestoreStatus)||[6,9,10].includes(firestoreCode);
+    const error=fail('本日のランキングを更新できませんでした。',conflict?409:response.status===429?429:502);
+    error.retryable=conflict;
+    throw error;
+  }
+  let nextUpdateTime=data.writeResults?.[0]?.updateTime||'';
+  if(!nextUpdateTime){const stored=await readDailyCoinSummary(accessToken);if(stored)return stored;nextUpdateTime='';}
+  return {value,updateTime:nextUpdateTime};
+}
+
 async function grantCoins(accessToken,uid,amount){const docName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:docName,fields:{coinSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['coinSchemaVersion']},updateTransforms:[{fieldPath:'coins',increment:{integerValue:String(amount)}},{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok)throw fail('コインを付与できませんでした。',502);const doc=await getUserDoc(accessToken,uid);return Math.max(0,Math.floor(Number(doc.coins)||0));}
 async function registerNickname(accessToken,uid,value){const nickname=normalizeNickname(value);if(!validNickname(nickname))throw fail('ニックネームは1〜20文字で入力してください。',400);const current=await getUserDoc(accessToken,uid);if(validNickname(current.nickname))return normalizeNickname(current.nickname);const key=nicknameKey(nickname),registryId=Buffer.from(key,'utf8').toString('base64url');const userDocName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`,registryName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/nickname_registry/${registryId}`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:registryName,fields:{uid:{stringValue:uid},nickname:{stringValue:nickname}}},currentDocument:{exists:false}},{update:{name:userDocName,fields:{nickname:{stringValue:nickname},nicknameKey:{stringValue:key},nicknameSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['nickname','nicknameKey','nicknameSchemaVersion']},updateTransforms:[{fieldPath:'nicknameUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok){if(response.status===409||data?.error?.status==='ALREADY_EXISTS')throw fail('そのニックネームはすでに使われています。別の名前を入力してください。',409);throw fail('ニックネームを登録できませんでした。',502);}return nickname;}
 
 async function handleProfileNickname(req,res){try{if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await verifyUser(req),body=await readJson(req,1024),access=await getGoogleAccessToken(),nickname=await registerNickname(access,user.uid,body.nickname);adminData.invalidate(user.uid);send(res,200,{ok:true,nickname});}catch(e){send(res,e.status||500,{error:e.message||'ニックネームを登録できませんでした。'});}}
 async function handleDailyCoinLeaderboard(req,res){
   try{
-    if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
+    if(req.method!=='GET'&&req.method!=='POST')throw fail('GETまたはPOSTのみ対応しています。',405);
     const user=await verifyUser(req),access=await getGoogleAccessToken(),today=japanDateKey();
-    const forceRankingRefresh=new URL(req.url||'/', 'http://localhost').searchParams.get('refresh')==='1';
-    const board=await readDailyCoinBoard({
-      uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
-      rankingCache:dailyCoinRankingCache,forceRankingRefresh
-    });
+    const shared={uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
+      readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache};
+    if(req.method==='POST'){
+      await publishDailyCoinBoard(shared);
+      return send(res,200,{ok:true});
+    }
+    const board=await readDailyCoinBoard({...shared,forceRankingRefresh:new URL(req.url||'/', 'http://localhost').searchParams.get('refresh')==='1'});
     send(res,200,board);
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
