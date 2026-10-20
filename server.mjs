@@ -24,6 +24,7 @@ const FIREBASE_WEB_API_KEY=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygM
 const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||'').trim().toLowerCase();
 const FIRESTORE_BASE=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)`;
 let googleAccessToken='',googleAccessTokenUntil=0;
+const dailyCoinRankingCache={today:'',expiresAt:0,result:null,pending:null};
 
 const system=`
 あなたは日本の高校生の英語学習を支援する先生です。
@@ -121,8 +122,10 @@ async function handleDailyCoinLeaderboard(req,res){
   try{
     if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
     const user=await verifyUser(req),access=await getGoogleAccessToken(),today=japanDateKey();
+    const forceRankingRefresh=new URL(req.url||'/', 'http://localhost').searchParams.get('refresh')==='1';
     const board=await readDailyCoinBoard({
-      uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName
+      uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
+      rankingCache:dailyCoinRankingCache,forceRankingRefresh
     });
     send(res,200,board);
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
