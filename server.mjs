@@ -79,6 +79,16 @@ function japanDateKey(date=new Date()){
   const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));
   return `${value.year}-${value.month}-${value.day}`;
 }
+function earnedCoinsToday(data,today){
+  if(data.coinEarnedDate===today)return Math.max(0,Math.floor(Number(data.coinsEarnedToday)||0));
+  if(data.coinRewardDate!==today||!Array.isArray(data.coinRewardClaims))return 0;
+  const claims=data.coinRewardClaims.filter(value=>typeof value==='string');
+  const retryCount=claims.filter(value=>value.startsWith('eiken-retry:')).length;
+  const directCount=claims.length-retryCount;
+  const endProgress=Math.max(0,Math.min(4,Math.floor(Number(data.retryCoinProgress)||0)));
+  const startProgress=(endProgress-retryCount%5+5)%5;
+  return directCount+Math.floor((startProgress+retryCount)/5);
+}
 function validPetName(value){
   const name=String(value??'').normalize('NFKC').trim();
   return [...name].length>0&&[...name].length<=12&&!/[\u0000-\u001f\u007f]/.test(name);
@@ -86,7 +96,7 @@ function validPetName(value){
 async function queryDailyCoinWallets(accessToken,today){
   const documents=[];let cursor=null;
   while(documents.length<10000){
-    const structuredQuery={from:[{collectionId:'apps',allDescendants:true}],where:{fieldFilter:{field:{fieldPath:'coinEarnedDate'},op:'EQUAL',value:{stringValue:today}}},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:500};
+    const structuredQuery={from:[{collectionId:'apps',allDescendants:true}],where:{fieldFilter:{field:{fieldPath:'coinRewardDate'},op:'EQUAL',value:{stringValue:today}}},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:500};
     if(cursor)structuredQuery.startAt={values:[{referenceValue:cursor}],before:false};
     const response=await fetch(`${FIRESTORE_BASE}/documents:runQuery`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery})});
     const raw=await response.text();let rows=[];
@@ -113,10 +123,10 @@ async function handleDailyCoinLeaderboard(req,res){
     const [mine,documents]=await Promise.all([getUserDoc(access,user.uid),queryDailyCoinWallets(access,today)]);
     const ranked=documents.filter(document=>document.name.endsWith('/apps/english-playroom')).map(document=>{
       const data=decodeFields(document.fields||{}),uid=document.name.split('/documents/')[1]?.split('/')[1]||'';
-      return {uid,petName:String(data.petName??'').normalize('NFKC').trim(),coinsToday:Math.max(0,Math.floor(Number(data.coinsEarnedToday)||0))};
+      return {uid,petName:String(data.petName??'').normalize('NFKC').trim(),coinsToday:earnedCoinsToday(data,today)};
     }).filter(entry=>entry.uid&&entry.coinsToday>0&&validPetName(entry.petName));
     ranked.sort((a,b)=>b.coinsToday-a.coinsToday||a.petName.localeCompare(b.petName,'ja'));
-    send(res,200,{today,coinsToday:mine.coinEarnedDate===today?Math.max(0,Math.floor(Number(mine.coinsEarnedToday)||0)):0,top3:ranked.slice(0,3).map(({petName,coinsToday})=>({petName,coinsToday}))});
+    send(res,200,{today,coinsToday:earnedCoinsToday(mine,today),top3:ranked.slice(0,3).map(({petName,coinsToday})=>({petName,coinsToday}))});
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
