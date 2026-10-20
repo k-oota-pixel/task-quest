@@ -101,9 +101,13 @@ async function queryDailyCoinWallets(accessToken,today){
     const structuredQuery={from:[{collectionId:'apps',allDescendants:true}],where:{fieldFilter:{field:{fieldPath:'coinRewardDate'},op:'EQUAL',value:{stringValue:today}}},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:500};
     if(cursor)structuredQuery.startAt={values:[{referenceValue:cursor}],before:false};
     const response=await fetch(`${FIRESTORE_BASE}/documents:runQuery`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery})});
-    const raw=await response.text();let rows=[];
-    try{const parsed=JSON.parse(raw);rows=Array.isArray(parsed)?parsed:[parsed];}catch{try{rows=raw.split(/\\r?\\n/).filter(Boolean).map(line=>JSON.parse(line));}catch{}}
-    if(!response.ok)throw fail('本日のランキングを取得できませんでした。',502);
+    const raw=await response.text();let rows=[],parsedBody=null;
+    try{parsedBody=JSON.parse(raw);rows=Array.isArray(parsedBody)?parsedBody:[parsedBody];}catch{try{rows=raw.split(/\\r?\\n/).filter(Boolean).map(line=>JSON.parse(line));}catch{}}
+    if(!response.ok){
+      const detail=Array.isArray(parsedBody)?parsedBody.find(row=>row?.error)?.error:parsedBody?.error;
+      console.error('Daily coin wallet query failed',{httpStatus:response.status,firestoreStatus:String(detail?.status||''),message:String(detail?.message||'').slice(0,240)});
+      throw fail('本日のランキングを取得できませんでした。',502);
+    }
     const page=rows.map(row=>row?.document).filter(document=>document?.name);
     documents.push(...page);
     if(page.length<500)break;
