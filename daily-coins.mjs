@@ -5,7 +5,7 @@ const cleanEntry=value=>{
   if(!value||typeof value.uid!=='string'||!value.uid)return null;
   const petName=String(value.petName??'').normalize('NFKC').trim();
   const coinsToday=Math.max(0,Math.floor(Number(value.coinsToday)||0));
-  return coinsToday>0&&petName?{uid:value.uid,petName,coinsToday}:null;
+  return coinsToday>0&&petName&&[...petName].length<=12&&!/[\\u0000-\\u001f\\u007f]/.test(petName)?{uid:value.uid,petName,coinsToday}:null;
 };
 const compareEntries=(a,b)=>b.coinsToday-a.coinsToday||a.petName.localeCompare(b.petName,'ja')||a.uid.localeCompare(b.uid);
 const cleanLeaders=leaders=>Array.isArray(leaders)?leaders.map(cleanEntry).filter(Boolean).sort(compareEntries).slice(0,3):[];
@@ -14,7 +14,7 @@ const boardFor=(value,today)=>value?.today===today?{schemaVersion:1,today,leader
 const publicTop3=leaders=>leaders.map(({petName,coinsToday})=>({petName,coinsToday}));
 
 function uidFromDocumentName(name){
-  const match=String(name||'').match(/\\/documents\\/users\\/([^/]+)\\/apps\\/english-playroom$/);
+  const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);
   if(!match)return '';
   try{return decodeURIComponent(match[1]);}catch{return match[1];}
 }
