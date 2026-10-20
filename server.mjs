@@ -140,8 +140,11 @@ async function writeDailyCoinSummary(accessToken,value,updateTime=''){
   const response=await fetch(FIRESTORE_BASE+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({writes:[write]})});
   let data={};try{data=await response.json();}catch{}
   if(!response.ok){
-    const error=fail('本日のランキングを更新できませんでした。',response.status===409||response.status===412?409:response.status===429?429:502);
-    error.retryable=response.status===409||response.status===412;
+    const firestoreStatus=String(data?.error?.status||'');
+    const firestoreCode=Number(data?.error?.code);
+    const conflict=response.status===409||response.status===412||['ABORTED','FAILED_PRECONDITION','ALREADY_EXISTS'].includes(firestoreStatus)||[6,9,10].includes(firestoreCode);
+    const error=fail('本日のランキングを更新できませんでした。',conflict?409:response.status===429?429:502);
+    error.retryable=conflict;
     throw error;
   }
   let nextUpdateTime=data.writeResults?.[0]?.updateTime||'';
