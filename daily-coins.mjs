@@ -44,18 +44,24 @@ function rememberViewer(cache,uid,today,leaders){
   cache.viewerSnapshots.set(uid,{today,leaders:cleanLeaders(leaders)});
   while(cache.viewerSnapshots.size>10000)cache.viewerSnapshots.delete(cache.viewerSnapshots.keys().next().value);
 }
-async function loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName}){
-  let stored=await readSummary(access);
-  if(stored)return stored;
-  const leaders=rankWalletDocuments(await queryDailyCoinWallets(access,today),{today,decodeFields,earnedCoinsToday,validPetName});
-  const value={...emptyBoard(today),leaders};
-  try{return await writeSummary(access,value,'');}
-  catch(error){
-    if(!error?.retryable)throw error;
-    stored=await readSummary(access);
+function loadOrBootstrap(options){
+  const {access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache}=options;
+  if(rankingCache?.bootstrapPending?.today===today)return rankingCache.bootstrapPending.promise;
+  const promise=Promise.resolve().then(async()=>{
+    const stored=await readSummary(access);
     if(stored)return stored;
-    throw error;
-  }
+    const leaders=rankWalletDocuments(await queryDailyCoinWallets(access,today),{today,decodeFields,earnedCoinsToday,validPetName});
+    const value={...emptyBoard(today),leaders};
+    try{return await writeSummary(access,value,'');}
+    catch(error){
+      if(!error?.retryable)throw error;
+      const raced=await readSummary(access);
+      if(raced)return raced;
+      throw error;
+    }
+  });
+  if(rankingCache)rankingCache.bootstrapPending={today,promise};
+  return promise.finally(()=>{if(rankingCache?.bootstrapPending?.promise===promise)rankingCache.bootstrapPending=null;});
 }
 async function commitCandidate({access,today,candidate,stored,readSummary,writeSummary,bootstrap}){
   let current=stored;
@@ -105,7 +111,7 @@ export async function readDailyCoinBoard({
   }
 
   try{
-    let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName});
+    let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
     let leaders=boardFor(stored.value,today).leaders;
     const candidate=cleanEntry({uid,petName:mine.petName,coinsToday});
     if(candidate){
@@ -141,7 +147,7 @@ export async function publishDailyCoinBoard({
     return {updated:false,top3:publicTop3(snapshot.leaders)};
   }
 
-  let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName});
+  let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
   const current=boardFor(stored.value,today);
   let leaders=current.leaders;
   const next=mergeCandidate(leaders,candidate);
