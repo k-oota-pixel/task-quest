@@ -118,7 +118,7 @@ export async function readDailyCoinBoard({
       const next=mergeCandidate(leaders,candidate);
       if(!sameLeaders(leaders,next)){
         const result=await commitCandidate({access,today,candidate,stored,readSummary,writeSummary,
-          bootstrap:()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName})});
+          bootstrap:()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache})});
         stored=result.stored;leaders=result.leaders;
       }
     }
@@ -154,7 +154,7 @@ export async function publishDailyCoinBoard({
   let updated=false;
   if(!sameLeaders(leaders,next)){
     const result=await commitCandidate({access,today,candidate,stored,readSummary,writeSummary,
-      bootstrap:()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName})});
+      bootstrap:()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache})});
     stored=result.stored;leaders=result.leaders;updated=result.changed;
   }
   rememberViewer(rankingCache,uid,today,leaders);
