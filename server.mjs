@@ -81,7 +81,7 @@ function japanDateKey(date=new Date()){
 }
 function validPetName(value){
   const name=String(value??'').normalize('NFKC').trim();
-  return [...name].length>0&&[...name].length<=12&&!/[\\u0000-\\u001f\\u007f]/.test(name);
+  return [...name].length>0&&[...name].length<=12&&!/[\u0000-\u001f\u007f]/.test(name);
 }
 async function queryDailyCoinWallets(accessToken,today){
   const documents=[];let cursor=null;
