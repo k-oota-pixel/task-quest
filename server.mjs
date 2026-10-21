@@ -1,4 +1,5 @@
 import {createLearningActivity} from './learning-activity.mjs';
+import {createLearningDashboard} from './learning-dashboard.mjs';
 import {createShopNameChanges} from './shop-name-changes.mjs';
 import {createPetCatchRecords} from './pet-catch-records.mjs';
 import {createWordBreakerRecords} from './word-breaker-records.mjs';
@@ -180,6 +181,7 @@ async function handleDailyCoinLeaderboard(req,res){
 }
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
 const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,invalidate:adminData.invalidateLearning});
+const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 const wordBreakerRecords=createWordBreakerRecords({base:FIRESTORE_BASE,activeIds:adminData.activeIds,accessToken:getGoogleAccessToken,decodeFields,send,fail});
 const petCatchRecords=createPetCatchRecords({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 async function handleAdminCoins(req,res){try{const admin=await verifyAdmin(req);if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const body=await readJson(req,2048),uid=String(body.uid||''),amount=Math.floor(Number(body.amount));if(!uid||uid.length>128||uid.includes('/'))throw fail('ユーザーIDが不正です。',400);if(!Number.isFinite(amount)||amount<1||amount>1000000)throw fail('付与コインは1〜1,000,000で指定してください。',400);const access=await getGoogleAccessToken();const coins=await grantCoins(access,uid,amount);adminData.updateCoins(uid,coins);console.log(`Admin coin grant: uid=${uid} amount=${amount} by=${admin.uid}`);send(res,200,{ok:true,coins});}catch(e){send(res,e.status||500,{error:e.message||'コインを付与できませんでした。'});}}
@@ -282,6 +284,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/pre2-interview-grade')return handlePre2Interview(req,res);
   if(path==='/api/learning/activity')return handleLearningActivity(req,res);
+  if(path==='/api/learning/dashboard')return handleLearningDashboard(req,res);
   if(path==='/api/shop/rename')return handleShopRename(req,res);
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
   if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
