@@ -94,9 +94,10 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
   async function detail(uid){
     return cached('detail:'+uid,async()=>{
       const prefix=`projects/${projectId}/databases/(default)/documents/users/${uid}/apps/`;
-      const rows=await json(`${base}/documents:batchGet`,{method:'POST',body:JSON.stringify({documents:APP_IDS.map(id=>prefix+id)})});
+      const rows=await json(`${base}/documents:batchGet`,{method:'POST',body:JSON.stringify({documents:[...APP_IDS.map(id=>prefix+id),`projects/${projectId}/databases/(default)/documents/learning_activity/${uid}`]})});
       const apps={};for(const row of rows){const doc=row.found;if(!doc?.name?.startsWith(prefix))continue;const id=doc.name.slice(prefix.length);if(APP_IDS.includes(id))apps[id]=decodeFields(doc.fields||{});}
-      return {uid,apps,fetchedAt:now()};
+      const activityDoc=rows.find(row=>row.found?.name===`projects/${projectId}/databases/(default)/documents/learning_activity/${uid}`);
+      return {uid,apps,activity:activityDoc?decodeFields(activityDoc.found.fields||{}):{},fetchedAt:now()};
     });
   }
   async function handle(req,res){

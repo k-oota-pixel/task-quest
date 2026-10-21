@@ -9,7 +9,7 @@ function fixture(){
   const u=new URL(url);
   if(u.hostname==='identitytoolkit.googleapis.com'){authReads++;return {ok:true,json:async()=>({users:Array.from({length:22},(_,i)=>({localId:'u'+i,email:'private',lastLoginAt:String(3000-i),createdAt:String(1000-i)}))})};}
   if(u.pathname.endsWith('documents:runQuery')){queries++;const q=JSON.parse(opt.body).structuredQuery;assert.equal(q.from[0].collectionId,'learning_activity');let rows=records;if(!q.select){assert.equal(q.limit,11);assert.equal(q.orderBy[0].field.fieldPath,'lastLearningAt');assert.equal(q.orderBy[0].direction,'DESCENDING');if(q.startAt)rows=rows.filter(r=>r.fields.lastLearningAt<q.startAt.values[0].timestampValue);rows=rows.slice(0,q.limit);}return {ok:true,json:async()=>rows.map(document=>({document}))};}
-  if(u.pathname.endsWith('documents:batchGet')){details++;return {ok:true,json:async()=>JSON.parse(opt.body).documents.map(name=>({found:{name,fields:{coins:7,submissions:2}}}))};}
+  if(u.pathname.endsWith('documents:batchGet')){details++;const names=JSON.parse(opt.body).documents;assert.equal(names.length,9);return {ok:true,json:async()=>names.map(name=>({found:{name,fields:name.includes('/learning_activity/')?{contents:{'listening-training':{lastLearningAt:stamp(1)}}}:{coins:7,submissions:2}}}))};}
   if(u.pathname.includes('/learning_activity/'))return {ok:true,json:async()=>({fields:{lastLearningAt:stamp(Number(u.pathname.split('/').at(-1).slice(1)))}})};
   if(u.pathname.endsWith('/nickname_registry'))return {ok:true,json:async()=>({documents:[{fields:{uid:'u0',nickname:'Test u0'}}]})};
   summaries++;assert.deepEqual(u.searchParams.getAll('mask.fieldPaths'),['nickname','petName','coins']);return {ok:true,json:async()=>({fields:{nickname:'Test '+u.pathname.split('/')[4],petName:'Pet',coins:7}})};
@@ -30,7 +30,7 @@ test('session check has no Firestore reads; cached lists still require admin aut
 });
 test('details remain lazy and cached; coin updates preserve names and learning times',async()=>{
  const f=fixture(),page=await f.call('/api/admin/users'),at=page.body.users[0].lastLearningAt;assert.equal(f.stats().details,0);
- await f.call('/api/admin/user?uid=u19');await f.call('/api/admin/user?uid=u19');assert.equal(f.stats().details,1);
+ const detail=await f.call('/api/admin/user?uid=u19');assert.ok(detail.body.activity.contents['listening-training'].lastLearningAt);assert.equal(Object.keys(detail.body.apps).length,8);await f.call('/api/admin/user?uid=u19');assert.equal(f.stats().details,1);
  f.api.updateCoins('u19',107);const updated=await f.call('/api/admin/users');assert.equal(updated.body.users[0].coins,107);assert.equal(updated.body.users[0].petName,'Pet');assert.equal(updated.body.users[0].lastLearningAt,at);
  f.api.invalidateLearning('u0');await f.call('/api/admin/users');assert.equal(f.stats().queries,2,'a newly active learner invalidates ordering even if previously on a different page');
 });
