@@ -17,7 +17,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
   async function summary(uid){
     return cached('summary:'+uid,async()=>{
       const url=new URL(`${base}/documents/users/${encodeURIComponent(uid)}/apps/english-playroom`);
-      for(const field of ['nickname','coins'])url.searchParams.append('mask.fieldPaths',field);
+      for(const field of ['nickname','petName','coins'])url.searchParams.append('mask.fieldPaths',field);
       const token=await accessToken();const r=await request(url,{headers:{Authorization:`Bearer ${token}`}});
       if(r.status===404)return {};
       const d=await r.json();if(!r.ok)throw fail(d?.error?.status==='RESOURCE_EXHAUSTED'?'Firestoreの利用上限に達しています。時間を置いてから更新してください。':'一覧情報を取得できませんでした。',r.status===429?429:502);
@@ -47,23 +47,29 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       return rows.map(doc=>decodeFields(doc.fields||{})).map(data=>({uid:String(data.uid||''),nickname:normalizeNickname(data.nickname)})).filter(row=>row.uid&&validNickname(row.nickname));
     });
   }
-  function pageOffset(token){
-    if(!token)return 0;
-    if(!/^\d+$/.test(token))throw fail('ページ情報が不正です。',400);
-    const offset=Number(token);if(!Number.isSafeInteger(offset)||offset<0||offset%10!==0)throw fail('ページ情報が不正です。',400);
-    return offset;
-  }
-  async function page(token){
-    const offset=pageOffset(token);
-    return cached('page:'+offset,async()=>{
-      const directory=await authDirectory(),slice=directory.slice(offset,offset+10);
-      const users=await Promise.all(slice.map(async u=>{
-        const p=await summary(u.localId),nickname=normalizeNickname(p.nickname);
-        return {uid:u.localId,nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,disabled:!!u.disabled};
-      }));
-      return {users,nextPageToken:offset+10<directory.length?String(offset+10):null,pageSize:10,fetchedAt:now()};
-    });
-  }
+  function learningTime(value){const ms=typeof value==='number'?value:Date.parse(value||'');return Number.isFinite(ms)&&ms>0?ms:null;}
+  function cursor(value){if(!value)return {phase:'recent'};try{const c=JSON.parse(Buffer.from(value,'base64url').toString());if(c.phase==='recent'&&typeof c.at==='string'&&typeof c.name==='string'&&c.name.startsWith('projects/'+projectId+'/databases/(default)/documents/learning_activity/'))return c;if(c.phase==='unrecorded'&&Number.isSafeInteger(c.offset)&&c.offset>=0)return c;}catch{}throw fail('ページ情報が不正です。',400);}
+  const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
+  async function activity(uid){return cached('activity:'+uid,async()=>{const token=await accessToken(),r=await request(base+'/documents/learning_activity/'+encodeURIComponent(uid),{headers:{Authorization:'Bearer '+token}});if(r.status===404)return null;const body=await r.json();if(!r.ok)throw fail('学習日時を取得できませんでした。',502);return learningTime(decodeFields(body.fields||{}).lastLearningAt);});}
+  async function unrecorded(){return cached('unrecorded',async()=>{
+    const rows=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery:{from:[{collectionId:'learning_activity'}],select:{fields:[{fieldPath:'uid'}]}}})});
+    const known=new Set(rows.filter(r=>r.document).map(r=>decodeFields(r.document.fields||{}).uid));
+    return (await authDirectory()).filter(u=>!known.has(u.localId)).sort((a,b)=>String(a.localId).localeCompare(String(b.localId)));
+  });}
+  async function page(token){return cached('page:'+token,async()=>{
+    const c=cursor(token);let rows=[],nextPageToken=null;
+    if(c.phase==='recent'){
+      const query={from:[{collectionId:'learning_activity'}],orderBy:[{field:{fieldPath:'lastLearningAt'},direction:'DESCENDING'},{field:{fieldPath:'__name__'},direction:'DESCENDING'}],limit:11};
+      if(c.at)query.startAt={values:[{timestampValue:c.at},{referenceValue:c.name}],before:false};
+      const result=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery:query})});
+      const documents=result.filter(r=>r.document).map(r=>r.document),more=documents.length>10;
+      rows=documents.slice(0,10).map(doc=>{const d=decodeFields(doc.fields||{});return {uid:d.uid,lastLearningAt:learningTime(d.lastLearningAt)};});
+      if(more){const last=documents[9];nextPageToken=encode({phase:'recent',at:decodeFields(last.fields).lastLearningAt,name:last.name});}
+      else {const waiting=await unrecorded(),room=10-rows.length;rows.push(...waiting.slice(0,room).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null})));if(waiting.length>room)nextPageToken=encode({phase:'unrecorded',offset:room});}
+    }else{const waiting=await unrecorded();rows=waiting.slice(c.offset,c.offset+10).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null}));if(waiting.length>c.offset+10)nextPageToken=encode({phase:'unrecorded',offset:c.offset+10});}
+    const users=await Promise.all(rows.map(async row=>{const p=await summary(row.uid),nickname=normalizeNickname(p.nickname);return {...row,nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),petName:normalizeNickname(p.petName)||'ペット名未設定',coins:Math.max(0,Math.floor(Number(p.coins)||0))};}));
+    return {users,nextPageToken,pageSize:10,fetchedAt:now()};
+  });}
   async function search(query){
     const normalized=normalizeNickname(query),needle=normalized.toLocaleLowerCase('ja-JP');
     const length=[...normalized].length;if(!normalized||length>20)throw fail('検索語は1〜20文字で入力してください。',400);
@@ -75,13 +81,14 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       const aq=ak===needle?0:ak.startsWith(needle)?1:2,bq=bk===needle?0:bk.startsWith(needle)?1:2;
       if(aq!==bq)return aq-bq;
       const au=authByUid.get(a.uid)||{},bu=authByUid.get(b.uid)||{};
-      return Number(bu.lastLoginAt||0)-Number(au.lastLoginAt||0)||a.nickname.localeCompare(b.nickname,'ja-JP');
+      return a.nickname.localeCompare(b.nickname,'ja-JP');
     });
     const selected=matches.slice(0,100);
     const users=await Promise.all(selected.map(async row=>{
       const u=authByUid.get(row.uid)||{},p=await summary(row.uid),nickname=normalizeNickname(p.nickname)||row.nickname;
-      return {uid:row.uid,nickname,hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,disabled:!!u.disabled};
+      return {uid:row.uid,nickname,hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),petName:normalizeNickname(p.petName)||'ペット名未設定',createdAt:u.createdAt||null,lastLearningAt:await activity(row.uid),disabled:!!u.disabled};
     }));
+    users.sort((a,b)=>(b.lastLearningAt||0)-(a.lastLearningAt||0)||a.nickname.localeCompare(b.nickname,'ja'));
     return {users,query:normalized,total:matches.length,truncated:matches.length>users.length,fetchedAt:now()};
   }
   async function detail(uid){
@@ -116,7 +123,8 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       if(key==='summary:'+uid&&e.value)e.value.coins=coins;
     }
   }
-  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');for(const [key,e]of cache)if(key.startsWith('page:')&&(!e.value||e.value.users.some(u=>u.uid===uid)))cache.delete(key);}
+  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');cache.delete('activity:'+uid);cache.delete('unrecorded');for(const [key,e]of cache)if(key.startsWith('page:'))cache.delete(key);}
   async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
-  return {handle,updateCoins,invalidate,activeIds};
+  function invalidateLearning(uid){cache.delete('activity:'+uid);cache.delete('summary:'+uid);cache.delete('unrecorded');for(const key of cache.keys())if(key.startsWith('page:'))cache.delete(key);}
+  return {handle,updateCoins,invalidate,invalidateLearning,activeIds};
 }
