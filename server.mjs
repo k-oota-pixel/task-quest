@@ -279,6 +279,9 @@ export const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
   if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
   const path=new URL(req.url,'http://localhost').pathname;
+  if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest"].includes(path)){
+    try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
+  }
   if(req.method==='GET'&&['/firebase-security.js','/app-check-config.js'].includes(path)){
     res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-cache'});
     return res.end(fs.readFileSync(new URL('.'+path,import.meta.url)));
@@ -295,7 +298,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:false,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7'});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7'});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
