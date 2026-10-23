@@ -296,7 +296,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/shop/rename')return handleShopRename(req,res);
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
   if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
-  if(['/api/admin/users','/api/admin/user','/api/admin/session'].includes(path))return adminData.handle(req,res);
+  if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
   if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7'});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}

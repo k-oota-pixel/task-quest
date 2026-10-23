@@ -106,7 +106,19 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       await verifyAdmin(req); // Cache never bypasses authentication or authorization.
       const url=new URL(req.url,'http://localhost');
       if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.9'});return;}
+      if(url.pathname==='/api/admin/retry-screen-logs'){
+        const ids=[...new Set((url.searchParams.get('uids')||'').split(',').filter(Boolean))];
+        if(!ids.length||ids.length>10||ids.some(id=>id.length>128||!/^[-A-Za-z0-9_]+$/.test(id)))throw fail('対象は10人以内で指定してください。',400);
+        const users=await Promise.all(ids.map(uid=>cached('retry-screen:'+uid,async()=>{
+          const name=`projects/${projectId}/databases/(default)/documents/users/${uid}/apps/eiken-retry`;
+          const rows=await json(base+'/documents:batchGet',{method:'POST',body:JSON.stringify({documents:[name],mask:{fieldPaths:['state.screenLogs']}})});
+          const data=decodeFields(rows[0]?.found?.fields||{});
+          return {uid,logs:Array.isArray(data.state?.screenLogs)?data.state.screenLogs.slice(-100):[]};
+        })));
+        send(res,200,{users,fetchedAt:now()});return;
+      }
       if(url.pathname==='/api/admin/user'){
+
         const uid=url.searchParams.get('uid')||'';if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
         send(res,200,await detail(uid));return;
       }
