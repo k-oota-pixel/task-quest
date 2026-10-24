@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {CHALLENGE_CONTENTS,challengePeriods,dailyChallengeTasks,weeklyChallengeTasks,challengeProgressWrites,challengeState} from './challenge-model.mjs';
 import {createLearningChallenges} from './learning-challenges.mjs';
+import {dailyStreak,previousDay} from './challenge-streak.mjs';
 const fixed=Date.parse('2026-10-24T03:00:00Z'),periods=challengePeriods(fixed);
 test('JST daily and Monday weekly boundaries, including a year boundary',()=>{
  assert.equal(challengePeriods(Date.parse('2026-10-25T14:59:59Z')).day,'2026-10-25');assert.equal(challengePeriods(Date.parse('2026-10-25T14:59:59Z')).week,'2026-10-19');assert.equal(challengePeriods(Date.parse('2026-10-25T15:00:00Z')).week,'2026-10-26');assert.equal(challengePeriods(Date.parse('2026-12-31T15:00:00Z')).week,'2026-12-28');
@@ -42,6 +43,20 @@ test('incomplete, stale-period, unknown-kind, and signed-out requests cannot awa
 });
 test('status reads do not award rewards and expose actionable daily tasks',async()=>{
  const h=harness(),r={};await h.handle({method:'GET'},r);assert.equal(r.status,200);assert.equal(r.body.daily.reward,10);assert.equal(r.body.weekly.reward,20);assert.equal(r.body.daily.tasks.length,2);assert.equal(r.body.daily.claimed,false);assert.equal(h.commits,0);
+});
+
+test('three completed days pay an extra ten atomically, even if prior rewards were not claimed',async()=>{
+ const h=harness();for(const offset of [2,1])h.docs.set('challenge_progress/self/periods/daily-'+previousDay(periods.day,offset),{data:{completed:Object.fromEntries(CHALLENGE_CONTENTS.map(x=>[x.id,'stamp']))},updateTime:'history'});
+ const results=await Promise.all([h.request(),h.request(),h.request()]);assert(results.every(r=>r.status===200));assert.equal(results.reduce((n,r)=>n+r.body.awarded,0),20);assert.equal(h.docs.get('users/self/apps/english-playroom').data.coins,31);assert.equal(h.docs.get('users/self/apps/english-playroom').data.coinsEarnedToday,22);assert.equal(h.docs.get('challenge_claims/self/periods/daily-'+periods.day).data.streakBonus,10);assert.equal((await h.request()).body.awarded,0);
+});
+test('streaks reset after a missed day or an awarded three-day block; weekly cannot receive the bonus',async()=>{
+ const completed={completed:Object.fromEntries(CHALLENGE_CONTENTS.map(x=>[x.id,'stamp']))};
+ const history=[2,1].map(offset=>({day:previousDay(periods.day,offset),progress:completed}));
+ assert.equal(dailyStreak('self',periods.day,true,null,history).count,3);
+ assert.equal(dailyStreak('self',periods.day,true,null,[history[0],{...history[1],progress:null}]).count,1);
+ assert.equal(dailyStreak('self',periods.day,true,null,[history[0],{...history[1],claim:{streakBonus:10}}]).count,1);
+ assert.equal(dailyStreak('self',periods.day,true,null,[{...history[0],claim:{streakBonus:10}},history[1]]).count,2);
+ const h=harness();for(const offset of [2,1])h.docs.set('challenge_progress/self/periods/daily-'+previousDay(periods.day,offset),{data:completed,updateTime:'h'});assert.equal((await h.request('weekly')).body.awarded,20);
 });
 
 test('weekly picks are stable, balanced, unique and only selected work counts',()=>{for(let i=0;i<20;i++){const uid='u'+i,a=weeklyChallengeTasks(uid,periods.week);assert.deepEqual(a,weeklyChallengeTasks(uid,periods.week));assert.equal(new Set(a.map(x=>x.id)).size,4);assert.deepEqual(a.map(x=>x.group),['light','light','practice','practice']);const other=CHALLENGE_CONTENTS.filter(x=>!a.some(y=>y.id===x.id));const state=challengeState(uid,periods,{weekly:{completed:Object.fromEntries(other.map(x=>[x.id,'stamp']))},weeklyClaim:{exists:true}},fixed);assert.equal(state.weekly.count,0);assert.equal(state.weekly.complete,false);assert.equal(state.weekly.claimed,true);assert.equal(state.weekly.tasks.length,4);}assert.ok(new Set(Array.from({length:8},(_,i)=>weeklyChallengeTasks('u','2026-10-'+String(5+i*7)).map(x=>x.id).join(','))).size>1);});

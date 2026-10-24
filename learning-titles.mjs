@@ -22,7 +22,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:uids.map(uid=>prefix+'user_titles/'+uid)})});
   if(!response.ok)throw fail('表示称号を取得できませんでした。',502);
   const rows=await response.json(),names=new Map(uids.map(uid=>[uid,decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedTitle||'']));
-  return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||''}));
+  return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||'称号なし'}));
  }
  async function handle(req,res){try{
   if(!['GET','POST'].includes(req.method))throw fail('GETまたはPOSTのみ対応しています。',405);

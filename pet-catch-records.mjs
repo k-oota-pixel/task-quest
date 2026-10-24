@@ -36,7 +36,7 @@ function publicRecord(value,today){
   return {date:clean.date,score:clean.score,petNames:clean.leaders.map(v=>v.petName).slice(0,5),leaderCount:clean.leaders.length};
 }
 
-export function createPetCatchRecords({base,accessToken,verifyUser,decodeFields,send,fail,fetch:request=globalThis.fetch,now=Date.now}){
+export function createPetCatchRecords({base,accessToken,verifyUser,decodeFields,send,fail,fetch:request=globalThis.fetch,decorate=null,now=Date.now}){
   const docUrl=base+'/documents/leaderboards/pet-catch-daily';
   let cached=null,inflight=null,retryAfter=0,publishChain=Promise.resolve();
 
@@ -92,8 +92,8 @@ export function createPetCatchRecords({base,accessToken,verifyUser,decodeFields,
   }
   async function handle(req,res){
     try{
-      if(req.method==='GET')return send(res,200,await snapshot());
-      if(req.method==='POST'){const user=await verifyUser(req);return send(res,200,{ok:true,record:await publish(user.uid)});}
+      if(req.method==='GET'){const record=await snapshot();if(decorate)record.leaders=await decorate((cached?.value?.leaders||[]).slice(0,5));return send(res,200,record);}
+      if(req.method==='POST'){const user=await verifyUser(req),record=await publish(user.uid);if(decorate)record.leaders=await decorate((cached?.value?.leaders||[]).slice(0,5));return send(res,200,{ok:true,record});}
       throw fail('GETまたはPOSTのみ対応しています。',405);
     }catch(error){send(res,error.status||503,{error:error.status&&error.status<500?error.message:'今日のPET CATCH記録を処理できませんでした。時間を置いて再試行してください。'});}
   }

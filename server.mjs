@@ -191,7 +191,7 @@ const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,project
 const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache,decorate:learningTitles.decorate});}});
 const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 const wordBreakerRecords=createWordBreakerRecords({base:FIRESTORE_BASE,activeIds:adminData.activeIds,accessToken:getGoogleAccessToken,decodeFields,send,fail,decorate:learningTitles.decorate});
-const petCatchRecords=createPetCatchRecords({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
+const petCatchRecords=createPetCatchRecords({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,decorate:learningTitles.decorate});
 async function handleAdminCoins(req,res){try{const admin=await verifyAdmin(req);if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const body=await readJson(req,2048),uid=String(body.uid||''),amount=Math.floor(Number(body.amount));if(!uid||uid.length>128||uid.includes('/'))throw fail('ユーザーIDが不正です。',400);if(!Number.isFinite(amount)||amount<1||amount>1000000)throw fail('付与コインは1〜1,000,000で指定してください。',400);const access=await getGoogleAccessToken();const coins=await grantCoins(access,uid,amount);adminData.updateCoins(uid,coins);console.log(`Admin coin grant: uid=${uid} amount=${amount} by=${admin.uid}`);send(res,200,{ok:true,coins});}catch(e){send(res,e.status||500,{error:e.message||'コインを付与できませんでした。'});}}
 
 
@@ -309,7 +309,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.9.1',titleVersion:'1.10.1'});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.2'});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
