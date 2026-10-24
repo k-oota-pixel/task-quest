@@ -1,3 +1,4 @@
+import {createMaterialUsage,createMaterialOpen} from './material-usage.mjs';
 import {createLearningChallenges} from './learning-challenges.mjs';
 import {createSecurityGate} from './security-gate.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
@@ -182,6 +183,8 @@ async function handleDailyCoinLeaderboard(req,res){
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
+const handleMaterialOpen=createMaterialOpen({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
+const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
 const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,invalidate:adminData.invalidateLearning});
 const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache});}});
 const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
@@ -299,6 +302,8 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/shop/rename')return handleShopRename(req,res);
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
   if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
+  if(path==='/api/material-open')return handleMaterialOpen(req,res);
+  if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
   if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.9.1'});
