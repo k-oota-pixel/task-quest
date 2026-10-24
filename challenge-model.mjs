@@ -26,6 +26,10 @@ export function dailyChallengeTasks(uid,day){
  const hash=id=>createHash('sha256').update('challenges-v1|'+uid+'|'+id).digest('hex');
  return ['light','practice'].map(group=>{const pool=CHALLENGE_CONTENTS.filter(x=>x.group===group).sort((a,b)=>hash(a.id).localeCompare(hash(b.id)));return pool[((index%pool.length)+pool.length)%pool.length];});
 }
+export function weeklyChallengeTasks(uid,week){
+ const hash=id=>createHash('sha256').update('weekly-challenges-v1|'+uid+'|'+week+'|'+id).digest('hex');
+ return ['light','practice'].flatMap(group=>CHALLENGE_CONTENTS.filter(x=>x.group===group).sort((a,b)=>hash(a.id).localeCompare(hash(b.id))).slice(0,2));
+}
 export function challengeProgressWrites({uid,appId,projectId,now=Date.now()}){
  if(!isChallengeContent(appId))return [];
  const {day,week}=challengePeriods(now),prefix=`projects/${projectId}/databases/(default)/documents/challenge_progress/${uid}/periods/`;
@@ -34,5 +38,6 @@ export function challengeProgressWrites({uid,appId,projectId,now=Date.now()}){
 export function challengeState(uid,periods,records={},now=Date.now()){
  const completed=kind=>{const found=new Set(Object.keys(records[kind]?.completed||{}).filter(isChallengeContent));const start=new Date((kind==='daily'?periods.day:periods.week)+'T00:00:00+09:00').getTime();for(const [id,value] of Object.entries(records.activity?.contents||{})){const time=new Date(value?.lastLearningAt).getTime();if(isChallengeContent(id)&&time>=start&&time<=now)found.add(id);}return found;};
  const dailyDone=completed('daily'),weekDone=completed('weekly'),tasks=dailyChallengeTasks(uid,periods.day).map(x=>({...x,done:dailyDone.has(x.id)}));
- return {serverNow:now,...periods,daily:{id:periods.day,reward:10,target:2,count:tasks.filter(x=>x.done).length,complete:tasks.every(x=>x.done),claimed:!!records.dailyClaim,tasks},weekly:{id:periods.week,reward:20,target:4,count:weekDone.size,complete:weekDone.size>=4,claimed:!!records.weeklyClaim,contents:CHALLENGE_CONTENTS.map(x=>({...x,done:weekDone.has(x.id)}))}};
+ const weeklyTasks=weeklyChallengeTasks(uid,periods.week).map(x=>({...x,done:weekDone.has(x.id)}));
+ return {serverNow:now,...periods,daily:{id:periods.day,reward:10,target:2,count:tasks.filter(x=>x.done).length,complete:tasks.every(x=>x.done),claimed:!!records.dailyClaim,tasks},weekly:{id:periods.week,reward:20,target:4,count:weeklyTasks.filter(x=>x.done).length,complete:weeklyTasks.every(x=>x.done),claimed:!!records.weeklyClaim,tasks:weeklyTasks,contents:weeklyTasks}};
 }

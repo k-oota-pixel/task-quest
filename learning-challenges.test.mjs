@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {CHALLENGE_CONTENTS,challengePeriods,dailyChallengeTasks,challengeProgressWrites,challengeState} from './challenge-model.mjs';
+import {CHALLENGE_CONTENTS,challengePeriods,dailyChallengeTasks,weeklyChallengeTasks,challengeProgressWrites,challengeState} from './challenge-model.mjs';
 import {createLearningChallenges} from './learning-challenges.mjs';
 const fixed=Date.parse('2026-10-24T03:00:00Z'),periods=challengePeriods(fixed);
 test('JST daily and Monday weekly boundaries, including a year boundary',()=>{
@@ -11,10 +11,10 @@ test('twelve eligible contents exclude group games and pet activities; stable ba
 });
 test('one completed action records both periods atomically; four distinct contents complete a week',()=>{
  const writes=challengeProgressWrites({uid:'u',appId:'reading-training',projectId:'p',now:fixed});assert.equal(writes.length,2);assert.match(writes[0].update.name,/daily-2026-10-24$/);assert.match(writes[1].update.name,/weekly-2026-10-19$/);assert.deepEqual(challengeProgressWrites({uid:'u',appId:'word-wolf',projectId:'p'}),[]);
- const completed=Object.fromEntries(CHALLENGE_CONTENTS.slice(0,4).map(x=>[x.id,'stamp']));assert.equal(challengeState('u',periods,{weekly:{completed}},fixed).weekly.complete,true);assert.equal(challengeState('u',periods,{weekly:{completed:{ateru:'stamp'}}},fixed).weekly.count,1);
+ const completed=Object.fromEntries(weeklyChallengeTasks('u',periods.week).map(x=>[x.id,'stamp']));assert.equal(challengeState('u',periods,{weekly:{completed}},fixed).weekly.complete,true);assert.equal(challengeState('u',periods,{weekly:{completed:{[weeklyChallengeTasks('u',periods.week)[0].id]:'stamp'}}},fixed).weekly.count,1);
 });
 test('existing server activity within the period counts; old and excluded activity does not',()=>{
- const state=challengeState('u',periods,{activity:{contents:{ateru:{lastLearningAt:'2026-10-24T00:00:00Z'},'basic-quest':{lastLearningAt:'2026-10-20T00:00:00Z'},'word-wolf':{lastLearningAt:'2026-10-24T00:00:00Z'},'eiken-retry':{lastLearningAt:'2026-10-10T00:00:00Z'}}}},fixed);assert.equal(state.weekly.count,2);
+ const state=challengeState('u',periods,{activity:{contents:{ateru:{lastLearningAt:'2026-10-24T00:00:00Z'},'basic-quest':{lastLearningAt:'2026-10-20T00:00:00Z'},'word-wolf':{lastLearningAt:'2026-10-24T00:00:00Z'},'eiken-retry':{lastLearningAt:'2026-10-10T00:00:00Z'}}}},fixed);assert.equal(state.weekly.count,weeklyChallengeTasks('u',periods.week).filter(x=>['ateru','basic-quest'].includes(x.id)).length);
 });
 function harness({ready=true,conflict=false}={}){
  const docs=new Map(),prefix='projects/p/databases/(default)/documents/';let version=1,commits=0,awards=0;
@@ -43,3 +43,5 @@ test('incomplete, stale-period, unknown-kind, and signed-out requests cannot awa
 test('status reads do not award rewards and expose actionable daily tasks',async()=>{
  const h=harness(),r={};await h.handle({method:'GET'},r);assert.equal(r.status,200);assert.equal(r.body.daily.reward,10);assert.equal(r.body.weekly.reward,20);assert.equal(r.body.daily.tasks.length,2);assert.equal(r.body.daily.claimed,false);assert.equal(h.commits,0);
 });
+
+test('weekly picks are stable, balanced, unique and only selected work counts',()=>{for(let i=0;i<20;i++){const uid='u'+i,a=weeklyChallengeTasks(uid,periods.week);assert.deepEqual(a,weeklyChallengeTasks(uid,periods.week));assert.equal(new Set(a.map(x=>x.id)).size,4);assert.deepEqual(a.map(x=>x.group),['light','light','practice','practice']);const other=CHALLENGE_CONTENTS.filter(x=>!a.some(y=>y.id===x.id));const state=challengeState(uid,periods,{weekly:{completed:Object.fromEntries(other.map(x=>[x.id,'stamp']))},weeklyClaim:{exists:true}},fixed);assert.equal(state.weekly.count,0);assert.equal(state.weekly.complete,false);assert.equal(state.weekly.claimed,true);assert.equal(state.weekly.tasks.length,4);}assert.ok(new Set(Array.from({length:8},(_,i)=>weeklyChallengeTasks('u','2026-10-'+String(5+i*7)).map(x=>x.id).join(','))).size>1);});
