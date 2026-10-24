@@ -1,7 +1,7 @@
 name: Admin read efficiency
 on:
   push:
-    paths: ['server.mjs', 'admin-data.mjs', 'admin-data.test.mjs', 'learning-activity.mjs', 'learning-activity.test.mjs', 'learning-dashboard.mjs', 'learning-dashboard.test.mjs', 'shop-name-changes.mjs', 'shop-name-changes.test.mjs', '.github/workflows/admin-data.yml']
+    paths: ['server.mjs', 'admin-data.mjs', 'admin-data.test.mjs', 'learning-activity.mjs', 'learning-activity.test.mjs', 'challenge-model.mjs', 'learning-challenges.mjs', 'learning-challenges.test.mjs', 'learning-dashboard.mjs', 'learning-dashboard.test.mjs', 'shop-name-changes.mjs', 'shop-name-changes.test.mjs', '.github/workflows/admin-data.yml']
 permissions:
   contents: read
 jobs:
@@ -13,4 +13,4 @@ jobs:
         with:
           node-version: 24
       - run: node --check server.mjs
-      - run: node --test learning-dashboard.test.mjs admin-data.test.mjs learning-activity.test.mjs shop-name-changes.test.mjs
+      - run: node --test learning-challenges.test.mjs learning-dashboard.test.mjs admin-data.test.mjs learning-activity.test.mjs shop-name-changes.test.mjs

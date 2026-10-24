@@ -1,3 +1,4 @@
+import {createLearningChallenges} from './learning-challenges.mjs';
 import {createSecurityGate} from './security-gate.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import {createLearningDashboard} from './learning-dashboard.mjs';
@@ -182,6 +183,7 @@ async function handleDailyCoinLeaderboard(req,res){
 }
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
 const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,invalidate:adminData.invalidateLearning});
+const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache});}});
 const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 const wordBreakerRecords=createWordBreakerRecords({base:FIRESTORE_BASE,activeIds:adminData.activeIds,accessToken:getGoogleAccessToken,decodeFields,send,fail});
 const petCatchRecords=createPetCatchRecords({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
@@ -291,6 +293,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/pet-chat')return handlePetChat(req,res);
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/pre2-interview-grade')return handlePre2Interview(req,res);
+  if(path==='/api/learning/challenges')return handleLearningChallenges(req,res);
   if(path==='/api/learning/activity')return handleLearningActivity(req,res);
   if(path==='/api/learning/dashboard')return handleLearningDashboard(req,res);
   if(path==='/api/shop/rename')return handleShopRename(req,res);
@@ -298,7 +301,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7'});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.8.33'});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
