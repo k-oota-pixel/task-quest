@@ -1,0 +1,1607 @@
+{
+  "word-breaker": [
+    {
+      "id": "creative:word-breaker:1",
+      "name": "最初のひび割れ",
+      "condition": "初めて1プレイを完了する",
+      "metric": "runs",
+      "need": 1
+    },
+    {
+      "id": "creative:word-breaker:2",
+      "name": "ことばのハンマー",
+      "condition": "1プレイで10問正解する",
+      "metric": "score",
+      "need": 10
+    },
+    {
+      "id": "creative:word-breaker:3",
+      "name": "五連の一撃",
+      "condition": "5コンボを達成する",
+      "metric": "combo",
+      "need": 5
+    },
+    {
+      "id": "creative:word-breaker:4",
+      "name": "転んでもブレイカー",
+      "condition": "間違えた単語に、そのプレイ中に正解する",
+      "metric": "recovered",
+      "need": 1
+    },
+    {
+      "id": "creative:word-breaker:5",
+      "name": "語彙の壁、突破！",
+      "condition": "1プレイで30問正解する",
+      "metric": "score",
+      "need": 30
+    },
+    {
+      "id": "creative:word-breaker:6",
+      "name": "止まらない連撃",
+      "condition": "50コンボを達成する",
+      "metric": "combo",
+      "need": 50
+    },
+    {
+      "id": "creative:word-breaker:7",
+      "name": "三つの扉を開く者",
+      "condition": "異なる3コースで、それぞれ1プレイ30問正解する",
+      "metric": "courses30",
+      "need": 3
+    },
+    {
+      "id": "creative:word-breaker:8",
+      "name": "六つの世界の旅人",
+      "condition": "全6コースで、それぞれ1プレイ30問正解する",
+      "metric": "courses30",
+      "need": 6
+    },
+    {
+      "id": "creative:word-breaker:9",
+      "name": "三冠の壁砕き",
+      "condition": "異なる3コースで、それぞれ1プレイ50問正解する",
+      "metric": "courses50",
+      "need": 3
+    },
+    {
+      "id": "creative:word-breaker:10",
+      "name": "ことばの破城王",
+      "condition": "1プレイで300問正解する",
+      "metric": "score",
+      "need": 300
+    },
+    {
+      "id": "creative:word-breaker:11",
+      "name": "背水のブレイカー",
+      "condition": "残り1 LIFEになってから10問正解する",
+      "metric": "oneLife",
+      "need": 10
+    },
+    {
+      "id": "creative:word-breaker:12",
+      "name": "百連の衝撃",
+      "condition": "100コンボを達成する",
+      "metric": "combo",
+      "need": 100
+    },
+    {
+      "id": "creative:word-breaker:13",
+      "name": "壁の向こうの景色",
+      "condition": "1プレイで100問正解する",
+      "metric": "score",
+      "need": 100
+    },
+    {
+      "id": "creative:word-breaker:14",
+      "name": "六冠の解体王",
+      "condition": "全6コースで、それぞれ1プレイ50問正解する",
+      "metric": "courses50",
+      "need": 6
+    },
+    {
+      "id": "creative:word-breaker:15",
+      "name": "不屈の破城槌",
+      "condition": "残り1 LIFEになってから50問正解する",
+      "metric": "oneLife",
+      "need": 50
+    }
+  ],
+  "ateru": [
+    {
+      "id": "creative:ateru:1",
+      "name": "見習い探偵、出動！",
+      "condition": "初めて5問の結果を確認する",
+      "metric": "runs",
+      "need": 1
+    },
+    {
+      "id": "creative:ateru:2",
+      "name": "ひらめきの火花",
+      "condition": "初めて1問正解する",
+      "metric": "correctItems",
+      "need": 1
+    },
+    {
+      "id": "creative:ateru:3",
+      "name": "三つの手がかり",
+      "condition": "1プレイで3問以上正解する",
+      "metric": "score",
+      "need": 3
+    },
+    {
+      "id": "creative:ateru:4",
+      "name": "事件はすべて解けた",
+      "condition": "1プレイで5問すべて正解する",
+      "metric": "score",
+      "need": 5
+    },
+    {
+      "id": "creative:ateru:5",
+      "name": "綴りの鑑識官",
+      "condition": "文字の選択を一度も間違えずに1問正解する",
+      "metric": "cleanItems",
+      "need": 1
+    },
+    {
+      "id": "creative:ateru:6",
+      "name": "証拠は見逃さない",
+      "condition": "5問すべて、文字の選択を一度も間違えずに正解する",
+      "metric": "cleanRun",
+      "need": 1
+    },
+    {
+      "id": "creative:ateru:7",
+      "name": "外れた推理、その先に",
+      "condition": "間違えた問題に、後のプレイで正解する",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:ateru:8",
+      "name": "再捜査の達人",
+      "condition": "過去に間違えた異なる10問に正解する",
+      "metric": "recoveredItems",
+      "need": 10
+    },
+    {
+      "id": "creative:ateru:9",
+      "name": "十の事件簿",
+      "condition": "異なる10問に正解する",
+      "metric": "correctItems",
+      "need": 10
+    },
+    {
+      "id": "creative:ateru:10",
+      "name": "五十の謎を追う者",
+      "condition": "異なる50問に正解する",
+      "metric": "correctItems",
+      "need": 50
+    },
+    {
+      "id": "creative:ateru:11",
+      "name": "百件解決の名探偵",
+      "condition": "異なる100問に正解する",
+      "metric": "correctItems",
+      "need": 100
+    },
+    {
+      "id": "creative:ateru:12",
+      "name": "連続解決、異議なし",
+      "condition": "2プレイ連続で5問すべて正解する",
+      "metric": "perfectStreak",
+      "need": 2
+    },
+    {
+      "id": "creative:ateru:13",
+      "name": "迷宮知らず",
+      "condition": "3プレイ連続で5問すべて正解する",
+      "metric": "perfectStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:ateru:14",
+      "name": "名探偵の日課",
+      "condition": "異なる7日で5問すべて正解する",
+      "metric": "perfectDays",
+      "need": 7
+    },
+    {
+      "id": "creative:ateru:15",
+      "name": "ことばの完全捜査",
+      "condition": "全320問に正解する",
+      "metric": "correctItems",
+      "need": 320
+    }
+  ],
+  "basic-quest": [
+    {
+      "id": "creative:basic-quest:1",
+      "name": "はじめての一棟",
+      "condition": "初めて1ステージを完了する",
+      "metric": "stages",
+      "need": 1
+    },
+    {
+      "id": "creative:basic-quest:2",
+      "name": "語順の土台づくり",
+      "condition": "初めて1問、初回正解する",
+      "metric": "firstItems",
+      "need": 1
+    },
+    {
+      "id": "creative:basic-quest:3",
+      "name": "三本柱の英文",
+      "condition": "1ステージで3問以上、初回正解する",
+      "metric": "score",
+      "need": 3
+    },
+    {
+      "id": "creative:basic-quest:4",
+      "name": "ぴたり、完成！",
+      "condition": "1ステージの4問すべてに初回正解する",
+      "metric": "score",
+      "need": 4
+    },
+    {
+      "id": "creative:basic-quest:5",
+      "name": "積み直せば、大丈夫",
+      "condition": "間違えた英文を、解き直して正解する",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:basic-quest:6",
+      "name": "ことばの修繕屋",
+      "condition": "過去に間違えた異なる10問に正解する",
+      "metric": "recoveredItems",
+      "need": 10
+    },
+    {
+      "id": "creative:basic-quest:7",
+      "name": "五つの設計図",
+      "condition": "異なる5ステージを完了する",
+      "metric": "stages",
+      "need": 5
+    },
+    {
+      "id": "creative:basic-quest:8",
+      "name": "十棟目の上棟式",
+      "condition": "異なる10ステージを完了する",
+      "metric": "stages",
+      "need": 10
+    },
+    {
+      "id": "creative:basic-quest:9",
+      "name": "町をつくる人",
+      "condition": "異なる20ステージを完了する",
+      "metric": "stages",
+      "need": 20
+    },
+    {
+      "id": "creative:basic-quest:10",
+      "name": "半分できた街並み",
+      "condition": "異なる30ステージを完了する",
+      "metric": "stages",
+      "need": 30
+    },
+    {
+      "id": "creative:basic-quest:11",
+      "name": "二棟続けて、寸分違わず",
+      "condition": "2ステージ連続で全問初回正解する",
+      "metric": "perfectStreak",
+      "need": 2
+    },
+    {
+      "id": "creative:basic-quest:12",
+      "name": "語順の現場監督",
+      "condition": "異なる10ステージで全問初回正解する",
+      "metric": "perfectStages",
+      "need": 10
+    },
+    {
+      "id": "creative:basic-quest:13",
+      "name": "英文の名建築家",
+      "condition": "異なる30ステージで全問初回正解する",
+      "metric": "perfectStages",
+      "need": 30
+    },
+    {
+      "id": "creative:basic-quest:14",
+      "name": "六十棟の街",
+      "condition": "全60ステージを完了する",
+      "metric": "stages",
+      "need": 60
+    },
+    {
+      "id": "creative:basic-quest:15",
+      "name": "語順都市、完成",
+      "condition": "全60ステージで全問初回正解する",
+      "metric": "perfectStages",
+      "need": 60
+    }
+  ],
+  "eiken-retry": [
+    {
+      "id": "creative:eiken-retry:1",
+      "name": "ノートの最初の一行",
+      "condition": "初めて1問に回答する",
+      "metric": "attemptedItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-retry:2",
+      "name": "間違いを拾う人",
+      "condition": "初めて間違えた問題を、復習でもう一度解く",
+      "metric": "retriedItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-retry:3",
+      "name": "できるに変わった日",
+      "condition": "間違えた問題を初めて正解し直す",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-retry:4",
+      "name": "五つのほころび",
+      "condition": "異なる5問を正解し直す",
+      "metric": "recoveredItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-retry:5",
+      "name": "ミスの修復師",
+      "condition": "異なる10問を正解し直す",
+      "metric": "recoveredItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-retry:6",
+      "name": "二度目の正直",
+      "condition": "同じ問題で2回以上間違えた後、正解する",
+      "metric": "recoverMistakes",
+      "need": 2
+    },
+    {
+      "id": "creative:eiken-retry:7",
+      "name": "三度転んでも",
+      "condition": "同じ問題で3回以上間違えた後、正解する",
+      "metric": "recoverMistakes",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-retry:8",
+      "name": "苦手に名前をつけた",
+      "condition": "間違えた問題シリーズで、累計20問に取り組む",
+      "metric": "seriesAnswers",
+      "need": 20
+    },
+    {
+      "id": "creative:eiken-retry:9",
+      "name": "忘れたころの再会",
+      "condition": "7日以上前に間違えた問題に正解する",
+      "metric": "oldRecovery",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-retry:10",
+      "name": "昨日の自分を超えて",
+      "condition": "前日に間違えた異なる5問に正解する",
+      "metric": "yesterdayRecovered",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-retry:11",
+      "name": "五十の逆転劇",
+      "condition": "異なる50問を正解し直す",
+      "metric": "recoveredItems",
+      "need": 50
+    },
+    {
+      "id": "creative:eiken-retry:12",
+      "name": "百の「できた」",
+      "condition": "異なる100問を正解し直す",
+      "metric": "recoveredItems",
+      "need": 100
+    },
+    {
+      "id": "creative:eiken-retry:13",
+      "name": "級をまたぐ修復師",
+      "condition": "異なる3つの級で、それぞれ10問を正解し直す",
+      "metric": "recoveryGrades10",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-retry:14",
+      "name": "苦手の向こうへ",
+      "condition": "異なる200問を正解し直す",
+      "metric": "recoveredItems",
+      "need": 200
+    },
+    {
+      "id": "creative:eiken-retry:15",
+      "name": "間違いは、宝の地図",
+      "condition": "全5つの級で、それぞれ20問を正解し直す",
+      "metric": "recoveryGrades20",
+      "need": 5
+    }
+  ],
+  "eiken-cloze": [
+    {
+      "id": "creative:eiken-cloze:1",
+      "name": "空白への第一歩",
+      "condition": "初めて1長文で回答し、判定を受ける",
+      "metric": "attempts",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-cloze:2",
+      "name": "ことばの小さな橋",
+      "condition": "初めて1か所、空所補充に正解する",
+      "metric": "correctItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-cloze:3",
+      "name": "選び抜いた一語",
+      "condition": "選択肢モードで初めて正解する",
+      "metric": "choiceItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-cloze:4",
+      "name": "自分のことばで架ける",
+      "condition": "自由入力モードで初めて正解する",
+      "metric": "freeItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-cloze:5",
+      "name": "二つの道具箱",
+      "condition": "選択肢・自由入力の両モードで正解する",
+      "metric": "modes",
+      "need": 2
+    },
+    {
+      "id": "creative:eiken-cloze:6",
+      "name": "文脈の渡し守",
+      "condition": "異なる5長文で正解する",
+      "metric": "goodPassages",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-cloze:7",
+      "name": "空白知らずの一篇",
+      "condition": "1長文の空所すべてに初回正解する",
+      "metric": "firstPassages",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-cloze:8",
+      "name": "つなぎ直した意味",
+      "condition": "間違えた空所を、解き直して正解する",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-cloze:9",
+      "name": "橋のかけ直し屋",
+      "condition": "過去に間違えた異なる10か所に正解する",
+      "metric": "recoveredItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-cloze:10",
+      "name": "十篇の橋渡し",
+      "condition": "異なる10長文で正解する",
+      "metric": "goodPassages",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-cloze:11",
+      "name": "二つの岸を越えて",
+      "condition": "選択肢・自由入力の両モードで、それぞれ3長文に正解する",
+      "metric": "modes3",
+      "need": 2
+    },
+    {
+      "id": "creative:eiken-cloze:12",
+      "name": "文脈を渡る旅人",
+      "condition": "異なる3長文で、両モードの空所すべてに正解する",
+      "metric": "bothPassages",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-cloze:13",
+      "name": "迷わぬ架橋職人",
+      "condition": "3長文連続で、すべての空所に初回正解する",
+      "metric": "firstStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-cloze:14",
+      "name": "自在に架ける橋",
+      "condition": "自由入力で、異なる10長文に正解する",
+      "metric": "freePassages",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-cloze:15",
+      "name": "空白をつなぐ賢者",
+      "condition": "全17長文で、空所すべてに正解する",
+      "metric": "goodPassages",
+      "need": 17
+    }
+  ],
+  "eiken-title": [
+    {
+      "id": "creative:eiken-title:1",
+      "name": "はじめての見出し",
+      "condition": "初めてタイトルを提出し、判定を受ける",
+      "metric": "attempts",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-title:2",
+      "name": "核心、発見！",
+      "condition": "初めてタイトルが適切と判定される",
+      "metric": "goodItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-title:3",
+      "name": "一篇をひと言に",
+      "condition": "初回の提出で適切と判定される",
+      "metric": "firstItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-title:4",
+      "name": "見出しの手直し屋",
+      "condition": "タイトルを修正して適切と判定される",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-title:5",
+      "name": "五篇の編集室",
+      "condition": "異なる5長文でタイトルを提出する",
+      "metric": "attemptedItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-title:6",
+      "name": "要点を拾う人",
+      "condition": "異なる5長文で適切と判定される",
+      "metric": "goodItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-title:7",
+      "name": "三篇続けて、的確",
+      "condition": "3長文連続で初回の提出が適切と判定される",
+      "metric": "firstStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-title:8",
+      "name": "十の核心",
+      "condition": "異なる10長文で適切と判定される",
+      "metric": "goodItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-title:9",
+      "name": "推敲の赤鉛筆",
+      "condition": "異なる5長文で、修正して適切と判定される",
+      "metric": "recoveredItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-title:10",
+      "name": "二つの書棚",
+      "condition": "異なる10長文でタイトルを提出する",
+      "metric": "attemptedItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-title:11",
+      "name": "級をまたぐ編集者",
+      "condition": "異なる3長文で、2通りのタイトルが適切と判定される",
+      "metric": "variantsItems",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-title:12",
+      "name": "読み筋の達人",
+      "condition": "異なる10長文で初回の提出が適切と判定される",
+      "metric": "firstItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-title:13",
+      "name": "文章の羅針盤",
+      "condition": "全17長文で適切と判定される",
+      "metric": "goodItems",
+      "need": 17
+    },
+    {
+      "id": "creative:eiken-title:14",
+      "name": "五篇を射抜く眼",
+      "condition": "5長文連続で初回の提出が適切と判定される",
+      "metric": "firstStreak",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-title:15",
+      "name": "ことばの編集長",
+      "condition": "全17長文で初回の提出が適切と判定される",
+      "metric": "firstItems",
+      "need": 17
+    }
+  ],
+  "reading-training": [
+    {
+      "id": "creative:reading-training:1",
+      "name": "一篇目の旅支度",
+      "condition": "初めて1長文の設問をすべて答え合わせする",
+      "metric": "exercises",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:2",
+      "name": "読み取った手がかり",
+      "condition": "初めて設問に正解する",
+      "metric": "correctQuestions",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:3",
+      "name": "一篇、読み切った！",
+      "condition": "1長文の設問すべてに初回正解する",
+      "metric": "firstItems",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:4",
+      "name": "五篇の足あと",
+      "condition": "異なる5長文の演習を完了する",
+      "metric": "exerciseItems",
+      "need": 5
+    },
+    {
+      "id": "creative:reading-training:5",
+      "name": "要約の第一筆",
+      "condition": "初めて要約を提出し、評価を受ける",
+      "metric": "summaries",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:6",
+      "name": "日本語の語り部",
+      "condition": "日本語の要約で達成判定を受ける",
+      "metric": "jaSummary",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:7",
+      "name": "英語の語り部",
+      "condition": "英語の要約で達成判定を受ける",
+      "metric": "enSummary",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:8",
+      "name": "二つのことばの旅人",
+      "condition": "同じ長文を日本語・英語の両方で要約する",
+      "metric": "bilingualItems",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:9",
+      "name": "読んで、伝えて",
+      "condition": "同じ長文で演習と要約を両方完了する",
+      "metric": "bothItems",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:10",
+      "name": "五篇を持ち帰る人",
+      "condition": "異なる5長文で演習と要約を両方完了する",
+      "metric": "bothItems",
+      "need": 5
+    },
+    {
+      "id": "creative:reading-training:11",
+      "name": "読み直しの収穫",
+      "condition": "全問正解できなかった長文を解き直し、全問正解する",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:reading-training:12",
+      "name": "十篇の読書地図",
+      "condition": "異なる10長文の演習を完了する",
+      "metric": "exerciseItems",
+      "need": 10
+    },
+    {
+      "id": "creative:reading-training:13",
+      "name": "級を渡る読書家",
+      "condition": "異なる3つの級で、それぞれ3長文の演習を完了する",
+      "metric": "exerciseGrades3",
+      "need": 3
+    },
+    {
+      "id": "creative:reading-training:14",
+      "name": "五つの書架の旅",
+      "condition": "全5つの級で、演習と要約を各1篇以上完了する",
+      "metric": "bothGrades",
+      "need": 5
+    },
+    {
+      "id": "creative:reading-training:15",
+      "name": "物語の航海士",
+      "condition": "異なる30長文で演習と要約を両方完了する",
+      "metric": "bothItems",
+      "need": 30
+    }
+  ],
+  "listening-training": [
+    {
+      "id": "creative:listening-training:1",
+      "name": "耳をすませば",
+      "condition": "初めて1問の結果を確認する",
+      "metric": "attempts",
+      "need": 1
+    },
+    {
+      "id": "creative:listening-training:2",
+      "name": "音のかけら、発見",
+      "condition": "初めてリスニング問題に正解する",
+      "metric": "practiceItems",
+      "need": 1
+    },
+    {
+      "id": "creative:listening-training:3",
+      "name": "五つの音の足あと",
+      "condition": "異なる5問に正解する",
+      "metric": "goodItems",
+      "need": 5
+    },
+    {
+      "id": "creative:listening-training:4",
+      "name": "耳からペンへ",
+      "condition": "初めてディクテーションを提出する",
+      "metric": "dictations",
+      "need": 1
+    },
+    {
+      "id": "creative:listening-training:5",
+      "name": "音をつかまえた！",
+      "condition": "初めてディクテーションで全文正解する",
+      "metric": "dictationItems",
+      "need": 1
+    },
+    {
+      "id": "creative:listening-training:6",
+      "name": "もう一度の耳",
+      "condition": "最初は間違えた問題を、聞き直して正解する",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:listening-training:7",
+      "name": "聞き直しの収穫",
+      "condition": "過去に間違えた異なる10問に正解する",
+      "metric": "recoveredItems",
+      "need": 10
+    },
+    {
+      "id": "creative:listening-training:8",
+      "name": "五連の聞き取り",
+      "condition": "リスニング問題に5問連続で初回正解する",
+      "metric": "practiceStreak",
+      "need": 5
+    },
+    {
+      "id": "creative:listening-training:9",
+      "name": "音の書きとめ屋",
+      "condition": "異なる5問のディクテーションで全文正解する",
+      "metric": "dictationItems",
+      "need": 5
+    },
+    {
+      "id": "creative:listening-training:10",
+      "name": "十連の澄んだ耳",
+      "condition": "リスニング問題に10問連続で初回正解する",
+      "metric": "practiceStreak",
+      "need": 10
+    },
+    {
+      "id": "creative:listening-training:11",
+      "name": "耳とペンの二刀流",
+      "condition": "異なる10問で問題演習とディクテーションの両方に正解する",
+      "metric": "bothItems",
+      "need": 10
+    },
+    {
+      "id": "creative:listening-training:12",
+      "name": "級を越えて届く声",
+      "condition": "異なる3つの級で、それぞれ5問に正解する",
+      "metric": "grades5",
+      "need": 3
+    },
+    {
+      "id": "creative:listening-training:13",
+      "name": "百の声を聞く人",
+      "condition": "異なる100問のリスニング問題に正解する",
+      "metric": "practiceItems",
+      "need": 100
+    },
+    {
+      "id": "creative:listening-training:14",
+      "name": "音の写し絵師",
+      "condition": "異なる30問のディクテーションで全文正解する",
+      "metric": "dictationItems",
+      "need": 30
+    },
+    {
+      "id": "creative:listening-training:15",
+      "name": "四つの海の聴き手",
+      "condition": "全4つの級で、それぞれ10問のリスニング問題に正解する",
+      "metric": "practiceGrades10",
+      "need": 4
+    }
+  ],
+  "task-quest": [
+    {
+      "id": "creative:task-quest:1",
+      "name": "はじめての依頼",
+      "condition": "初めて英文を提出し、採点を受ける",
+      "metric": "attempts",
+      "need": 1
+    },
+    {
+      "id": "creative:task-quest:2",
+      "name": "伝わった、その瞬間",
+      "condition": "初めてTASK CLEARを獲得する",
+      "metric": "goodItems",
+      "need": 1
+    },
+    {
+      "id": "creative:task-quest:3",
+      "name": "一発で通じた！",
+      "condition": "初回の提出でTASK CLEARを獲得する",
+      "metric": "firstItems",
+      "need": 1
+    },
+    {
+      "id": "creative:task-quest:4",
+      "name": "言い直しの勇気",
+      "condition": "TRY AGAINの後、同じタスクでTASK CLEARを獲得する",
+      "metric": "recoveredItems",
+      "need": 1
+    },
+    {
+      "id": "creative:task-quest:5",
+      "name": "五つの依頼を終えて",
+      "condition": "異なる5タスクでTASK CLEARを獲得する",
+      "metric": "goodItems",
+      "need": 5
+    },
+    {
+      "id": "creative:task-quest:6",
+      "name": "三連の任務完了",
+      "condition": "異なる3タスク連続で、初回からTASK CLEARを獲得する",
+      "metric": "firstStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:task-quest:7",
+      "name": "伝え方の修理屋",
+      "condition": "異なる5タスクで再提出によってTASK CLEARを獲得する",
+      "metric": "recoveredItems",
+      "need": 5
+    },
+    {
+      "id": "creative:task-quest:8",
+      "name": "十の場面の助っ人",
+      "condition": "異なる10タスクでTASK CLEARを獲得する",
+      "metric": "goodItems",
+      "need": 10
+    },
+    {
+      "id": "creative:task-quest:9",
+      "name": "もう一つの言い方",
+      "condition": "同じタスクで異なる英文2通りがTASK CLEARになる",
+      "metric": "variantsItems",
+      "need": 1
+    },
+    {
+      "id": "creative:task-quest:10",
+      "name": "表現の道具箱",
+      "condition": "異なる5タスクで2通りの英文がTASK CLEARになる",
+      "metric": "variantsItems",
+      "need": 5
+    },
+    {
+      "id": "creative:task-quest:11",
+      "name": "五連の交渉成立",
+      "condition": "異なる5タスク連続で、初回からTASK CLEARを獲得する",
+      "metric": "firstStreak",
+      "need": 5
+    },
+    {
+      "id": "creative:task-quest:12",
+      "name": "場面を渡る冒険者",
+      "condition": "異なる20タスクでTASK CLEARを獲得する",
+      "metric": "goodItems",
+      "need": 20
+    },
+    {
+      "id": "creative:task-quest:13",
+      "name": "最後まで伝える人",
+      "condition": "異なる10タスクで再提出によってTASK CLEARを獲得する",
+      "metric": "recoveredItems",
+      "need": 10
+    },
+    {
+      "id": "creative:task-quest:14",
+      "name": "十の即答、十の成功",
+      "condition": "異なる10タスクで初回からTASK CLEARを獲得する",
+      "metric": "firstItems",
+      "need": 10
+    },
+    {
+      "id": "creative:task-quest:15",
+      "name": "伝える力の冒険王",
+      "condition": "異なる30タスクでTASK CLEARを獲得する",
+      "metric": "goodItems",
+      "need": 30
+    }
+  ],
+  "talk-quest": [
+    {
+      "id": "creative:talk-quest:1",
+      "name": "会話の扉をノック",
+      "condition": "初めて会話を1往復する",
+      "metric": "turns",
+      "need": 1
+    },
+    {
+      "id": "creative:talk-quest:2",
+      "name": "三往復の小道",
+      "condition": "1つのテーマで3往復する",
+      "metric": "maxTurns",
+      "need": 3
+    },
+    {
+      "id": "creative:talk-quest:3",
+      "name": "聞き返す勇気",
+      "condition": "初めて相手に英語で質問する",
+      "metric": "questions",
+      "need": 1
+    },
+    {
+      "id": "creative:talk-quest:4",
+      "name": "ことばのキャッチボール",
+      "condition": "1つのテーマで5往復する",
+      "metric": "maxTurns",
+      "need": 5
+    },
+    {
+      "id": "creative:talk-quest:5",
+      "name": "五つの話題の種",
+      "condition": "異なる5テーマで、それぞれ3往復する",
+      "metric": "topics3",
+      "need": 5
+    },
+    {
+      "id": "creative:talk-quest:6",
+      "name": "質問でつなぐ橋",
+      "condition": "異なる5テーマで相手に質問する",
+      "metric": "questionTopics",
+      "need": 5
+    },
+    {
+      "id": "creative:talk-quest:7",
+      "name": "自分のことばで一歩",
+      "condition": "返答例を使わず、自分で入力した英文を送信する",
+      "metric": "manual",
+      "need": 1
+    },
+    {
+      "id": "creative:talk-quest:8",
+      "name": "自分のことばで対話",
+      "condition": "1つのテーマで、自分で入力した英文だけで5往復する",
+      "metric": "manualStreak",
+      "need": 5
+    },
+    {
+      "id": "creative:talk-quest:9",
+      "name": "話題の散歩道",
+      "condition": "異なる10テーマで、それぞれ3往復する",
+      "metric": "topics3",
+      "need": 10
+    },
+    {
+      "id": "creative:talk-quest:10",
+      "name": "会話のロングラン",
+      "condition": "1つのテーマで10往復する",
+      "metric": "maxTurns",
+      "need": 10
+    },
+    {
+      "id": "creative:talk-quest:11",
+      "name": "おしゃべりの旅人",
+      "condition": "異なる20テーマで、それぞれ3往復する",
+      "metric": "topics3",
+      "need": 20
+    },
+    {
+      "id": "creative:talk-quest:12",
+      "name": "聞き上手の架け橋",
+      "condition": "1つの会話で異なる質問を3つする",
+      "metric": "maxQuestions",
+      "need": 3
+    },
+    {
+      "id": "creative:talk-quest:13",
+      "name": "四十の話題の持ち主",
+      "condition": "異なる40テーマで、それぞれ3往復する",
+      "metric": "topics3",
+      "need": 40
+    },
+    {
+      "id": "creative:talk-quest:14",
+      "name": "会話が育つ一週間",
+      "condition": "異なる7日で、1日1回以上5往復の会話をする",
+      "metric": "fiveTurnDays",
+      "need": 7
+    },
+    {
+      "id": "creative:talk-quest:15",
+      "name": "八十の世界をつなぐ人",
+      "condition": "全80テーマで、それぞれ3往復する",
+      "metric": "topics3",
+      "need": 80
+    }
+  ],
+  "pre2-interview-questions": [
+    {
+      "id": "creative:pre2-interview-questions:1",
+      "name": "はじめての応答",
+      "condition": "初めて回答を提出し、AI採点を受ける",
+      "metric": "attempts",
+      "need": 1
+    },
+    {
+      "id": "creative:pre2-interview-questions:2",
+      "name": "意見の第一声",
+      "condition": "質問4の問題に初めて回答する",
+      "metric": "q4",
+      "need": 1
+    },
+    {
+      "id": "creative:pre2-interview-questions:3",
+      "name": "わたしの話を聞いて",
+      "condition": "質問5の問題に初めて回答する",
+      "metric": "q5",
+      "need": 1
+    },
+    {
+      "id": "creative:pre2-interview-questions:4",
+      "name": "その先を話してみよう",
+      "condition": "追加質問に答え、採点まで完了する",
+      "metric": "followUp",
+      "need": 1
+    },
+    {
+      "id": "creative:pre2-interview-questions:5",
+      "name": "考えが届いた日",
+      "condition": "初めて5点満点中4点以上を獲得する",
+      "metric": "score",
+      "need": 4
+    },
+    {
+      "id": "creative:pre2-interview-questions:6",
+      "name": "五つの応答の足あと",
+      "condition": "異なる5問に回答して採点を受ける",
+      "metric": "attemptedItems",
+      "need": 5
+    },
+    {
+      "id": "creative:pre2-interview-questions:7",
+      "name": "理由まで届ける人",
+      "condition": "異なる5問で理由を含む回答をして4点以上を獲得する",
+      "metric": "reasonItems",
+      "need": 5
+    },
+    {
+      "id": "creative:pre2-interview-questions:8",
+      "name": "言い直したら、伝わった",
+      "condition": "同じ問題への再回答で前回より高い点を獲得する",
+      "metric": "improvedItems",
+      "need": 1
+    },
+    {
+      "id": "creative:pre2-interview-questions:9",
+      "name": "意見と経験の二刀流",
+      "condition": "質問4・5の両方で、それぞれ4点以上を獲得する",
+      "metric": "goodTypes",
+      "need": 2
+    },
+    {
+      "id": "creative:pre2-interview-questions:10",
+      "name": "五つ星の応答",
+      "condition": "初めて5点満点を獲得する",
+      "metric": "score",
+      "need": 5
+    },
+    {
+      "id": "creative:pre2-interview-questions:11",
+      "name": "推敲するスピーカー",
+      "condition": "異なる5問で再回答によって点数を上げる",
+      "metric": "improvedItems",
+      "need": 5
+    },
+    {
+      "id": "creative:pre2-interview-questions:12",
+      "name": "三連の好応答",
+      "condition": "異なる3問連続で4点以上を獲得する",
+      "metric": "goodStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:pre2-interview-questions:13",
+      "name": "二十の考えを届けて",
+      "condition": "異なる20問で4点以上を獲得する",
+      "metric": "goodItems",
+      "need": 20
+    },
+    {
+      "id": "creative:pre2-interview-questions:14",
+      "name": "五つ星コレクター",
+      "condition": "異なる10問で5点満点を獲得する",
+      "metric": "perfectItems",
+      "need": 10
+    },
+    {
+      "id": "creative:pre2-interview-questions:15",
+      "name": "百の問いに、わたしの答え",
+      "condition": "全100問に回答して採点を受ける",
+      "metric": "attemptedItems",
+      "need": 100
+    }
+  ],
+  "eiken-pre2-interview-a": [
+    {
+      "id": "creative:eiken-pre2-interview-a:1",
+      "name": "絵をことばに",
+      "condition": "初めてイラストの説明を提出し、採点を受ける",
+      "metric": "attempts",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:2",
+      "name": "人物、発見！",
+      "condition": "初めて人物1人の説明が正解と判定される",
+      "metric": "score",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:3",
+      "name": "二人の様子が見えた",
+      "condition": "1つのイラストで2つ以上の説明が正解になる",
+      "metric": "score",
+      "need": 2
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:4",
+      "name": "一枚まるごと、伝わった",
+      "condition": "1つのイラストですべての説明が正解になる",
+      "metric": "perfectItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:5",
+      "name": "五枚のスケッチ",
+      "condition": "異なる5つのイラストに取り組む",
+      "metric": "attemptedItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:6",
+      "name": "描き直しの一筆",
+      "condition": "同じイラストへの再回答で正解数を増やす",
+      "metric": "improvedItems",
+      "need": 1
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:7",
+      "name": "観察眼の芽",
+      "condition": "異なる5つのイラストで2つ以上正解する",
+      "metric": "goodItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:8",
+      "name": "十枚の観察手帳",
+      "condition": "異なる10個のイラストに取り組む",
+      "metric": "attemptedItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:9",
+      "name": "五つの描き直し",
+      "condition": "異なる5つのイラストで再回答によって正解数を増やす",
+      "metric": "improvedItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:10",
+      "name": "三枚続けて、くっきり",
+      "condition": "異なる3つのイラスト連続ですべて正解する",
+      "metric": "perfectStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:11",
+      "name": "英語のスケッチ職人",
+      "condition": "異なる5つのイラストですべて正解する",
+      "metric": "perfectItems",
+      "need": 5
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:12",
+      "name": "細部まで届くことば",
+      "condition": "異なる10個のイラストですべて正解する",
+      "metric": "perfectItems",
+      "need": 10
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:13",
+      "name": "二十枚の画廊",
+      "condition": "全20個のイラストに取り組む",
+      "metric": "attemptedItems",
+      "need": 20
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:14",
+      "name": "情景の語り部",
+      "condition": "全20個のイラストで2つ以上正解する",
+      "metric": "goodItems",
+      "need": 20
+    },
+    {
+      "id": "creative:eiken-pre2-interview-a:15",
+      "name": "一枚残らず、英語の景色",
+      "condition": "全20個のイラストですべて正解する",
+      "metric": "perfectItems",
+      "need": 20
+    }
+  ],
+  "pet-catch": [
+    {
+      "id": "creative:pet-catch:1",
+      "name": "相棒、キャッチ！",
+      "condition": "初めて1プレイを完了する",
+      "metric": "runs",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-catch:2",
+      "name": "ことばをひとつ",
+      "condition": "初めて1問正解する",
+      "metric": "score",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-catch:3",
+      "name": "五つのナイスキャッチ",
+      "condition": "1プレイで5問正解する",
+      "metric": "score",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-catch:4",
+      "name": "ごほうびキャッチャー",
+      "condition": "1プレイで10問正解する",
+      "metric": "score",
+      "need": 10
+    },
+    {
+      "id": "creative:pet-catch:5",
+      "name": "息ぴったりの五連",
+      "condition": "5コンボを達成する",
+      "metric": "combo",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-catch:6",
+      "name": "二つの向きの相棒",
+      "condition": "EN→JA・JA→EN両モードで、それぞれ1プレイ10問正解する",
+      "metric": "modes10",
+      "need": 2
+    },
+    {
+      "id": "creative:pet-catch:7",
+      "name": "ことばの受け止め役",
+      "condition": "1プレイで20問正解する",
+      "metric": "score",
+      "need": 20
+    },
+    {
+      "id": "creative:pet-catch:8",
+      "name": "十連のコンビネーション",
+      "condition": "10コンボを達成する",
+      "metric": "combo",
+      "need": 10
+    },
+    {
+      "id": "creative:pet-catch:9",
+      "name": "落としても、もう一度",
+      "condition": "ミスの後、そのプレイ中に5問正解する",
+      "metric": "afterMiss",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-catch:10",
+      "name": "三十語の大収穫",
+      "condition": "1プレイで30問正解する",
+      "metric": "score",
+      "need": 30
+    },
+    {
+      "id": "creative:pet-catch:11",
+      "name": "二十連の名コンビ",
+      "condition": "20コンボを達成する",
+      "metric": "combo",
+      "need": 20
+    },
+    {
+      "id": "creative:pet-catch:12",
+      "name": "左右自在のことば使い",
+      "condition": "両モードで、それぞれ1プレイ30問正解する",
+      "metric": "modes30",
+      "need": 2
+    },
+    {
+      "id": "creative:pet-catch:13",
+      "name": "五十語のキャッチ王",
+      "condition": "1プレイで50問正解する",
+      "metric": "score",
+      "need": 50
+    },
+    {
+      "id": "creative:pet-catch:14",
+      "name": "相棒との一週間",
+      "condition": "異なる7日で、1日1回以上10問正解する",
+      "metric": "tenDays",
+      "need": 7
+    },
+    {
+      "id": "creative:pet-catch:15",
+      "name": "百語をつかむ絆",
+      "condition": "1プレイで100問正解する",
+      "metric": "score",
+      "need": 100
+    }
+  ],
+  "pet-instructions": [
+    {
+      "id": "creative:pet-instructions:1",
+      "name": "相棒と、はじめの合図",
+      "condition": "初めて5ラウンドを完了する",
+      "metric": "runs",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-instructions:2",
+      "name": "その指示、わかった！",
+      "condition": "初めて1ラウンド正解する",
+      "metric": "correct",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-instructions:3",
+      "name": "四つのナイス判断",
+      "condition": "初めて4問以上正解してCLEARする",
+      "metric": "score",
+      "need": 4
+    },
+    {
+      "id": "creative:pet-instructions:4",
+      "name": "ぴったり五つ！",
+      "condition": "初めて5問すべて正解する",
+      "metric": "score",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-instructions:5",
+      "name": "色を見抜く相棒",
+      "condition": "色の条件を含む指示に累計10回正解する",
+      "metric": "color",
+      "need": 10
+    },
+    {
+      "id": "creative:pet-instructions:6",
+      "name": "形を見抜く相棒",
+      "condition": "形の条件を含む指示に累計10回正解する",
+      "metric": "shape",
+      "need": 10
+    },
+    {
+      "id": "creative:pet-instructions:7",
+      "name": "大小おまかせ",
+      "condition": "大きさの条件を含む指示に累計10回正解する",
+      "metric": "size",
+      "need": 10
+    },
+    {
+      "id": "creative:pet-instructions:8",
+      "name": "見直してナイスキャッチ",
+      "condition": "最初は間違えたラウンドを選び直して正解する",
+      "metric": "recovered",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-instructions:9",
+      "name": "三連のハイタッチ",
+      "condition": "3プレイ連続でCLEARする",
+      "metric": "clearStreak",
+      "need": 3
+    },
+    {
+      "id": "creative:pet-instructions:10",
+      "name": "二連のパーフェクト",
+      "condition": "2プレイ連続で5問すべて正解する",
+      "metric": "perfectStreak",
+      "need": 2
+    },
+    {
+      "id": "creative:pet-instructions:11",
+      "name": "条件を見抜く眼",
+      "condition": "色・形・大きさすべてが指定された指示に正解する",
+      "metric": "allConditions",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-instructions:12",
+      "name": "三つの眼を持つ相棒",
+      "condition": "色・形・大きさの各指示に、それぞれ累計30回正解する",
+      "metric": "minConditions",
+      "need": 30
+    },
+    {
+      "id": "creative:pet-instructions:13",
+      "name": "五連のパーフェクト",
+      "condition": "5プレイ連続で5問すべて正解する",
+      "metric": "perfectStreak",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-instructions:14",
+      "name": "今日も合図はばっちり",
+      "condition": "異なる7日で、1日1回以上CLEARする",
+      "metric": "clearDays",
+      "need": 7
+    },
+    {
+      "id": "creative:pet-instructions:15",
+      "name": "以心伝心のキャッチ",
+      "condition": "異なる10日で、1日1回以上5問すべて正解する",
+      "metric": "perfectDays",
+      "need": 10
+    }
+  ],
+  "pet-chat": [
+    {
+      "id": "creative:pet-chat:1",
+      "name": "はじめまして、相棒",
+      "condition": "初めてペットと会話を1往復する",
+      "metric": "turns",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-chat:2",
+      "name": "三往復のぬくもり",
+      "condition": "1日の会話で3往復する",
+      "metric": "maxDailyTurns",
+      "need": 3
+    },
+    {
+      "id": "creative:pet-chat:3",
+      "name": "五往復のハイタッチ",
+      "condition": "1日の会話で5往復する",
+      "metric": "maxDailyTurns",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-chat:4",
+      "name": "相棒に聞いてみた",
+      "condition": "初めてペットに英語で質問する",
+      "metric": "questions",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-chat:5",
+      "name": "きょうの話をしよう",
+      "condition": "異なる3日の話題で会話する",
+      "metric": "days",
+      "need": 3
+    },
+    {
+      "id": "creative:pet-chat:6",
+      "name": "自分のことばを贈る",
+      "condition": "返答例を使わず、自分で英文を入力して送信する",
+      "metric": "manual",
+      "need": 1
+    },
+    {
+      "id": "creative:pet-chat:7",
+      "name": "もう少し話そう",
+      "condition": "1日の会話で10往復する",
+      "metric": "maxDailyTurns",
+      "need": 10
+    },
+    {
+      "id": "creative:pet-chat:8",
+      "name": "質問じょうずの相棒",
+      "condition": "異なる5日でペットに英語で質問する",
+      "metric": "questionDays",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-chat:9",
+      "name": "七つの話題の思い出",
+      "condition": "異なる7日の話題で、それぞれ3往復する",
+      "metric": "threeTurnDays",
+      "need": 7
+    },
+    {
+      "id": "creative:pet-chat:10",
+      "name": "ことばで育つ絆",
+      "condition": "会話が累計50往復に達する",
+      "metric": "turns",
+      "need": 50
+    },
+    {
+      "id": "creative:pet-chat:11",
+      "name": "返答例を飛び出して",
+      "condition": "1日の会話で、自分で入力した英文だけで5往復する",
+      "metric": "dailyManualStreak",
+      "need": 5
+    },
+    {
+      "id": "creative:pet-chat:12",
+      "name": "なんでも聞ける仲",
+      "condition": "1日の会話で異なる質問を3つする",
+      "metric": "maxDailyQuestions",
+      "need": 3
+    },
+    {
+      "id": "creative:pet-chat:13",
+      "name": "百往復の相棒",
+      "condition": "会話が累計100往復に達する",
+      "metric": "turns",
+      "need": 100
+    },
+    {
+      "id": "creative:pet-chat:14",
+      "name": "十四日分の「またね」",
+      "condition": "異なる14日で、それぞれ3往復する",
+      "metric": "threeTurnDays",
+      "need": 14
+    },
+    {
+      "id": "creative:pet-chat:15",
+      "name": "三十日分の物語",
+      "condition": "異なる30日で、それぞれ3往復する",
+      "metric": "threeTurnDays",
+      "need": 30
+    }
+  ]
+}

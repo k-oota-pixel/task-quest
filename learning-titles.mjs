@@ -1,13 +1,13 @@
-import {titleState} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,validTitleName} from './title-model.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  async function read(uid){
-  const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`];
+  const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...TITLE_CONTENTS.map(x=>`title_progress/${uid}/activities/${x.id}`)];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
   const rows=await response.json(),values=paths.map(p=>decodeFields(rows.find(r=>r.found?.name===prefix+p)?.found?.fields||{}));
-  const state=titleState({activity:values[0],retry:values[1],selection:values[2]});
+  const state=titleState({activity:values[0],retry:values[1],selection:values[2],progress:Object.fromEntries(TITLE_CONTENTS.map((x,i)=>[x.id,values[i+3]]))});
   // Transfer the notebook's previously equipped title once, without overwriting
   // a selection made concurrently in another tab.
   if(values[2].selectedId===undefined&&state.selectedId){
@@ -21,7 +21,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const token=await accessToken(),uids=[...new Set(leaders.map(x=>x.uid).filter(Boolean))];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:uids.map(uid=>prefix+'user_titles/'+uid)})});
   if(!response.ok)throw fail('表示称号を取得できませんでした。',502);
-  const rows=await response.json(),names=new Map(uids.map(uid=>[uid,decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedTitle||'']));
+  const rows=await response.json(),names=new Map(uids.map(uid=>[uid,validTitleName(decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedId)]));
   return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||'称号なし'}));
  }
  async function handle(req,res){try{
