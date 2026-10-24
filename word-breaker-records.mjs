@@ -48,7 +48,7 @@ function sanitizeStored(value){
  return {schemaVersion:1,courses};
 }
 function uidFromName(name){const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);return match?decodeURIComponent(match[1]):'';}
-export function createWordBreakerRecords({base,activeIds,accessToken,decodeFields,send,fail,fetch:request=globalThis.fetch,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ'}){
+export function createWordBreakerRecords({base,activeIds,accessToken,decodeFields,send,fail,fetch:request=globalThis.fetch,decorate=null,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ'}){
  const docUrl=base+'/documents/leaderboards/word-breaker';
  async function requestUser(req){const auth=String(req.headers?.authorization||'');const match=auth.match(/^Bearer\s+(.+)$/i);if(!match)throw fail('ログインが必要です。',401);const response=await request(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(webApiKey)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:match[1]})});let data={};try{data=await response.json();}catch{}const user=data.users?.[0];if(!response.ok||!user?.localId)throw fail('ログイン情報を確認できませんでした。',401);return {uid:user.localId};}
  async function requestJson(req,maxBytes=1024){if(req.body&&typeof req.body==='object')return req.body;let raw='',size=0;for await(const chunk of req){size+=chunk.length;if(size>maxBytes)throw fail('送信内容が大きすぎます。',413);raw+=chunk;}try{return JSON.parse(raw||'{}');}catch{throw fail('送信内容を読み取れません。',400);}}
@@ -109,7 +109,7 @@ export function createWordBreakerRecords({base,activeIds,accessToken,decodeField
  }
  async function handle(req,res){
   try{
-   if(req.method==='GET')return send(res,200,await snapshot());
+   if(req.method==='GET'){const result=await snapshot();if(decorate&&cached){const all=RECORD_COURSES.flatMap(course=>(cached.value.courses[course]?.leaders||[]).slice(0,3));const decorated=await decorate(all);let offset=0;for(const course of RECORD_COURSES){const size=Math.min(3,cached.value.courses[course]?.leaders?.length||0);result.courses[course].leaders=decorated.slice(offset,offset+size);offset+=size;}}return send(res,200,result);}
    if(req.method==='POST'){
     if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
     const user=await requestUser(req),body=await requestJson(req,1024),course=String(body.course||'');if(!RECORD_COURSES.includes(course))throw fail('コースが不正です。',400);

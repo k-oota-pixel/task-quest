@@ -86,11 +86,11 @@ async function commitCandidate({access,today,candidate,stored,readSummary,writeS
  */
 export async function readDailyCoinBoard({
   uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
-  readSummary,writeSummary,rankingCache=null,forceRankingRefresh=false,
+  readSummary,writeSummary,rankingCache=null,forceRankingRefresh=false,decorate=null,
   log=(...args)=>console.error(...args)
 }){
   const mine=await getUserDoc(access,uid);
-  const coinsToday=earnedCoinsToday(mine,today);
+  const coinsToday=Math.max(0,Math.floor(Number(earnedCoinsToday(mine,today))||0));
   if(typeof readSummary!=='function'||typeof writeSummary!=='function'){
     let ranking;
     if(rankingCache&&!forceRankingRefresh&&rankingCache.today===today&&rankingCache.expiresAt>Date.now())ranking=rankingCache.result;
@@ -100,7 +100,7 @@ export async function readDailyCoinBoard({
         try{
           const documents=await queryDailyCoinWallets(access,today);
           const leaders=rankWalletDocuments(documents,{today,decodeFields,earnedCoinsToday,validPetName});
-          return {top3:publicTop3(leaders),rankingAvailable:true};
+          return {top3:decorate?await decorate(leaders):publicTop3(leaders),rankingAvailable:true};
         }catch(error){log('Daily coin leaderboard ranking query failed',{status:error?.status||500,message:error?.message||'unknown'});return {top3:[],rankingAvailable:false};}
       })();
       if(rankingCache)rankingCache.pending={today,promise};
@@ -123,7 +123,7 @@ export async function readDailyCoinBoard({
       }
     }
     rememberViewer(rankingCache,uid,today,leaders);
-    return {today,coinsToday,top3:publicTop3(leaders),rankingAvailable:true};
+    return {today,coinsToday,top3:decorate?await decorate(leaders):publicTop3(leaders),rankingAvailable:true};
   }catch(error){
     log('Daily coin leaderboard summary failed',{status:error?.status||500,message:error?.message||'unknown'});
     return {today,coinsToday,top3:[],rankingAvailable:false};
@@ -136,7 +136,7 @@ export async function readDailyCoinBoard({
  */
 export async function publishDailyCoinBoard({
   uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
-  readSummary,writeSummary,rankingCache=null
+  readSummary,writeSummary,rankingCache=null,decorate=null
 }){
   const data=await getUserDoc(access,uid);
   const candidate=cleanEntry({uid,petName:data.petName,coinsToday:earnedCoinsToday(data,today)});
@@ -144,7 +144,7 @@ export async function publishDailyCoinBoard({
 
   const snapshot=rankingCache?.viewerSnapshots instanceof Map?rankingCache.viewerSnapshots.get(uid):null;
   if(snapshot?.today===today&&sameLeaders(mergeCandidate(snapshot.leaders,candidate),snapshot.leaders)){
-    return {updated:false,top3:publicTop3(snapshot.leaders)};
+    return {updated:false,top3:decorate?await decorate(snapshot.leaders):publicTop3(snapshot.leaders)};
   }
 
   let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
@@ -158,5 +158,5 @@ export async function publishDailyCoinBoard({
     stored=result.stored;leaders=result.leaders;updated=result.changed;
   }
   rememberViewer(rankingCache,uid,today,leaders);
-  return {updated,top3:publicTop3(leaders)};
+  return {updated,top3:decorate?await decorate(leaders):publicTop3(leaders)};
 }

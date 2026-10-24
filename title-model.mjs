@@ -1,0 +1,16 @@
+import {CHALLENGE_CONTENTS} from './challenge-model.mjs';
+import retryCatalog from './retry-title-catalog.json' with {type:'json'};
+export const TITLE_CONTENTS=[...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'pet-catch',label:'PET CATCH'},{id:'pet-instructions',label:'CATCH!'},{id:'pet-chat',label:'ペットと英会話'}];
+const count=value=>Math.max(0,Math.floor(Number(value)||0));
+export function activityTitles(appId,total){
+ const content=TITLE_CONTENTS.find(x=>x.id===appId);if(!content)return [];
+ return [[1,'はじめの一歩'],[10,'チャレンジャー'],[50,'エキスパート'],[100,'マスター']].map(([need,suffix])=>({id:appId+':'+need,appId,label:content.label,name:content.label+'・'+suffix,need,done:count(total),unlocked:count(total)>=need,condition:`取り組みを${need}回記録する`}));
+}
+export function titleState({activity={},retry={},selection={}}={}){
+ const titles=TITLE_CONTENTS.flatMap(x=>activityTitles(x.id,activity.contents?.[x.id]?.titleCount));
+ const done={};for(const [id,r] of Object.entries(retry.state?.records||{})){const grade=retryCatalog.questions[id];if(grade&&count(r?.attempts)>0)done[grade]=(done[grade]||0)+1;}
+ for(const t of retryCatalog.titles){const need=t.all?retryCatalog.totals[t.grade]:t.at;titles.push({id:'retry:'+t.id,appId:'eiken-retry',label:'リトライノート',name:t.name,need,done:done[t.grade]||0,unlocked:need>0&&(done[t.grade]||0)>=need,condition:`${t.grade}の異なる問題に${need}問回答する`});}
+ const old=retry.profile?.equippedTitle,selectedId=typeof selection.selectedId==='string'?selection.selectedId:(old?'retry:'+old:'');
+ const selected=titles.find(t=>t.id===selectedId&&t.unlocked)||null;
+ return {titles,selectedId:selected?.id||'',selectedTitle:selected?.name||''};
+}
