@@ -3,9 +3,9 @@ import {titleState,activityTitles,TITLE_CONTENTS} from './title-model.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import catalog from './retry-title-catalog.json' with {type:'json'};
-test('all individual activities have four tiers; group games excluded',()=>{
+test('non-retry activities add six tiers without changing existing IDs or retry titles',()=>{
  assert.equal(TITLE_CONTENTS.length,15);assert.ok(!TITLE_CONTENTS.some(x=>['word-wolf','eigo-meter'].includes(x.id)));
- for(const {id} of TITLE_CONTENTS){assert.equal(activityTitles(id,10).filter(t=>t.unlocked).length,2);assert.equal(activityTitles(id,0).filter(t=>t.unlocked).length,0);}
+ for(const {id} of TITLE_CONTENTS){const titles=activityTitles(id,10);assert.equal(titles.length,id==='eiken-retry'?4:10);assert.equal(titles.filter(t=>t.unlocked).length,id==='eiken-retry'?2:4);assert.deepEqual(titles.filter(t=>[1,10,50,100].includes(t.need)).map(t=>t.id),[1,10,50,100].map(n=>id+':'+n));assert.equal(activityTitles(id,0).filter(t=>t.unlocked).length,0);}
 });
 test('retry titles and selected title migrate using distinct answered questions, with no badges',()=>{
  const ids=Object.keys(catalog.questions).filter(id=>catalog.questions[id]==='4級').slice(0,50);
@@ -24,6 +24,6 @@ test('selection validates earned titles, clears selection and exposes only pet n
  assert.deepEqual(await api.decorate([{uid:'u',petName:'もこ',coinsToday:3}]),[{petName:'もこ',coinsToday:3,title:'アテル・はじめの一歩'}]);
 });
 test('milestone notification uses the atomic increment result rather than a later racing read',async()=>{
- let calls=0;const api=createLearningActivity({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId:'ateru'}),invalidate(){},fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt)=>{calls++;const writes=JSON.parse(opt.body).writes;assert.equal(writes[0].updateTransforms[2].increment.integerValue,'1');return {ok:true,json:async()=>({writeResults:[{transformResults:[{},{},{integerValue:'10'}]}]})};}});
- const r={};await api({method:'POST',headers:{'content-type':'application/json'}},r);assert.equal(calls,1);assert.equal(r.body.freshTitles[0].id,'ateru:10');
+ let calls=0,milestone=10;const api=createLearningActivity({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId:'ateru'}),invalidate(){},fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt)=>{calls++;const writes=JSON.parse(opt.body).writes;assert.equal(writes[0].updateTransforms[2].increment.integerValue,'1');return {ok:true,json:async()=>({writeResults:[{transformResults:[{},{},{integerValue:String(milestone)}]}]})};}});
+ const r={};await api({method:'POST',headers:{'content-type':'application/json'}},r);assert.equal(calls,1);assert.equal(r.body.freshTitles[0].id,'ateru:10');for(const n of [3,5,25,200,300,500]){milestone=n;const unlocked={};await api({method:'POST',headers:{'content-type':'application/json'}},unlocked);assert.equal(unlocked.body.freshTitles[0].id,'ateru:'+n);}
 });

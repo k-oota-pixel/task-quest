@@ -4,7 +4,9 @@ export const TITLE_CONTENTS=[...CHALLENGE_CONTENTS.map(({id,label})=>({id,label}
 const count=value=>Math.max(0,Math.floor(Number(value)||0));
 export function activityTitles(appId,total){
  const content=TITLE_CONTENTS.find(x=>x.id===appId);if(!content)return [];
- return [[1,'はじめの一歩'],[10,'チャレンジャー'],[50,'エキスパート'],[100,'マスター']].map(([need,suffix])=>({id:appId+':'+need,appId,label:content.label,name:content.label+'・'+suffix,need,done:count(total),unlocked:count(total)>=need,condition:`取り組みを${need}回記録する`}));
+ const tiers=[[1,'はじめの一歩'],[10,'チャレンジャー'],[50,'エキスパート'],[100,'マスター']];
+ if(appId!=='eiken-retry')tiers.push([3,'ルーキー'],[5,'探究者'],[25,'熟練者'],[200,'達人'],[300,'レジェンド'],[500,'殿堂入り']);
+ return tiers.sort((a,b)=>a[0]-b[0]).map(([need,suffix])=>({id:appId+':'+need,appId,label:content.label,name:content.label+'・'+suffix,need,done:count(total),unlocked:count(total)>=need,condition:`取り組みを${need}回記録する`}));
 }
 export function titleState({activity={},retry={},selection={}}={}){
  const titles=TITLE_CONTENTS.flatMap(x=>activityTitles(x.id,activity.contents?.[x.id]?.titleCount));
