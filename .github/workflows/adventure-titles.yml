@@ -2,9 +2,9 @@ name: Adventure title regression
 on:
   push:
     branches: [main]
-    paths: ['*title*', 'server.mjs', '.github/workflows/adventure-titles.yml']
+    paths: ['adventure-rankings*', '*title*', 'server.mjs', '.github/workflows/adventure-titles.yml']
   pull_request:
-    paths: ['*title*', 'server.mjs', '.github/workflows/adventure-titles.yml']
+    paths: ['adventure-rankings*', '*title*', 'server.mjs', '.github/workflows/adventure-titles.yml']
 permissions:
   contents: read
 jobs:
@@ -16,4 +16,4 @@ jobs:
         with:
           node-version: '24'
       - run: node --check server.mjs
-      - run: node --test adventure-titles.test.mjs creative-title-events.test.mjs learning-titles.test.mjs learning-challenges.test.mjs learning-activity.test.mjs api-security.test.mjs
+      - run: node --test adventure-rankings.test.mjs adventure-titles.test.mjs creative-title-events.test.mjs learning-titles.test.mjs learning-challenges.test.mjs learning-activity.test.mjs api-security.test.mjs
