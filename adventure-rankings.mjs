@@ -93,7 +93,8 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
   if(req.method==='GET'){const mode=new URL(req.url,'http://localhost').searchParams.get('mode');if(!Object.hasOwn(MODES,mode))throw fail('冒険先を選んでください。',400);const result=await snapshot();return send(res,200,{mode,fetchedAt:result.fetchedAt,leaders:result[mode]});}
   if(req.method==='POST'){
    if(!req.headers?.['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await requestUser(req),body=await requestJson(req,1024),mode=String(body.mode||'');if(!Object.hasOwn(MODES,mode))throw fail('冒険先を選んでください。',400);
-   const token=await accessToken(),data=await userDoc(token,user.uid),record=await publish({uid:user.uid,mode,floor:floorOf(data[MODES[mode]]),petName:data.petName});return send(res,200,{ok:true,record});
+   const expectedFloor=floorOf(Number(body.expectedFloor)),token=await accessToken(),data=await userDoc(token,user.uid),savedFloor=floorOf(data[MODES[mode]]);if(expectedFloor&&savedFloor<expectedFloor)return send(res,202,{ok:false,pending:true});
+   const record=await publish({uid:user.uid,mode,floor:savedFloor,petName:data.petName});return send(res,200,{ok:true,record});
   }
   throw fail('GETまたはPOSTのみ対応しています。',405);
  }catch(error){send(res,error.status||503,{error:error.status&&error.status<500?error.message:'ランキングを処理できませんでした。時間を置いて再表示してください。'});}}
