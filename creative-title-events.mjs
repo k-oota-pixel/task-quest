@@ -6,9 +6,9 @@ export function validateTitleEvent(b,fail){
  if(!b||!creativeCatalog[b.appId]||!(/^[\w-]{8,100}$/).test(b.eventId||''))throw fail('称号の記録が不正です。',400);
  const e={appId:b.appId,eventId:b.eventId};
  for(const k of ['kind','itemId','sessionId','grade','course','mode','questionType','language','answer'])if(b[k]!==undefined){if(typeof b[k]!=='string'||b[k].length>(k==='answer'?3000:300))throw fail('記録が長すぎます。',400);e[k]=b[k];}
- for(const k of ['score','total','combo','oneLifeCorrect','afterMissCorrect','previousMistakes','previousWrongAt'])if(b[k]!==undefined){if(!Number.isInteger(b[k])||b[k]<0||b[k]>(k==='previousWrongAt'?Date.now():100000))throw fail('記録の数値が不正です。',400);e[k]=b[k];}
- for(const k of ['correct','clean','cleanRun','recovered','color','shape','size','manual','question','reason','followUp','series','first'])if(b[k]!==undefined){if(typeof b[k]!=='boolean')throw fail('記録の条件が不正です。',400);e[k]=b[k];}
- const kinds={ 'word-breaker':['run'],'pet-catch':['run'],ateru:['question','run'],'basic-quest':['question','run'],'eiken-cloze':['passage'],'reading-training':['exercise','summary'],'pet-instructions':['round','run'],'talk-quest':['chat'],'pet-chat':['chat']};
+ for(const k of ['score','total','combo','oneLifeCorrect','afterMissCorrect','previousMistakes','previousWrongAt','floor'])if(b[k]!==undefined){if(!Number.isInteger(b[k])||b[k]<0||b[k]>(k==='previousWrongAt'?Date.now():100000))throw fail('記録の数値が不正です。',400);e[k]=b[k];}
+ for(const k of ['correct','clean','cleanRun','recovered','color','shape','size','manual','question','reason','followUp','series','first','critical','noDamage'])if(b[k]!==undefined){if(typeof b[k]!=='boolean')throw fail('記録の条件が不正です。',400);e[k]=b[k];}
+ const kinds={ 'word-tower':['run','answer','defeat'],'eiken-dungeon':['run','answer','defeat'],'word-breaker':['run'],'pet-catch':['run'],ateru:['question','run'],'basic-quest':['question','run'],'eiken-cloze':['passage'],'reading-training':['exercise','summary'],'pet-instructions':['round','run'],'talk-quest':['chat'],'pet-chat':['chat']};
  if(!(kinds[e.appId]||['answer']).includes(e.kind))throw fail('記録の種類が不正です。',400);
  if(e.kind==='run'&&!Number.isInteger(e.score))throw fail('結果が必要です。',400);
  if(!['run','chat'].includes(e.kind)&&!e.itemId)throw fail('問題が必要です。',400);
@@ -23,6 +23,11 @@ export function validateTitleEvent(b,fail){
  if(['pre2-interview-questions','eiken-pre2-interview-a','reading-training'].includes(e.appId)&&e.kind!=='summary'&&(!Number.isInteger(e.score)||!e.total||e.score>e.total))throw fail('採点結果が不正です。',400);
  if(['ateru','basic-quest','pet-instructions'].includes(e.appId)&&e.kind==='run'&&e.score>(e.appId==='basic-quest'?4:5))throw fail('結果の上限を超えています。',400);
  if(['eiken-retry','eiken-title','task-quest','listening-training'].includes(e.appId)&&typeof e.correct!=='boolean')throw fail('判定が必要です。',400);
+ if(['word-tower','eiken-dungeon'].includes(e.appId)){
+  if(!e.sessionId||!Number.isInteger(e.floor)||e.floor<1||e.floor>100000)throw fail('冒険の記録が不正です。',400);
+  if(e.kind==='answer'&&(typeof e.correct!=='boolean'||typeof e.critical!=='boolean'))throw fail('解答の記録が不正です。',400);
+  if(e.kind==='defeat'&&typeof e.noDamage!=='boolean')throw fail('撃破の記録が不正です。',400);
+ }
  return e;
 }
 export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){

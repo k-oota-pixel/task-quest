@@ -1,3 +1,4 @@
+import {creativeCatalog} from './title-model.mjs';
 import {createTitleEvents} from './creative-title-events.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
 import {createMaterialUsage,createMaterialOpen} from './material-usage.mjs';
@@ -312,7 +313,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.4'});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});

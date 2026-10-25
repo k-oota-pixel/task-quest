@@ -1,0 +1,19 @@
+name: Adventure title regression
+on:
+  push:
+    branches: [main]
+    paths: ['*title*', 'server.mjs', '.github/workflows/adventure-titles.yml']
+  pull_request:
+    paths: ['*title*', 'server.mjs', '.github/workflows/adventure-titles.yml']
+permissions:
+  contents: read
+jobs:
+  titles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check server.mjs
+      - run: node --test adventure-titles.test.mjs creative-title-events.test.mjs learning-titles.test.mjs learning-challenges.test.mjs learning-activity.test.mjs api-security.test.mjs

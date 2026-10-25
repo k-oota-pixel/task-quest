@@ -3,11 +3,11 @@ const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null}
 export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  async function read(uid){
-  const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...TITLE_CONTENTS.map(x=>`title_progress/${uid}/activities/${x.id}`)];
+  const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...TITLE_CONTENTS.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
   const rows=await response.json(),values=paths.map(p=>decodeFields(rows.find(r=>r.found?.name===prefix+p)?.found?.fields||{}));
-  const state=titleState({activity:values[0],retry:values[1],selection:values[2],progress:Object.fromEntries(TITLE_CONTENTS.map((x,i)=>[x.id,values[i+3]]))});
+  const state=titleState({activity:values[0],retry:values[1],selection:values[2],progress:Object.fromEntries(TITLE_CONTENTS.map((x,i)=>[x.id,values[i+3]])),wallet:values.at(-1)});
   // Transfer the notebook's previously equipped title once, without overwriting
   // a selection made concurrently in another tab.
   if(values[2].selectedId===undefined&&state.selectedId){

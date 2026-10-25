@@ -11,7 +11,21 @@ export function applyTitleEvent(previous={},e,day){
  const question=(good,id=key,extra={})=>{const p=item(id),first=!p.attempts;set('attemptedItems',id);if(good){set('goodItems',id);set('correctItems',id);if(first)set('firstItems',id);if(p.wrong)set('recoveredItems',id);p.good=true;}else{p.wrong=n(p.wrong)+1;p.firstWrongDay||=day;p.lastWrongDay=day;}p.attempts++;p.grade||=grade;return {p,first};};
  const groupCount=(setName,threshold)=>{const groups={};for(const id of Object.keys(s.sets[setName]||{})){const g=s.items[id]?.grade;if(g)groups[g]=(groups[g]||0)+1;}return Object.values(groups).filter(v=>v>=threshold).length;};
  inc('attempts');
- if(app==='word-breaker'){
+ if(app==='word-tower'||app==='eiken-dungeon'){
+  const session=s.sessions[keyOf(e.sessionId)]||={streak:0,defeated:{}};
+  if(e.kind==='run'){
+   if(!session.started){session.started=true;inc('runs');}
+   max('bestFloor',e.floor);
+  }else if(e.kind==='answer'){
+   if(e.correct){inc('correct');if(e.critical)inc('critical');session.streak++;max('answerStreak',session.streak);}
+   else session.streak=0;
+  }else if(e.kind==='defeat'&&!session.defeated[e.floor]){
+   session.defeated[e.floor]=true;
+   if(e.floor%5===0){inc('bosses');if(e.noDamage)max('noDamageBoss',1);}
+   max('bestFloor',e.floor+1);
+  }
+  for(const old of Object.keys(s.sessions).slice(0,-64))delete s.sessions[old];
+ }else if(app==='word-breaker'){
   inc('runs');max('score',e.score);max('combo',e.combo);max('oneLife',e.oneLifeCorrect);if(e.recovered)max('recovered',1);
   s.courses[e.course]=Math.max(n(s.courses[e.course]),n(e.score));max('courses30',Object.values(s.courses).filter(v=>v>=30).length);max('courses50',Object.values(s.courses).filter(v=>v>=50).length);
  }else if(app==='pet-catch'){
