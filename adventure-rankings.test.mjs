@@ -61,6 +61,8 @@ test('missing summary bootstraps once, then POST publishes trusted saved best',a
  });
  const first={};await api.handle({method:'GET',url:'/?mode=tower',headers:{}},first);assert.equal(first.status,200);assert.equal(first.body.leaders.length,3);assert.equal(scans,1);assert.equal(batchReads,1);assert.equal(writes,1);
  const second={};await api.handle({method:'GET',url:'/?mode=dungeon',headers:{}},second);assert.equal(scans,1);assert.equal(batchReads,1);assert.equal(writes,1);
- const post={};await api.handle({method:'POST',url:'/api/adventure/rankings',headers:{authorization:'Bearer client-token','content-type':'application/json'},body:{mode:'tower'}},post);
+ const pending={};await api.handle({method:'POST',url:'/api/adventure/rankings',headers:{authorization:'Bearer client-token','content-type':'application/json'},body:{mode:'tower',expectedFloor:36}},pending);
+ assert.equal(pending.status,202);assert.equal(pending.body.pending,true);assert.equal(writes,1);
+ const post={};await api.handle({method:'POST',url:'/api/adventure/rankings',headers:{authorization:'Bearer client-token','content-type':'application/json'},body:{mode:'tower',expectedFloor:35}},post);
  assert.equal(post.status,200);assert.equal(post.body.ok,true);assert.deepEqual(post.body.record.map(row=>[row.petName,row.floor,row.rank]),[['A',50,1],['B',40,2],['D',35,3]]);assert.equal(writes,2);
 });
