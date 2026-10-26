@@ -101,8 +101,8 @@
   },
   {
     "id": "quest50-21",
-    "situation": "You are at the zoo.",
-    "task": "Ask where the pandas are."
+    "situation": "You are at the zoo looking for the pandas.",
+    "task": "Ask where the pandas are. The target animal is pandas; do not substitute lions."
   },
   {
     "id": "quest50-22",
