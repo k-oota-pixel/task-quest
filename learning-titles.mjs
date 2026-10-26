@@ -24,9 +24,26 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const rows=await response.json(),names=new Map(uids.map(uid=>[uid,validTitleName(decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedId)]));
   return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||'称号なし'}));
  }
+ async function readSelection(uid){
+  const token=await accessToken(),response=await request(base+'/documents/user_titles/'+encodeURIComponent(uid),{headers:{Authorization:'Bearer '+token}});
+  if(response.status===404)return {selectedId:'',selectedTitle:''};
+  if(!response.ok)throw fail('表示称号を取得できませんでした。',502);
+  const data=await response.json(),fields=decodeFields(data.fields||{}),selectedId=typeof fields.selectedId==='string'?fields.selectedId:'';
+  return {selectedId,selectedTitle:validTitleName(selectedId)};
+ }
+ async function readRetryTitles(uid){
+  const token=await accessToken(),name=prefix+`users/${uid}/apps/eiken-retry`;
+  const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
+  if(!response.ok)throw fail('リトライ称号を取得できませんでした。',502);
+  const rows=await response.json(),retry=decodeFields(rows.find(row=>row.found?.name===name)?.found?.fields||{});
+  return titleState({retry}).titles.filter(title=>title.appId==='eiken-retry');
+ }
  async function handle(req,res){try{
   if(!['GET','POST'].includes(req.method))throw fail('GETまたはPOSTのみ対応しています。',405);
-  const user=await verifyUser(req),state=await read(user.uid);
+  const user=await verifyUser(req),view=new URL(req.url,'http://localhost').searchParams.get('view');
+  if(req.method==='GET'&&view==='selection')return send(res,200,await readSelection(user.uid));
+  if(req.method==='GET'&&view==='retry')return send(res,200,{titles:await readRetryTitles(user.uid)});
+  const state=await read(user.uid);
   if(req.method==='GET')return send(res,200,state);
   const body=await readJson(req,1024),selectedId=body.selectedId;
   if(typeof selectedId!=='string')throw fail('称号を選んでください。',400);
