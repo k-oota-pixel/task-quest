@@ -40,13 +40,13 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
   for(let attempt=0;attempt<5;attempt++){
    const response=await request(base+'/documents:batchGet',{method:'POST',headers,body:JSON.stringify({documents:[prefix+path,prefix+receipt]})});
    if(!response.ok)throw fail('称号の記録を取得できませんでした。',502);
-   const rows=await response.json();if(rows.some(row=>row.found?.name===prefix+receipt))return send(res,200,{ok:true,duplicate:true,freshTitles:[]});
+   const rows=await response.json(),receiptDoc=rows.find(row=>row.found?.name===prefix+receipt)?.found;if(receiptDoc){const saved=decodeFields(receiptDoc.fields||{});return send(res,200,{ok:true,duplicate:true,freshTitles:Array.isArray(saved.freshTitles)?saved.freshTitles:[]});}
    const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{});
    let next=previous;for(const event of events)next=applyTitleEvent(next,event,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
    const unlocked=new Set(creativeTitles(body.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(body.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
    const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[
-    {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length)}},currentDocument:{exists:false}},
+    {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
     {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}
    ]})});
    if(commit.ok)return send(res,200,{ok:true,freshTitles});
@@ -63,11 +63,11 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
   const path=`title_progress/${user.uid}/activities/${e.appId}`,receipt=`title_events/${user.uid}/events/${keyOf(e.appId+':'+e.eventId)}`,day=challengePeriods().day;
   for(let attempt=0;attempt<5;attempt++){
    const response=await request(base+'/documents:batchGet',{method:'POST',headers,body:JSON.stringify({documents:[prefix+path,prefix+receipt]})});if(!response.ok)throw fail('称号の記録を取得できませんでした。',502);
-   const rows=await response.json();if(rows.some(row=>row.found?.name===prefix+receipt))return send(res,200,{ok:true,duplicate:true,freshTitles:[]});
+   const rows=await response.json(),receiptDoc=rows.find(row=>row.found?.name===prefix+receipt)?.found;if(receiptDoc){const saved=decodeFields(receiptDoc.fields||{});return send(res,200,{ok:true,duplicate:true,freshTitles:Array.isArray(saved.freshTitles)?saved.freshTitles:[]});}
    const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{}),next=applyTitleEvent(previous,e,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
    const unlocked=new Set(creativeTitles(e.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(e.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
-   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}]})});
+   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}]})});
    if(commit.ok)return send(res,200,{ok:true,freshTitles});const error=await commit.json?.().catch(()=>({}))||{};if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
   }
   throw fail('称号の保存が混み合っています。',409);
