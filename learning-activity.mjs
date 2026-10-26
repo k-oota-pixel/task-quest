@@ -15,6 +15,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   const unique=new Map();
   for(const event of body.events){
    if(!event||!CONTENT_IDS.has(event.appId)||!validId(event.eventId))throw fail('教材または記録IDが不正です。',400);
+   if(unique.has(event.eventId)&&unique.get(event.eventId)!==event.appId)throw fail('記録IDが重複しています。',400);
    unique.set(event.eventId,event.appId);
   }
   if(unique.size>100)throw fail('記録件数の上限を超えています。',413);
@@ -35,7 +36,8 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   ];
   const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes})});
   if(!response.ok){
-   if(response.status===409||response.status===412){send(res,200,{ok:true,duplicate:true,freshTitles:[]});return;}
+   const error=await response.json?.().catch(()=>({}))||{};
+   if([409,412].includes(response.status)||['ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status)){send(res,200,{ok:true,duplicate:true,freshTitles:[]});return;}
    throw fail('学習記録を保存できませんでした。',502);
   }
   invalidate(user.uid);const committed=await response.json?.().catch(()=>({}))||{},results=committed.writeResults?.[1]?.transformResults||[],freshTitles=[];
