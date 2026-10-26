@@ -2,7 +2,7 @@ import {activityTitles} from './title-model.mjs';
 import {challengePeriods,isChallengeContent,challengeProgressWrites} from './challenge-model.mjs';
 const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','talk-quest','pet-catch','reading-training','pet-instructions','pet-chat']);
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
-const validId=value=>typeof value==='string'&&/^[\\w-]{8,100}$/.test(value);
+const validId=value=>typeof value==='string'&&/^[\w-]{8,100}$/.test(value);
 export function createLearningActivity({base,projectId,accessToken,verifyUser,send,fail,readJson,invalidate,fetch:request=fetch}){
  const verifiedTokens=new Map();
  async function verified(req){
