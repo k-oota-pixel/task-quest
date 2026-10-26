@@ -19,7 +19,7 @@ test('keeps only ranks 1-3 while preserving ties',()=>{
  assert.equal(adventureLeaders([{uid:'x',wordTowerBest:10}],'tower')[0].petName,'名前未設定のペット');
 });
 
-test('normal GET reads one summary document instead of scanning users',async()=>{
+test('normal GET restores one summary document once, then serves the unified ranking file',async()=>{
  let summaryReads=0,scans=0,t=0;
  const stored={schemaVersion:1,tower:[{uid:'u',petName:'もこ',floor:50},{uid:'v',petName:'まる',floor:40},{uid:'w',petName:'ぽち',floor:30}],dungeon:[{uid:'v',petName:'まる',floor:25}]};
  const api=createAdventureRankings({
@@ -35,7 +35,7 @@ test('normal GET reads one summary document instead of scanning users',async()=>
  const get=async mode=>{const response={};await api.handle({method:'GET',url:'/?mode='+mode,headers:{}},response);return response;};
  let response=await get('tower');assert.equal(response.status,200);assert.equal(response.body.leaders.length,3);assert.deepEqual(response.body.leaders[0],{petName:'もこ',floor:50,rank:1,title:'魔王の塔の覇者'});
  response=await get('dungeon');assert.equal(response.body.leaders[0].petName,'まる');assert.equal(summaryReads,1);assert.equal(scans,0);
- t=60001;await get('tower');assert.equal(summaryReads,2);assert.equal(scans,0);
+ t=60001;await get('tower');assert.equal(summaryReads,1);assert.equal(scans,0);
  assert.equal((await get('unknown')).status,400);
 });
 
