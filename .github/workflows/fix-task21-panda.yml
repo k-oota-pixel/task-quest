@@ -1,0 +1,48 @@
+name: Fix task 21 panda title
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-task21-panda.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Replace lion title with panda title
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          files = [Path('index.html'), Path('public/index.html')]
+          old = '"title": "ライオンの場所"'
+          new = '"title": "パンダの場所"'
+          total = 0
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count:
+                  path.write_text(text.replace(old, new), encoding='utf-8')
+                  total += count
+                  print(f'{path}: replaced {count}')
+              else:
+                  print(f'{path}: no replacement needed')
+          if total == 0:
+              raise SystemExit('No lion title found; nothing changed')
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html public/index.html
+          git commit -m "Fix task 21 title to panda"
+          git push
