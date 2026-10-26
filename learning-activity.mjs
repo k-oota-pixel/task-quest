@@ -1,5 +1,5 @@
 import {activityTitles} from './title-model.mjs';
-import {challengePeriods,isChallengeContent} from './challenge-model.mjs';
+import {challengePeriods,isChallengeContent,challengeProgressWrites} from './challenge-model.mjs';
 const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','talk-quest','pet-catch','reading-training','pet-instructions','pet-chat']);
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
 const validId=value=>typeof value==='string'&&/^[\\w-]{8,100}$/.test(value);
@@ -52,7 +52,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   const appId=body.appId;if(appId!==undefined&&!CONTENT_IDS.has(appId))throw fail('教材が不正です。',400);
   const token=await accessToken(),transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
   if(appId)transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:'1'}});
-  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:`projects/${projectId}/databases/(default)/documents/learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms}]})});
+  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:`projects/${projectId}/databases/(default)/documents/learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms},...challengeProgressWrites({uid:user.uid,appId,projectId})]})});
   if(!response.ok)throw fail('学習日時を保存できませんでした。',502);
   invalidate(user.uid);const committed=await response.json?.().catch(()=>({}))||{};const total=Number(committed.writeResults?.[0]?.transformResults?.[2]?.integerValue)||0;const freshTitles=appId?activityTitles(appId,total).filter(t=>t.need===total):[];send(res,200,{ok:true,freshTitles});
  }catch(error){send(res,error.status||500,{error:error.message||'学習日時を保存できませんでした。'});}};
