@@ -1,3 +1,5 @@
+import {publicRankingCache} from './public-ranking-cache.mjs';
+
 const RANKING_CACHE_TTL_MS=5*60*1000;
 const RANKING_ERROR_CACHE_TTL_MS=30*1000;
 
@@ -12,6 +14,12 @@ const cleanLeaders=leaders=>Array.isArray(leaders)?leaders.map(cleanEntry).filte
 const emptyBoard=today=>({schemaVersion:1,today,leaders:[]});
 const boardFor=(value,today)=>value?.today===today?{schemaVersion:1,today,leaders:cleanLeaders(value.leaders)}:emptyBoard(today);
 const publicTop3=leaders=>leaders.map(({petName,coinsToday})=>({petName,coinsToday}));
+
+async function publicBoard(today,leaders,decorate){
+  const top3=decorate?await decorate(leaders):publicTop3(leaders),result={today,top3,rankingAvailable:true};
+  await publicRankingCache.setSection('dailyCoins',result);
+  return result;
+}
 
 function uidFromDocumentName(name){
   const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);
@@ -80,10 +88,6 @@ async function commitCandidate({access,today,candidate,stored,readSummary,writeS
   throw new Error('daily leaderboard update retry limit reached');
 }
 
-/*
- * When a summary document is absent, this compatibility path performs a one-time
- * bootstrap scan. Once written, normal page views read only the single summary doc.
- */
 export async function readDailyCoinBoard({
   uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
   readSummary,writeSummary,rankingCache=null,forceRankingRefresh=false,decorate=null,
@@ -110,6 +114,9 @@ export async function readDailyCoinBoard({
     return {today,coinsToday,...ranking};
   }
 
+  const shared=await publicRankingCache.getSection('dailyCoins',{valid:value=>value?.today===today});
+  if(shared)return {today,coinsToday,top3:Array.isArray(shared.top3)?shared.top3:[],rankingAvailable:shared.rankingAvailable!==false};
+
   try{
     let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
     let leaders=boardFor(stored.value,today).leaders;
@@ -123,17 +130,14 @@ export async function readDailyCoinBoard({
       }
     }
     rememberViewer(rankingCache,uid,today,leaders);
-    return {today,coinsToday,top3:decorate?await decorate(leaders):publicTop3(leaders),rankingAvailable:true};
+    const ranking=await publicBoard(today,leaders,decorate);
+    return {today,coinsToday,top3:ranking.top3,rankingAvailable:true};
   }catch(error){
     log('Daily coin leaderboard summary failed',{status:error?.status||500,message:error?.message||'unknown'});
     return {today,coinsToday,top3:[],rankingAvailable:false};
   }
 }
 
-/*
- * After a coin grant, compare the user's trusted Firestore total with the last
- * ranking snapshot served to that user. A non-contender needs no leaderboard read.
- */
 export async function publishDailyCoinBoard({
   uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
   readSummary,writeSummary,rankingCache=null,decorate=null
@@ -144,7 +148,8 @@ export async function publishDailyCoinBoard({
 
   const snapshot=rankingCache?.viewerSnapshots instanceof Map?rankingCache.viewerSnapshots.get(uid):null;
   if(snapshot?.today===today&&sameLeaders(mergeCandidate(snapshot.leaders,candidate),snapshot.leaders)){
-    return {updated:false,top3:decorate?await decorate(snapshot.leaders):publicTop3(snapshot.leaders)};
+    const ranking=await publicBoard(today,snapshot.leaders,decorate);
+    return {updated:false,top3:ranking.top3};
   }
 
   let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
@@ -158,5 +163,6 @@ export async function publishDailyCoinBoard({
     stored=result.stored;leaders=result.leaders;updated=result.changed;
   }
   rememberViewer(rankingCache,uid,today,leaders);
-  return {updated,top3:decorate?await decorate(leaders):publicTop3(leaders)};
+  const ranking=await publicBoard(today,leaders,decorate);
+  return {updated,top3:ranking.top3};
 }
