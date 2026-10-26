@@ -1,4 +1,4 @@
-import {publicRankingCache} from './public-ranking-cache.mjs';
+import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
 
 const MODES={tower:'wordTowerBest',dungeon:'eikenDungeonBest'};
 const TOP_RANK=3;
@@ -34,7 +34,7 @@ const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([key,ite
 function uidFromName(name){const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);return match?decodeURIComponent(match[1]):'';}
 function publicRows(rows){return rows.map(({uid,...row})=>row);}
 function sameRows(a,b){return JSON.stringify(a.map(({uid,petName,floor})=>({uid,petName,floor})))===JSON.stringify(b.map(({uid,petName,floor})=>({uid,petName,floor})));}
-export function createAdventureRankings({base,activeIds,accessToken,decodeFields,decorate,send,fail,fetch:request=globalThis.fetch,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ'}){
+export function createAdventureRankings({base,activeIds,accessToken,decodeFields,decorate,send,fail,fetch:request=globalThis.fetch,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ',rankingStore=runtimePublicRankingCache()}){
  const docUrl=base+'/documents/leaderboards/adventure';
  async function requestUser(req){
   const auth=String(req.headers?.authorization||''),match=auth.match(/^Bearer\s+(.+)$/i);if(!match)throw fail('ログインが必要です。',401);
@@ -78,8 +78,8 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
   if(inflight)return inflight;if(now()<retryAfter)throw fail('少し待ってから再表示してください。',503);
   inflight=load().then(async stored=>{cached={...stored,fetchedAt:now(),public:null};cached.public=await decorateSummary(cached.value);return {fetchedAt:cached.fetchedAt,...cached.public};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});return inflight;
  }
- async function sharedSnapshot(){return publicRankingCache.getSection('adventure',{load:snapshot});}
- async function refreshSharedSnapshot(){const result=await snapshot();await publicRankingCache.setSection('adventure',result);return result;}
+ async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot});}
+ async function refreshSharedSnapshot(){const result=await snapshot();await rankingStore.setSection('adventure',result);return result;}
  async function publish({uid,mode,floor,petName}){
   if(!uid||!Object.hasOwn(MODES,mode)||(floor=floorOf(floor))===0)return null;
   const task=async()=>{
