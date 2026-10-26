@@ -1,3 +1,5 @@
+import {publicRankingCache} from './public-ranking-cache.mjs';
+
 const scoreOf=value=>Number.isSafeInteger(value)&&value>0?value:0;
 const petNameOf=value=>{
   if(typeof value!=='string')return 'ペットの赤ちゃん';
@@ -69,6 +71,16 @@ export function createPetCatchRecords({base,accessToken,verifyUser,decodeFields,
     inflight=(async()=>{const token=await accessToken(),stored=await readStored(token,today);cached={value:stored.value,updateTime:stored.updateTime,day:today,fetchedAt:now()};return publicRecord(stored.value,today);})().catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});
     return inflight;
   }
+  async function publicSnapshot(){
+    const record=await snapshot();
+    if(decorate)record.leaders=await decorate((cached?.value?.leaders||[]).slice(0,5));
+    return record;
+  }
+  async function sharedSnapshot(){
+    const today=tokyoDay(now());
+    return publicRankingCache.getSection('petCatch',{valid:value=>value?.date===today,load:publicSnapshot});
+  }
+  async function refreshSharedSnapshot(){const record=await publicSnapshot();await publicRankingCache.setSection('petCatch',record);return record;}
   async function publish(uid){
     const task=async()=>{
       const today=tokyoDay(now()),token=await accessToken(),data=await userDoc(token,uid);
@@ -92,8 +104,8 @@ export function createPetCatchRecords({base,accessToken,verifyUser,decodeFields,
   }
   async function handle(req,res){
     try{
-      if(req.method==='GET'){const record=await snapshot();if(decorate)record.leaders=await decorate((cached?.value?.leaders||[]).slice(0,5));return send(res,200,record);}
-      if(req.method==='POST'){const user=await verifyUser(req),record=await publish(user.uid);if(decorate)record.leaders=await decorate((cached?.value?.leaders||[]).slice(0,5));return send(res,200,{ok:true,record});}
+      if(req.method==='GET')return send(res,200,await sharedSnapshot());
+      if(req.method==='POST'){const user=await verifyUser(req);await publish(user.uid);const record=await refreshSharedSnapshot();return send(res,200,{ok:true,record});}
       throw fail('GETまたはPOSTのみ対応しています。',405);
     }catch(error){send(res,error.status||503,{error:error.status&&error.status<500?error.message:'今日のPET CATCH記録を処理できませんでした。時間を置いて再試行してください。'});}
   }

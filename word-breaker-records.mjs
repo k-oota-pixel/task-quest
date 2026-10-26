@@ -1,3 +1,5 @@
+import {publicRankingCache} from './public-ranking-cache.mjs';
+
 export const RECORD_COURSES=['junior1','junior2','junior3','high1','high2','basic'];
 const scoreOf=value=>Number.isSafeInteger(value)&&value>0?value:0;
 const petNameOf=value=>{
@@ -90,6 +92,16 @@ export function createWordBreakerRecords({base,activeIds,accessToken,decodeField
   inflight=load().then(stored=>{cached={...stored,fetchedAt:now()};return {courses:publicCourses(stored.value.courses),fetchedAt:cached.fetchedAt};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});
   return inflight;
  }
+ async function publicSnapshot(){
+  const result=await snapshot();
+  if(decorate&&cached){
+   const all=RECORD_COURSES.flatMap(course=>(cached.value.courses[course]?.leaders||[]).slice(0,3)),decorated=await decorate(all);let offset=0;
+   for(const course of RECORD_COURSES){const size=Math.min(3,cached.value.courses[course]?.leaders?.length||0);result.courses[course].leaders=decorated.slice(offset,offset+size);offset+=size;}
+  }
+  return result;
+ }
+ async function sharedSnapshot(){return publicRankingCache.getSection('wordBreaker',{load:publicSnapshot});}
+ async function refreshSharedSnapshot(){const result=await publicSnapshot();await publicRankingCache.setSection('wordBreaker',result);return result;}
  async function publish({uid,course,score,petName}){
   if(!RECORD_COURSES.includes(course)||!uid)return null;score=scoreOf(score);if(!score)return null;
   const task=async()=>{
@@ -109,11 +121,12 @@ export function createWordBreakerRecords({base,activeIds,accessToken,decodeField
  }
  async function handle(req,res){
   try{
-   if(req.method==='GET'){const result=await snapshot();if(decorate&&cached){const all=RECORD_COURSES.flatMap(course=>(cached.value.courses[course]?.leaders||[]).slice(0,3));const decorated=await decorate(all);let offset=0;for(const course of RECORD_COURSES){const size=Math.min(3,cached.value.courses[course]?.leaders?.length||0);result.courses[course].leaders=decorated.slice(offset,offset+size);offset+=size;}}return send(res,200,result);}
+   if(req.method==='GET')return send(res,200,await sharedSnapshot());
    if(req.method==='POST'){
     if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
     const user=await requestUser(req),body=await requestJson(req,1024),course=String(body.course||'');if(!RECORD_COURSES.includes(course))throw fail('コースが不正です。',400);
     const token=await accessToken(),data=await userDoc(token,user.uid),score=scoreOf(data.wordBreakerBests?.[course]?.score),record=await publish({uid:user.uid,course,score,petName:data.petName});
+    await refreshSharedSnapshot();
     return send(res,200,{ok:true,record});
    }
    throw fail('GETまたはPOSTのみ対応しています。',405);
