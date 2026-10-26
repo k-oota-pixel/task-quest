@@ -945,14 +945,25 @@ async function syncOnLogin(user){
   const snap=await getDoc(cloudRef(user));
   const cloud=snap.exists() && snap.data()?.records ? snap.data().records : {};
   const merged=mergeRecords(local,cloud);
+  const sameRecord=(a,b)=>{
+    if(!a||!b)return a===b;
+    return a.clear===b.clear&&(Number(a.tries)||0)===(Number(b.tries)||0)&&JSON.stringify(a.history||[])===JSON.stringify(b.history||[]);
+  };
+  const ids=new Set([...Object.keys(merged),...Object.keys(cloud)]);
+  const needsUpload=[...ids].some(id=>!sameRecord(merged[id],cloud[id]));
 
-  if(JSON.stringify(merged)!==JSON.stringify(local)){
+  const localChanged=JSON.stringify(merged)!==JSON.stringify(local);
+  if(localChanged){
     syncing=true;
     writeLocal(merged);
     syncing=false;
-
-    await saveCloud(merged);
-
+  }
+  if(needsUpload)await saveCloud(merged);
+  else{
+    const summary=summarize(merged);
+    setAuthUI("ok",shortName(user),`☁ ${summary.completedCount} / ${summary.totalTasks}`);
+  }
+  if(localChanged){
     // ページ本体のrecords変数にも確実に反映するため1度だけ再読込
     if(sessionStorage.getItem("taskquest-firebase-reloaded")!=="1"){
       sessionStorage.setItem("taskquest-firebase-reloaded","1");
@@ -960,7 +971,6 @@ async function syncOnLogin(user){
       return;
     }
   }
-  await saveCloud(merged);
 }
 
 window.taskQuestCloud={
