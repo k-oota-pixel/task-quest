@@ -2,7 +2,7 @@ import {mkdir,readFile,rename,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 
-const DEFAULT_FILE=process.env.PUBLIC_RANKINGS_FILE||join(tmpdir(),'monstudy','rankings.json');
+const DEFAULT_FILE=process.env.PUBLIC_RANKINGS_FILE||join(tmpdir(),process.env.NODE_TEST_CONTEXT?`monstudy-tests/${process.pid}/rankings.json`:'monstudy/rankings.json');
 const cleanKey=key=>typeof key==='string'&&/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(key)?key:'';
 const emptyState=()=>({schemaVersion:1,updatedAt:'',rankings:{}});
 const clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
@@ -54,5 +54,5 @@ export const publicRankingCache=createPublicRankingCache();
 export function runtimePublicRankingCache(){
   if(!process.env.NODE_TEST_CONTEXT)return publicRankingCache;
   testCacheSerial+=1;
-  return createPublicRankingCache({file:join(tmpdir(),'monstudy-tests',`${process.pid}-${testCacheSerial}.json`)});
+  return createPublicRankingCache({file:join(tmpdir(),'monstudy-tests',String(process.pid),`rankings-${testCacheSerial}.json`)});
 }
