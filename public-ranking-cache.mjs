@@ -6,6 +6,7 @@ const DEFAULT_FILE=process.env.PUBLIC_RANKINGS_FILE||join(tmpdir(),'monstudy','r
 const cleanKey=key=>typeof key==='string'&&/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(key)?key:'';
 const emptyState=()=>({schemaVersion:1,updatedAt:'',rankings:{}});
 const clone=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value));
+let testCacheSerial=0;
 
 export function createPublicRankingCache({file=DEFAULT_FILE,now=Date.now}={}){
  let state=null,readPending=null,mutation=Promise.resolve();
@@ -50,3 +51,8 @@ export function createPublicRankingCache({file=DEFAULT_FILE,now=Date.now}={}){
 }
 
 export const publicRankingCache=createPublicRankingCache();
+export function runtimePublicRankingCache(){
+  if(!process.env.NODE_TEST_CONTEXT)return publicRankingCache;
+  testCacheSerial+=1;
+  return createPublicRankingCache({file:join(tmpdir(),'monstudy-tests',`${process.pid}-${testCacheSerial}.json`)});
+}
