@@ -1,4 +1,4 @@
-import {titleState,TITLE_CONTENTS,validTitleName} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles} from './title-model.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
@@ -31,6 +31,27 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const data=await response.json(),fields=decodeFields(data.fields||{}),selectedId=typeof fields.selectedId==='string'?fields.selectedId:'';
   return {selectedId,selectedTitle:validTitleName(selectedId)};
  }
+ async function readSelectedTitle(uid,selectedId){
+  if(selectedId==='')return '';
+  const creative=Object.entries(creativeCatalog).find(([,titles])=>titles.some(title=>title.id===selectedId));
+  if(creative){
+   const [appId]=creative,name=prefix+`title_progress/${uid}/activities/${appId}`,token=await accessToken();
+   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
+   if(!response.ok)throw fail('称号を確認できませんでした。',502);
+   const rows=await response.json(),progress=decodeFields(rows.find(row=>row.found?.name===name)?.found?.fields||{}),title=creativeTitles(appId,progress).find(item=>item.id===selectedId);
+   if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);return title.name;
+  }
+  if(selectedId.startsWith('retry:')){
+   const title=(await readRetryTitles(uid)).find(item=>item.id===selectedId);if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);return title.name;
+  }
+  const appId=TITLE_CONTENTS.find(item=>selectedId.startsWith(item.id+':'))?.id;
+  const threshold=Number(selectedId.slice((appId||'').length+1));
+  if(!appId||!Number.isInteger(threshold))throw fail('称号を選んでください。',400);
+  const name=prefix+`learning_activity/${uid}`,token=await accessToken(),response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
+  if(!response.ok)throw fail('称号を確認できませんでした。',502);
+  const rows=await response.json(),activity=decodeFields(rows.find(row=>row.found?.name===name)?.found?.fields||{}),title=activityTitles(appId,activity.contents?.[appId]?.titleCount).find(item=>item.need===threshold);
+  if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);return title.name;
+ }
  async function readRetryTitles(uid){
   const token=await accessToken(),name=prefix+`users/${uid}/apps/eiken-retry`;
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
@@ -43,15 +64,15 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const user=await verifyUser(req),view=new URL(req.url,'http://localhost').searchParams.get('view');
   if(req.method==='GET'&&view==='selection')return send(res,200,await readSelection(user.uid));
   if(req.method==='GET'&&view==='retry')return send(res,200,{titles:await readRetryTitles(user.uid)});
+  if(req.method==='POST'){
+   const body=await readJson(req,1024),selectedId=body.selectedId;if(typeof selectedId!=='string')throw fail('称号を選んでください。',400);
+   const selectedTitle=await readSelectedTitle(user.uid,selectedId),token=await accessToken(),response=await request(base+'/documents/user_titles/'+encodeURIComponent(user.uid),{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(selectedId),selectedTitle:encode(selectedTitle)}})});
+   if(!response.ok)throw fail('称号を保存できませんでした。再試行してください。',502);
+   return send(res,200,{selectedId,selectedTitle});
+  }
   const state=await read(user.uid);
   if(req.method==='GET')return send(res,200,state);
-  const body=await readJson(req,1024),selectedId=body.selectedId;
-  if(typeof selectedId!=='string')throw fail('称号を選んでください。',400);
-  const title=state.titles.find(t=>t.id===selectedId&&t.unlocked);
-  if(selectedId&&!title)throw fail('未解放の称号は選択できません。',400);
-  const token=await accessToken(),response=await request(base+'/documents/user_titles/'+encodeURIComponent(user.uid),{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(selectedId),selectedTitle:encode(title?.name||'')}})});
-  if(!response.ok)throw fail('称号を保存できませんでした。再試行してください。',502);
-  send(res,200,{...state,selectedId,selectedTitle:title?.name||''});
+  throw fail('GETまたはPOSTのみ対応しています。',405);
  }catch(error){send(res,error.status||500,{error:error.message||'称号を処理できませんでした。'});}}
  return {handle,read,decorate};
 }
