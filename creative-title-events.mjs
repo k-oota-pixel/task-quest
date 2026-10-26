@@ -33,7 +33,7 @@ export function validateTitleEvent(b,fail){
 export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  async function applyBatch(user,body,res){
-  if(!creativeCatalog[body.appId]||typeof body.batchId!=='string'||!(/^[\\w-]{8,100}$/).test(body.batchId)||!Array.isArray(body.events)||!body.events.length||body.events.length>25)throw fail('称号記録のまとめ方が不正です。',400);
+  if(!creativeCatalog[body.appId]||typeof body.batchId!=='string'||!(/^[\w-]{8,100}$/).test(body.batchId)||!Array.isArray(body.events)||!body.events.length||body.events.length>25)throw fail('称号記録のまとめ方が不正です。',400);
   const events=body.events.map(event=>validateTitleEvent({...event,appId:body.appId},fail));
   if(new Set(events.map(event=>event.eventId)).size!==events.length)throw fail('同じ記録が重複しています。',400);
   const token=await accessToken(),headers={Authorization:'Bearer '+token,'Content-Type':'application/json'},path=`title_progress/${user.uid}/activities/${body.appId}`,receipt=`title_events/${user.uid}/events/${keyOf(body.appId+':batch:'+body.batchId)}`,day=challengePeriods().day;
