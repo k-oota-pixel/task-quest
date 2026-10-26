@@ -32,18 +32,44 @@ export function validateTitleEvent(b,fail){
 }
 export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
+ async function applyBatch(user,body,res){
+  if(!creativeCatalog[body.appId]||typeof body.batchId!=='string'||!(/^[\w-]{8,100}$/).test(body.batchId)||!Array.isArray(body.events)||!body.events.length||body.events.length>25)throw fail('称号記録のまとめ方が不正です。',400);
+  const events=body.events.map(event=>validateTitleEvent({...event,appId:body.appId},fail));
+  if(new Set(events.map(event=>event.eventId)).size!==events.length)throw fail('同じ記録が重複しています。',400);
+  const token=await accessToken(),headers={Authorization:'Bearer '+token,'Content-Type':'application/json'},path=`title_progress/${user.uid}/activities/${body.appId}`,receipt=`title_events/${user.uid}/events/${keyOf(body.appId+':batch:'+body.batchId)}`,day=challengePeriods().day;
+  for(let attempt=0;attempt<5;attempt++){
+   const response=await request(base+'/documents:batchGet',{method:'POST',headers,body:JSON.stringify({documents:[prefix+path,prefix+receipt]})});
+   if(!response.ok)throw fail('称号の記録を取得できませんでした。',502);
+   const rows=await response.json(),receiptDoc=rows.find(row=>row.found?.name===prefix+receipt)?.found;if(receiptDoc){const saved=decodeFields(receiptDoc.fields||{});return send(res,200,{ok:true,duplicate:true,freshTitles:Array.isArray(saved.freshTitles)?saved.freshTitles:[]});}
+   const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{});
+   let next=previous;for(const event of events)next=applyTitleEvent(next,event,day);
+   if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
+   const unlocked=new Set(creativeTitles(body.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(body.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
+   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[
+    {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
+    {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}
+   ]})});
+   if(commit.ok)return send(res,200,{ok:true,freshTitles});
+   const error=await commit.json?.().catch(()=>({}))||{};
+   if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
+  }
+  throw fail('称号の保存が混み合っています。再試行してください。',409);
+ }
  return async(req,res)=>{try{
   if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
-  const user=await verifyUser(req),e=validateTitleEvent(await readJson(req,12000),fail),token=await accessToken(),headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+  const user=await verifyUser(req),body=await readJson(req,128000);
+  if(Array.isArray(body?.events))return await applyBatch(user,body,res);
+  const e=validateTitleEvent(body,fail),token=await accessToken(),headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
   const path=`title_progress/${user.uid}/activities/${e.appId}`,receipt=`title_events/${user.uid}/events/${keyOf(e.appId+':'+e.eventId)}`,day=challengePeriods().day;
   for(let attempt=0;attempt<5;attempt++){
    const response=await request(base+'/documents:batchGet',{method:'POST',headers,body:JSON.stringify({documents:[prefix+path,prefix+receipt]})});if(!response.ok)throw fail('称号の記録を取得できませんでした。',502);
-   const rows=await response.json();if(rows.some(r=>r.found?.name===prefix+receipt))return send(res,200,{ok:true,duplicate:true,freshTitles:[]});
-   const doc=rows.find(r=>r.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{}),next=applyTitleEvent(previous,e,day);
+   const rows=await response.json(),receiptDoc=rows.find(row=>row.found?.name===prefix+receipt)?.found;if(receiptDoc){const saved=decodeFields(receiptDoc.fields||{});return send(res,200,{ok:true,duplicate:true,freshTitles:[]});}
+   const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{}),next=applyTitleEvent(previous,e,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
-   const unlocked=new Set(creativeTitles(e.appId,previous).filter(t=>t.unlocked).map(t=>t.id)),freshTitles=creativeTitles(e.appId,next).filter(t=>t.unlocked&&!unlocked.has(t.id));
-   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}]})});
+   const unlocked=new Set(creativeTitles(e.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(e.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
+   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}]})});
    if(commit.ok)return send(res,200,{ok:true,freshTitles});const error=await commit.json?.().catch(()=>({}))||{};if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
-  }throw fail('称号の保存が混み合っています。再試行してください。',409);
+  }
+  throw fail('称号の保存が混み合っています。',409);
  }catch(error){send(res,error.status||500,{error:error.message||'称号を保存できませんでした。'});}};
 }
