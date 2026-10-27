@@ -1,12 +1,11 @@
 import {CHALLENGE_CONTENTS,challengePeriods} from './challenge-model.mjs';
 
-export const MATERIAL_ACTIVITY_TRACKING_SINCE='2026-10-27';
 export const USAGE_CONTENTS=[
  ['eigo-meter','エイゴメーター'],
  ['word-wolf','ワードウルフ'],
  ...CHALLENGE_CONTENTS.map(x=>[x.id,x.label]),
- ['adventure-tower','エイゴダンジョンズ（タワー）'],
- ['adventure-dungeon','エイゴダンジョンズ（ダンジョン）']
+ ['adventure-tower','魔王の塔'],
+ ['adventure-dungeon','魔物の巣窟']
 ];
 const ids=new Set(USAGE_CONTENTS.map(x=>x[0]));
 const countValue=value=>Math.max(0,Math.floor(Number(value)||0));
@@ -49,11 +48,12 @@ export function createMaterialUsage({base,accessToken,verifyAdmin,decodeFields,s
     }
     pageToken=body.nextPageToken||'';
    }while(pageToken);
+   const trackingSince=[...dailyCounts.keys()].sort()[0]||day;
    const rows=USAGE_CONTENTS.map(([id,label])=>{
-    let total=0;for(const [date,counts] of dailyCounts)if(date>=MATERIAL_ACTIVITY_TRACKING_SINCE&&date<=day)total+=countValue(counts[id]);
+    let total=0;for(const [date,counts] of dailyCounts)if(date>=trackingSince&&date<=day)total+=countValue(counts[id]);
     return {id,label,today:countValue(dailyCounts.get(day)?.[id]),total};
    });
-   return {day,trackingSince:MATERIAL_ACTIVITY_TRACKING_SINCE,fetchedAt:now(),rows};
+   return {day,trackingSince,fetchedAt:now(),rows};
   })().then(data=>(cached=data)).finally(()=>{if(pending===entry)pending=null;});}
   send(res,200,await pending.promise);
  }catch(e){send(res,e.status||500,{error:e.message||'教材の取り組み回数を取得できませんでした。'});}};
