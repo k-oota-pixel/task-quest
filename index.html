@@ -1,3 +1,4 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -15,12 +16,15 @@ button:disabled{opacity:.6;cursor:wait}@media(max-width:700px){.layout{display:f
 .authdot.ok{background:#278550}.authdot.busy{background:#d39b25}.authdot.error{background:#c65948}
 @media(max-width:760px){.authbox{justify-content:flex-start}.authbox .authnote{display:none}}
 
+</style><style id="monstudy-home-style">
+.monstudy-home-wrap{width:min(calc(100% - 28px),1000px);margin:10px auto 0;position:relative;z-index:20}.monstudy-home-link{display:inline-flex;align-items:center;text-decoration:none;color:#385a4e;background:#fff;border:1px solid #d6e1d8;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:800;line-height:1.2;box-shadow:0 2px 8px #203b3608}.monstudy-home-link:hover{background:#f2f6f3}.monstudy-home-link:focus-visible{outline:3px solid #e4af37;outline-offset:3px}
 </style>
-<style>.taskquest-local-header{display:none}</style>
-<meta name="task21-content-version" content="panda-20261026-v3">
+<meta name="task21-content-version" content="panda-20261026-v2">
 </head>
 <body>
-<header class="taskquest-local-header">
+<div class="monstudy-home-wrap"><a class="monstudy-home-link" href="https://k-oota-pixel.github.io/english-playroom/" aria-label="もんすたでぃトップへ戻る">←もんすたでぃ</a></div>
+
+<header>
 <div class="brand">TASK QUEST<span class="brand-version">ver1.1.1</span><small>タスククエスト</small></div>
 <div class="authbox">
   <span class="badge">Gemini AI判定</span>
@@ -35,11 +39,12 @@ button:disabled{opacity:.6;cursor:wait}@media(max-width:700px){.layout{display:f
 <section class="panel"><div class="questhead"><div class="emoji" id="emoji"></div><div><div class="overline" id="questnum"></div><h2 id="title"></h2></div></div>
 <div class="situation"><div class="overline">SITUATION / 場面</div><p id="situation" lang="en"></p></div><div class="mission"><div class="overline">YOUR TASK / お題</div><p id="task" lang="en"></p></div>
 <details class="translation" id="translation"><summary>日本語で確認する</summary><p id="jaSituation"></p><p id="jaTask"></p></details>
-<p id="connection" class="note" role="status"></p><form id="form"><label for="answer">あなたなら、英語でどう伝える？</label><textarea id="answer" lang="en" placeholder="Write your English here…" maxlength="400" spellcheck="false" autocapitalize="sentences" required></textarea><div class="answerfoot"><span class="count" id="attempt"></span><div class="actions"><button type="button" class="secondary" id="hintbtn">💡 ヒント</button><button class="primary" id="check" type="submit">伝わるかチェック →</button></div></div></form>
+<p id="connection" class="note" role="status"></p><form id="form"><label for="answer">あなたなら、英語でどう伝える？</label><textarea id="answer" lang="en" placeholder="Write your English here…" maxlength="400" spellcheck="false" autocapitalize="sentences" required></textarea><div class="answerfoot"><span class="count" id="attempt"></span><div class="actions"><button type="button" class="secondary" id="hintbtn">💡 ヒント</button><button class="primary" id="check" type="submit">伝わるかチェック →</button><button type="button" class="secondary backup-button" id="checkBackup" hidden>使えなかった場合はこちら →</button></div></div></form>
 <div id="hint" class="hint hidden" aria-live="polite"></div><div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div><button id="next" class="primary hidden" style="margin-top:16px">次のタスクへ →</button><details class="history" id="history"><summary>このタスクの挑戦記録</summary><ul id="historylist"></ul></details>
 <p class="note">多少の文法ミスがあっても、相手に伝わりお題を達成していればCLEAR。回答は判定のためGoogleへ送信されます。名前などの個人情報は入力しないでください。AIの判定に迷ったら先生と確認しよう。</p>
 </section></div></main><footer>タスクの目的は「相手に伝えて、行動につなげること」。答え方は一つではありません。</footer>
 <div class="modal hidden" id="resetModal" role="dialog" aria-modal="true" aria-labelledby="resetTitle"><div class="panel"><h2 id="resetTitle">記録をリセットしますか？</h2><p>50タスクのクリア記録と挑戦回数を消去します。</p><div class="actions"><button class="secondary" id="cancelReset">戻る</button><button class="primary" id="confirmReset">リセットする</button></div></div></div>
+<style>.backup-button{font-size:13px;padding-inline:14px}</style>
 <script>
 'use strict';
 // タスクを追加・編集する場合はこの配列を変更してください。
@@ -803,20 +808,22 @@ function nav(){const n=TASKS.filter(t=>records[t.id]?.clear).length;$('progress'
 function history(){const r=record();$('attempt').textContent='挑戦回数：'+r.tries+'回';$('historylist').replaceChildren();if(!r.history.length){const li=document.createElement('li');li.textContent='まだ挑戦していません。';$('historylist').append(li);}else for(const h of r.history){const li=document.createElement('li');li.textContent=(h.clear?'✓ CLEAR：':'↻ TRY：')+h.answer;$('historylist').append(li);}}
 function open(i){current=i;hintLevel=0;const t=TASKS[i];$('emoji').textContent=t.icon;$('questnum').textContent='QUEST '+String(i+1).padStart(2,'0')+' / '+TASKS.length;$('title').textContent=t.title;$('situation').textContent=t.situation;$('task').textContent=t.task;$('jaSituation').textContent=t.jaS;$('jaTask').textContent=t.jaT;$('answer').value='';$('translation').open=false;$('history').open=false;for(const id of ['hint','feedback','next'])$(id).classList.add('hidden');$('hintbtn').textContent='💡 ヒント';nav();history();}
 globalThis.MonstudyMaterial?.setActivityGuard(()=>busy || Boolean(document.querySelector("textarea")?.value.trim()));
-let busy=false;
-function setBusy(value){busy=value;document.querySelectorAll('button,textarea').forEach(el=>el.disabled=value);$('check').textContent=value?'AIが考えています…':'伝わるかチェック →';$('form').setAttribute('aria-busy',String(value));}
+let busy=false,activeBackup=false,queuedBackup=false;
+function setBusy(value){busy=value;document.querySelectorAll('button,textarea').forEach(el=>el.disabled=value);$('check').textContent=value&&!activeBackup?'AIが考えています…':'伝わるかチェック →';$('checkBackup').textContent=value&&activeBackup?'予備AIが確認中…':'使えなかった場合はこちら →';$('form').setAttribute('aria-busy',String(value));}
 $('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const answer=$('answer').value.trim();if(!answer)return;
+activeBackup=queuedBackup;queuedBackup=false;
 function flushTaskCloud(markPlayed=false){if(!cloudDirty||!window.taskQuestCloud?.syncRecords)return;cloudDirty=false;Promise.resolve(window.taskQuestCloud.syncRecords(records,{markPlayed})).catch(()=>{cloudDirty=true;});}
 document.addEventListener('visibilitychange',()=>{if(document.hidden)flushTaskCloud(false);});
 window.addEventListener('pagehide',()=>flushTaskCloud(false));
 if(location.protocol==='file:'){$('connection').textContent='AI判定はサーバーから開く必要があります。同梱の説明書に沿って起動してください。';return;}
 setBusy(true);const box=$('feedback');box.className='feedback';box.textContent='回答を確認しています…';$('next').classList.add('hidden');
-const titleOwner=window.EnglishPlayroomCoins?.getUserId?.()||'';try{const response=await fetch('https://task-quest.onrender.com/api/evaluate',{method:'POST',headers:await (await import('./firebase-security.js?v=2.1.2')).apiHeaders(),body:JSON.stringify({taskId:TASKS[current].id,answer}),signal:AbortSignal.timeout(45000)});const result=await response.json();if(!response.ok)throw new Error(result.error||'判定できませんでした。');if(typeof result.clear!=='boolean'||typeof result.message!=='string')throw new Error('判定結果を読み取れませんでした。');
+const titleOwner=window.EnglishPlayroomCoins?.getUserId?.()||'';try{const response=await fetch('https://task-quest.onrender.com/api/evaluate',{method:'POST',headers:await (await import('./firebase-security.js?v=2.1.2')).apiHeaders(),body:JSON.stringify({taskId:TASKS[current].id,answer,useBackup:activeBackup}),signal:AbortSignal.timeout(45000)});const result=await response.json();if(!response.ok)throw new Error(result.error||'判定できませんでした。');if(typeof result.clear!=='boolean'||typeof result.message!=='string')throw new Error('判定結果を読み取れませんでした。');
 const r=record(),newlyCleared=result.clear&&!r.clear;r.tries++;r.clear=r.clear||result.clear;r.history.push({answer,clear:result.clear});r.history=r.history.slice(-12);save();cloudDirty=true;
 if(newlyCleared){window.EnglishPlayroomCoins?.recordTitleEvent?.('task-quest',{kind:'answer',expectedUid:titleOwner,itemId:String(TASKS[current].id),correct:true,answer,eventId:`task-clear:${TASKS[current].id}`});window.EnglishPlayroomCoins?.recordLearningActivity?.('task-quest');window.EnglishPlayroomCoins?.awardTask?.(TASKS[current].id);}
 if(newlyCleared||r.tries%5===0)flushTaskCloud(newlyCleared);nav();history();box.className='feedback'+(result.clear?' good':'');box.replaceChildren();const title=document.createElement('strong');title.textContent=result.clear?'🎉 TASK CLEAR!':'🔄 TRY AGAIN';const p=document.createElement('p');p.textContent=result.message;box.append(title,p);if(result.example){const ex=document.createElement('p');ex.textContent='表現例：'+result.example;box.append(ex);}$('next').classList.toggle('hidden',!result.clear);
-}catch(err){box.className='feedback';box.textContent=(err.name==='TimeoutError'?'時間がかかっています。少し待って再挑戦してください。':err.message)+' この回答は挑戦回数に含めていません。';}finally{setBusy(false);}};
-if(location.protocol==='file:'){$('connection').textContent='お題とヒントはそのまま確認できます。AI判定は、同梱サーバーから開くと使えます。';}else{fetch('https://task-quest.onrender.com/api/status').then(r=>r.json()).then(s=>{$('connection').textContent=s.ready?'AI判定の準備ができています。':'先生へ：サーバーのGEMINI_API_KEYを設定して再起動してください。';}).catch(()=>{$('connection').textContent='サーバーに接続できません。';});}
+}catch(err){box.className='feedback';box.textContent=(err.name==='TimeoutError'?'時間がかかっています。少し待って再挑戦してください。':err.message)+(activeBackup?'':' 使えなかった場合は、隣の予備ボタンをお試しください。')+' この回答は挑戦回数に含めていません。';}finally{activeBackup=false;setBusy(false);}};
+$('checkBackup').onclick=()=>{if(!$('form').reportValidity())return;queuedBackup=true;$('form').requestSubmit();};
+if(location.protocol==='file:'){$('connection').textContent='お題とヒントはそのまま確認できます。AI判定は、同梱サーバーから開くと使えます。';}else{fetch('https://task-quest.onrender.com/api/status').then(r=>r.json()).then(s=>{$('checkBackup').hidden=s.backupReady!==true;$('connection').textContent=s.ready?'AI判定の準備ができています。':'先生へ：サーバーのGEMINI_API_KEYを設定して再起動してください。';}).catch(()=>{$('connection').textContent='サーバーに接続できません。';});}
 $('hintbtn').onclick=()=>{hintLevel=Math.min(3,hintLevel+1);$('hint').classList.remove('hidden');$('hint').textContent='ヒント '+hintLevel+' / 3：'+TASKS[current].hints[hintLevel-1];$('hintbtn').textContent=hintLevel>=3?'💡 例文を確認':'💡 次のヒント';};
 $('next').onclick=()=>{let i=(current+1)%TASKS.length;for(let n=1;n<=TASKS.length;n++){const candidate=(current+n)%TASKS.length;if(!records[TASKS[candidate].id]?.clear){i=candidate;break;}}open(i);$('answer').focus();};
 $('random').onclick=()=>{const pool=TASKS.map((t,i)=>i).filter(i=>i!==current&&!records[TASKS[i].id]?.clear);const fallback=TASKS.map((t,i)=>i).filter(i=>i!==current);const options=pool.length?pool:fallback;open(options[Math.floor(Math.random()*options.length)]);};
@@ -1029,5 +1036,5 @@ onAuthStateChanged(auth,async user=>{
 });
 </script>
 
-<script type="module" src="https://k-oota-pixel.github.io/english-playroom/coin-reward.js?v=2.1.19"></script>
+<script type="module" src="https://k-oota-pixel.github.io/english-playroom/coin-reward.js?v=2.1.3"></script>
 </body></html>
