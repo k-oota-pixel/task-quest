@@ -21,7 +21,7 @@ export function createMaterialUsage({base,accessToken,verifyAdmin,decodeFields,s
   if(!pending||pending.day!==day){const entry={day};pending=entry;entry.promise=(async()=>{
    const token=await accessToken(),countsByDay=new Map();
    const add=(date,appId,count)=>{
-    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||date>day||!ids.has(appId))return;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>day||!ids.has(appId))return;
     const counts=countsByDay.get(date)||{};
     counts[appId]=(counts[appId]||0)+countValue(count);
     countsByDay.set(date,counts);
@@ -71,7 +71,7 @@ export function createMaterialActivity({base,projectId,accessToken,readJson,send
   if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
   if(!req.headers?.['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
   const body=await readJson(req,1024),appId=body?.appId,eventId=body?.eventId;
-  if(!['eigo-meter','word-wolf'].includes(appId)||typeof eventId!=='string'||!/^\\w[\\w-]{7,99}$/.test(eventId))throw fail('教材または記録IDが不正です。',400);
+  if(!['eigo-meter','word-wolf'].includes(appId)||typeof eventId!=='string'||!/^\w[\w-]{7,99}$/.test(eventId))throw fail('教材または記録IDが不正です。',400);
   const time=now(),ip=String(req.socket?.remoteAddress||'unknown');
   for(const [key,value] of windows)if(time-value.start>=60000)windows.delete(key);
   if(time-globalWindow.start>=60000)globalWindow={start:time,count:0};
