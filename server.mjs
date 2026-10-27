@@ -24,8 +24,8 @@ const dir=fileURLToPath(new URL('.',import.meta.url));
 if(fs.existsSync(dir+'.env'))for(const line of fs.readFileSync(dir+'.env','utf8').split(/\r?\n/)){const m=line.match(/^([A-Z_]+)\s*=\s*(.*?)\s*$/);if(m&&!process.env[m[1]])process.env[m[1]]=m[2].replace(/^(['"])(.*)\1$/,'$2');}
 
 const tasks=JSON.parse(fs.readFileSync(dir+'tasks.json','utf8'));
-const key=process.env.GEMINI_API_KEY,backupKey=process.env.TASK_QUEST_BACKUP_GEMINI_API_KEY||'',model=process.env.GEMINI_MODEL||'gemini-2.5-flash';
-const petKey=process.env.PET_GEMINI_API_KEY||'',petModel=process.env.PET_GEMINI_MODEL||'gemini-2.5-flash';
+const key=process.env.GEMINI_API_KEY,petKey=process.env.PET_GEMINI_API_KEY||'',backupKey=process.env.TASK_QUEST_BACKUP_GEMINI_API_KEY||petKey,model=process.env.GEMINI_MODEL||'gemini-2.5-flash';
+const petModel=process.env.PET_GEMINI_MODEL||'gemini-2.5-flash';
 const petWindows=new Map();let petDaily=0,petDay='',petActive=0;
 const page=fs.readFileSync(dir+'public/index.html');
 const windows=new Map();let daily=0,day='',active=0;
