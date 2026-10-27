@@ -31,7 +31,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
    challengeWrites.push(makeChallengeWrite('daily-'+day),makeChallengeWrite('weekly-'+week));
   }
   const writes=[
-   {update:{name:receipt,fields:{batchId:encode(body.batchId),day:encode(day),counts:{mapValue:{fields:Object.fromEntries([...counts].map(([appId,count])=>[appId,{integerValue:String(count)}]))}}},currentDocument:{exists:false}},
+   {update:{name:receipt,fields:{batchId:encode(body.batchId),day:encode(day),counts:{mapValue:{fields:Object.fromEntries([...counts].map(([appId,count])=>[appId,{integerValue:String(count)}]))}}}},currentDocument:{exists:false}},
    {update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms},
    ...challengeWrites
   ];
