@@ -28,7 +28,7 @@ export function createMaterialUsage({base,accessToken,verifyAdmin,decodeFields,s
    };
    let cursor='';
    do{
-    const structuredQuery={from:[{collectionId:'events',allDescendants:true}],where:{unaryFilter:{field:{fieldPath:'day'},op:'IS_NOT_NULL'}},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:1000};
+    const structuredQuery={from:[{collectionId:'events',allDescendants:true}],orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:1000};
     if(cursor)structuredQuery.startAt={values:[{referenceValue:cursor}],before:false};
     const response=await request(base+'/documents:runQuery',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery})});
     if(!response.ok)throw fail('学習イベントの集計を取得できませんでした。',502);
