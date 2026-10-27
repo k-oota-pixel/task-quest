@@ -37,6 +37,10 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
   const events=body.events.map(event=>validateTitleEvent({...event,appId:body.appId},fail));
   if(new Set(events.map(event=>event.eventId)).size!==events.length)throw fail('同じ記録が重複しています。',400);
   const token=await accessToken(),headers={Authorization:'Bearer '+token,'Content-Type':'application/json'},path=`title_progress/${user.uid}/activities/${body.appId}`,receipt=`title_events/${user.uid}/events/${keyOf(body.appId+':batch:'+body.batchId)}`,day=challengePeriods().day;
+  const usageId=body.appId==='word-tower'?'adventure-tower':body.appId==='eiken-dungeon'?'adventure-dungeon':'';
+  const answeredSessions=new Set(events.filter(event=>event.kind==='answer'&&event.sessionId).map(event=>event.sessionId));
+  const completedRuns=new Set(events.filter(event=>event.kind==='run'&&event.sessionId&&answeredSessions.has(event.sessionId)).map(event=>event.sessionId));
+  const usageCounts=usageId&&completedRuns.size?{[usageId]:completedRuns.size}:{};
   for(let attempt=0;attempt<5;attempt++){
    const response=await request(base+'/documents:batchGet',{method:'POST',headers,body:JSON.stringify({documents:[prefix+path,prefix+receipt]})});
    if(!response.ok)throw fail('称号の記録を取得できませんでした。',502);
@@ -46,7 +50,7 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
    const unlocked=new Set(creativeTitles(body.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(body.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
    const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[
-    {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
+    {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),counts:encode(usageCounts),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
     {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}
    ]})});
    if(commit.ok)return send(res,200,{ok:true,freshTitles});

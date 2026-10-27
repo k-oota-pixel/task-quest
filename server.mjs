@@ -3,7 +3,7 @@ import {createAdventureRankings} from './adventure-rankings.mjs';
 import {creativeCatalog} from './title-model.mjs';
 import {createTitleEvents} from './creative-title-events.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
-import {createMaterialUsage,createMaterialOpen} from './material-usage.mjs';
+import {createMaterialUsage,createMaterialOpen,createMaterialActivity} from './material-usage.mjs';
 import {createLearningChallenges} from './learning-challenges.mjs';
 import {createSecurityGate} from './security-gate.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
@@ -189,7 +189,8 @@ async function handleDailyCoinLeaderboard(req,res){
 }
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:adminData.invalidate});
-const handleMaterialOpen=createMaterialOpen({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
+const handleMaterialOpen=createMaterialOpen({send,fail});
+const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
 const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
 const handleTitleEvents=createTitleEvents({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson});
 const learningTitles=createLearningTitles({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson});
@@ -315,6 +316,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
   if(path==='/api/coins/leaderboard')return handleDailyCoinLeaderboard(req,res);
   if(path==='/api/material-open')return handleMaterialOpen(req,res);
+  if(path==='/api/material-activity')return handleMaterialActivity(req,res);
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
