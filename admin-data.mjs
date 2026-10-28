@@ -1,5 +1,5 @@
 const APP_IDS=['english-playroom','ateru','basic-quest','eiken-retry','eiken-cloze','eiken-title','task-quest','eiken-pre2-interview-a'];
-export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname,fetch:request=globalThis.fetch,now=Date.now}){
+export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,fetch:request=globalThis.fetch,now=Date.now}){
   const cache=new Map(),TTL=60000;
   async function cached(key,read){
     const previous=cache.get(key);if(previous&&previous.until>now())return previous.promise;
@@ -35,6 +35,25 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
       users.sort((a,b)=>Number(b.lastLoginAt||0)-Number(a.lastLoginAt||0)||Number(b.createdAt||0)-Number(a.createdAt||0)||String(a.localId||'').localeCompare(String(b.localId||'')));
       return users;
     });
+  }
+  async function identityRequest(action,body){
+    return json(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:${action}`,{method:'POST',body:JSON.stringify(body)});
+  }
+  async function authAccount(uid){
+    const data=await identityRequest('lookup',{localId:[uid]});
+    const user=Array.isArray(data.users)?data.users[0]:null;
+    if(!user)throw fail('利用者アカウントが見つかりません。',404);
+    return user;
+  }
+  function customAttributes(account){
+    let value={};
+    try{value=account.customAttributes?JSON.parse(account.customAttributes):{};}catch{throw fail('利用者の認証設定を読み取れません。',502);}
+    return value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+  }
+  async function readBody(req,maxBytes=2048){
+    let raw='',size=0;
+    for await(const chunk of req){size+=chunk.length;if(size>maxBytes)throw fail('送信内容が大きすぎます。',413);raw+=chunk;}
+    try{return JSON.parse(raw||'{}');}catch{throw fail('送信内容を読み取れません。',400);}
   }
   async function nicknameDirectory(){
     return cached('nicknames',async()=>{
@@ -102,9 +121,39 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,send,fai
   }
   async function handle(req,res){
     try{
+      const url=new URL(req.url,'http://localhost');
+      if(url.pathname==='/api/admin/users'&&req.method==='POST'&&url.searchParams.get('completePasswordReset')==='1'){
+        const user=await verifyUser(req);
+        if(user.passwordResetRequired!==true)throw fail('パスワード再設定が必要なアカウントではありません。',403);
+        if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
+        const body=await readBody(req),password=typeof body.password==='string'?body.password:'';
+        if(password.length<6||password==='000000'||password.length>128)throw fail('新しいパスワードは6文字以上で、仮パスワードとは異なるものを設定してください。',400);
+        const account=await authAccount(user.uid),claims=customAttributes(account);
+        delete claims.passwordResetRequired;
+        await identityRequest('update',{localId:user.uid,password,customAttributes:JSON.stringify(claims),returnSecureToken:false});
+        cache.delete('auth:recent');
+        send(res,200,{ok:true});return;
+      }
+      if(url.pathname==='/api/admin/users'&&req.method==='POST'&&url.searchParams.get('resetPassword')==='1'){
+        const admin=await verifyAdmin(req);
+        if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
+        const body=await readBody(req),uid=String(body.uid||'');
+        if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
+        const account=await authAccount(uid),claims=customAttributes(account);
+        claims.passwordResetRequired=true;
+        await identityRequest('update',{localId:uid,password:'000000',customAttributes:JSON.stringify(claims),returnSecureToken:false});
+        cache.delete('auth:recent');
+        console.log(`Admin password reset: uid=${uid} by=${admin.uid}`);
+        send(res,200,{ok:true,passwordResetRequired:true});return;
+      }
       if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
       await verifyAdmin(req); // Cache never bypasses authentication or authorization.
-      const url=new URL(req.url,'http://localhost');
+      if(url.pathname==='/api/admin/users'&&url.searchParams.has('emailUid')){
+        const uid=url.searchParams.get('emailUid')||'';
+        if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
+        const account=await authAccount(uid);
+        send(res,200,{uid,email:String(account.email||'')});return;
+      }
       if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.9'});return;}
       if(url.pathname==='/api/admin/retry-screen-logs'){
         const ids=[...new Set((url.searchParams.get('uids')||'').split(',').filter(Boolean))];
