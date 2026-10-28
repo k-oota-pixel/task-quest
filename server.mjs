@@ -187,7 +187,7 @@ async function handleDailyCoinLeaderboard(req,res){
     send(res,200,board);
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
-const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,send,fail,decodeFields,normalizeNickname,validNickname});
+const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname});
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:adminData.invalidate});
 const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
