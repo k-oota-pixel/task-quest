@@ -26,6 +26,7 @@ export function createSecurityGate({env=process.env,fetchImpl=fetch,log=console.
     if(response.status>=500||response.status===429)throw error('ログイン確認が混み合っています。再試行してください。',503);
     if(!response.ok||!user?.localId||!user?.email||user.disabled||user.localId!==claims.sub)throw error('ログイン情報を確認できませんでした。',401);
     const result={uid:user.localId,email:user.email,displayName:user.displayName||'',emailVerified:user.emailVerified===true};
+    if(claims.passwordResetRequired===true)result.passwordResetRequired=true;
     users.set(req,result);return result;
   }
   async function getKeys(){
