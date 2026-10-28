@@ -14,6 +14,9 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const response=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom?'+params,{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields})});
   if(!response.ok)throw fail('称号の集約情報を保存できませんでした。',502);
  }
+ async function mirrorWalletSummary(uid,token,summary,previous={}){
+  try{await patchWalletSummary(uid,token,summary,previous);}catch(error){console.warn('Title wallet summary sync deferred',error?.message||error);}
+ }
  async function read(uid){
   const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...TITLE_CONTENTS.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
@@ -27,7 +30,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    const migrated=await request(base+'/documents/user_titles/'+encodeURIComponent(uid)+'?currentDocument.exists=false',{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(state.selectedId),selectedTitle:encode(state.selectedTitle)}})});
    if(!migrated.ok&&![409,412].includes(migrated.status))throw fail('以前の称号を引き継げませんでした。再試行してください。',502);
   }
-  await patchWalletSummary(uid,token,state,wallet);
+  await mirrorWalletSummary(uid,token,state,wallet);
   return state;
  }
  async function decorate(leaders){
@@ -45,10 +48,10 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    if(selectedId!==null)return {selectedId,selectedTitle:typeof wallet.selectedTitle==='string'?wallet.selectedTitle:validTitleName(selectedId)};
   }else if(walletResponse.status!==404)throw fail('表示称号を取得できませんでした。',502);
   const response=await request(base+'/documents/user_titles/'+encodeURIComponent(uid),{headers:{Authorization:'Bearer '+token}});
-  if(response.status===404){await patchWalletSummary(uid,token,{selectedId:'',selectedTitle:''});return {selectedId:'',selectedTitle:''};}
+  if(response.status===404){await mirrorWalletSummary(uid,token,{selectedId:'',selectedTitle:''});return {selectedId:'',selectedTitle:''};}
   if(!response.ok)throw fail('表示称号を取得できませんでした。',502);
   const data=await response.json(),fields=decodeFields(data.fields||{}),selectedId=typeof fields.selectedId==='string'?fields.selectedId:'',selectedTitle=validTitleName(selectedId);
-  await patchWalletSummary(uid,token,{selectedId,selectedTitle});
+  await mirrorWalletSummary(uid,token,{selectedId,selectedTitle});
   return {selectedId,selectedTitle};
  }
  async function readSelectedTitle(uid,selectedId){
@@ -88,7 +91,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    const body=await readJson(req,1024),selectedId=body.selectedId;if(typeof selectedId!=='string')throw fail('称号を選んでください。',400);
    const selectedTitle=await readSelectedTitle(user.uid,selectedId),token=await accessToken(),response=await request(base+'/documents/user_titles/'+encodeURIComponent(user.uid),{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(selectedId),selectedTitle:encode(selectedTitle)}})});
    if(!response.ok)throw fail('称号を保存できませんでした。再試行してください。',502);
-   await patchWalletSummary(user.uid,token,{selectedId,selectedTitle});
+   await mirrorWalletSummary(user.uid,token,{selectedId,selectedTitle});
    return send(res,200,{selectedId,selectedTitle});
   }
   const state=await read(user.uid);
