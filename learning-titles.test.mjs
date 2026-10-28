@@ -26,7 +26,7 @@ test('full title read returns and mirrors unlocked title count',async()=>{
   {found:{name:prefix+'learning_activity/u',fields:{}}},
   {found:{name:prefix+'users/u/apps/eiken-retry',fields:{}}},
   {found:{name:prefix+'user_titles/u',fields:{selectedId:''}}},
-  {found:{name:prefix+'title_progress/u/activities/ateru',fields:{metrics:{runs:1}}}},
+  {found:{name:prefix+'title_progress/u/activities/word-breaker',fields:{metrics:{runs:1}}}},
   {found:{name:prefix+'users/u/apps/english-playroom',fields:{}}}
  ];
  let mirrored=null;
