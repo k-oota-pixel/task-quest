@@ -1,0 +1,29 @@
+name: Patch TODAY Eiken Grade 5
+on:
+  push:
+    branches: [feat/today-eiken5]
+    paths:
+      - scripts/patch-today-eiken5.mjs
+      - .github/workflows/patch-today-eiken5.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/today-eiken5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/patch-today-eiken5.mjs
+      - run: |
+          node --check today-news.mjs
+          node --test today-news.test.mjs today-feeds.test.mjs api-security.test.mjs
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add today-news.mjs today-news.test.mjs
+          git commit -m "Add Eiken Grade 5 to TODAY generation"
+          git push origin HEAD:feat/today-eiken5
