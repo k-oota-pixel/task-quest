@@ -1,0 +1,31 @@
+name: Patch TODAY diversity guard
+on:
+  push:
+    branches: [fix/today-category-diversity]
+    paths:
+      - scripts/patch-today-diversity.mjs
+      - .github/workflows/patch-today-diversity.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/today-category-diversity
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/patch-today-diversity.mjs
+      - run: |
+          node --check today-news.mjs
+          node --check today-feeds.mjs
+          node --test today-feeds.test.mjs today-news.test.mjs api-security.test.mjs
+      - run: |
+          if git diff --quiet -- today-news.mjs today-feeds.mjs; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add today-news.mjs today-feeds.mjs
+          git commit -m "Enforce diverse TODAY story slate"
+          git push origin HEAD:fix/today-category-diversity
