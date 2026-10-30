@@ -1,0 +1,40 @@
+name: Install TODAY generator route
+
+on:
+  push:
+    branches: [feature/today-daily-generator]
+    paths:
+      - scripts/install-today-route.mjs
+      - .github/workflows/install-today-route.yml
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/today-daily-generator
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Patch server route
+        run: node scripts/install-today-route.mjs
+      - name: Check and test
+        run: |
+          node --check server.mjs
+          node --check today-news.mjs
+          node --test today-news.test.mjs api-security.test.mjs
+      - name: Commit route patch
+        run: |
+          if git diff --quiet -- server.mjs; then
+            echo "server already patched"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server.mjs
+          git commit -m "Wire TODAY generator into Task Quest server"
+          git push origin HEAD:feature/today-daily-generator
