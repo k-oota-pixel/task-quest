@@ -321,7 +321,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',adventureRankingVersion:'1.10.20',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,adventureRankingVersion:'1.10.20',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});

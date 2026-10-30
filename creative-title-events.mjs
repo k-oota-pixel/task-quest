@@ -30,6 +30,7 @@ export function validateTitleEvent(b,fail){
  }
  return e;
 }
+const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
 export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  async function applyBatch(user,body,res){
@@ -51,7 +52,8 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    const unlocked=new Set(creativeTitles(body.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(body.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
    const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[
     {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),counts:encode(usageCounts),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
-    {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}
+    {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},
+    ...(freshTitles.length||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])
    ]})});
    if(commit.ok)return send(res,200,{ok:true,freshTitles});
    const error=await commit.json?.().catch(()=>({}))||{};
@@ -71,7 +73,7 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{}),next=applyTitleEvent(previous,e,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
    const unlocked=new Set(creativeTitles(e.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(e.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
-   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}}]})});
+   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},...(freshTitles.length||e.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
    if(commit.ok)return send(res,200,{ok:true,freshTitles});const error=await commit.json?.().catch(()=>({}))||{};if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
   }
   throw fail('称号の保存が混み合っています。',409);

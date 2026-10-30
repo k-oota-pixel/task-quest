@@ -4,11 +4,18 @@ const encodeInt=value=>({integerValue:String(Math.max(0,Math.floor(Number(value)
 const unlockedCount=titles=>new Set((titles||[]).filter(t=>t?.unlocked&&typeof t.id==='string').map(t=>t.id)).size;
 export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
+ // Revision tokens preserve invalidations arriving while a full count is being read.
+ const revisionOf=wallet=>Math.max(0,Math.floor(Number(wallet.titleCountRevision)||0));
+ const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
  async function patchWalletSummary(uid,token,summary,previous={}){
   const fields={};
   if(typeof summary.selectedId==='string'&&previous.selectedTitleId!==summary.selectedId)fields.selectedTitleId=encode(summary.selectedId);
   if(typeof summary.selectedTitle==='string'&&previous.selectedTitle!==summary.selectedTitle)fields.selectedTitle=encode(summary.selectedTitle);
   if(Number.isSafeInteger(summary.unlockedTitleCount)&&Number(previous.unlockedTitleCount)!==summary.unlockedTitleCount)fields.unlockedTitleCount=encodeInt(summary.unlockedTitleCount);
+  if(Number.isSafeInteger(summary.unlockedTitleCount)){
+   if(previous.titleCountSummaryVersion!==1)fields.titleCountSummaryVersion=encodeInt(1);
+   if(previous.titleCountSyncedRevision!==revisionOf(previous))fields.titleCountSyncedRevision=encodeInt(revisionOf(previous));
+  }
   const names=Object.keys(fields);if(!names.length)return;
   const params=new URLSearchParams(names.map(name=>['updateMask.fieldPaths',name]));
   const response=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom?'+params,{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields})});
@@ -30,7 +37,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    const migrated=await request(base+'/documents/user_titles/'+encodeURIComponent(uid)+'?currentDocument.exists=false',{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(state.selectedId),selectedTitle:encode(state.selectedTitle)}})});
    if(!migrated.ok&&![409,412].includes(migrated.status))throw fail('以前の称号を引き継げませんでした。再試行してください。',502);
   }
-  await mirrorWalletSummary(uid,token,state,wallet);
+  await patchWalletSummary(uid,token,state,wallet);
   return state;
  }
  async function decorate(leaders){
@@ -75,18 +82,21 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const rows=await response.json(),activity=decodeFields(rows.find(row=>row.found?.name===name)?.found?.fields||{}),title=activityTitles(appId,activity.contents?.[appId]?.titleCount).find(item=>item.need===threshold);
   if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);return title.name;
  }
- async function readRetryTitles(uid){
+ async function readRetryTitles(uid,{invalidate=false}={}){
   const token=await accessToken(),name=prefix+`users/${uid}/apps/eiken-retry`;
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
   if(!response.ok)throw fail('リトライ称号を取得できませんでした。',502);
   const rows=await response.json(),retry=decodeFields(rows.find(row=>row.found?.name===name)?.found?.fields||{});
+  // Called after the notebook's cloud save: its grade titles use that saved history.
+  if(invalidate){const invalidated=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[titleCountInvalidation(prefix,uid)]})});
+  if(!invalidated.ok)throw fail('称号数の更新を予約できませんでした。',502);}
   return titleState({retry}).titles.filter(title=>title.appId==='eiken-retry');
  }
  async function handle(req,res){try{
   if(!['GET','POST'].includes(req.method))throw fail('GETまたはPOSTのみ対応しています。',405);
   const user=await verifyUser(req),view=new URL(req.url,'http://localhost').searchParams.get('view');
   if(req.method==='GET'&&view==='selection')return send(res,200,await readSelection(user.uid));
-  if(req.method==='GET'&&view==='retry')return send(res,200,{titles:await readRetryTitles(user.uid)});
+  if(req.method==='GET'&&view==='retry')return send(res,200,{titles:await readRetryTitles(user.uid,{invalidate:true})});
   if(req.method==='POST'){
    const body=await readJson(req,1024),selectedId=body.selectedId;if(typeof selectedId!=='string')throw fail('称号を選んでください。',400);
    const selectedTitle=await readSelectedTitle(user.uid,selectedId),token=await accessToken(),response=await request(base+'/documents/user_titles/'+encodeURIComponent(user.uid),{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(selectedId),selectedTitle:encode(selectedTitle)}})});
