@@ -27,3 +27,4 @@ jobs:
           git add today-news.mjs today-news.test.mjs
           git commit -m "Repair short TODAY graded texts before publishing"
           git push origin HEAD:fix/today-level-repair
+# trigger
