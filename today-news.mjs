@@ -9,6 +9,7 @@ const ALLOWED_REF='refs/heads/main';
 const ALLOWED_WORKFLOW_REF='k-oota-pixel/english-playroom/.github/workflows/today-daily.yml@refs/heads/main';
 const ALLOWED_EVENTS=new Set(['schedule','workflow_dispatch','push']);
 const LEVELS=['4級','3級','準2級','2級','準1級'];
+const LEVEL_TARGET_RANGES={'4級':[55,90],'3級':[85,130],'準2級':[125,180],'2級':[180,260],'準1級':[250,360]};
 const CATEGORIES=['world','science','technology','health','sports','culture','business','environment','education','life'];
 const CAREERS=['medicine','education','science','engineering','it','business','public','global','sports','arts','undecided'];
 const RETRYABLE=new Set([429,500,502,503,504]);
@@ -165,7 +166,7 @@ Classification:
 - summaryJa: one clear Japanese sentence summarizing the verified event.
 - sourcePublishedAt: ISO date if known; otherwise empty string.
 
-Create five ORIGINAL English versions of the same verified story. Preserve the same factual core while changing linguistic difficulty:
+Create five ORIGINAL English versions of the same verified story. Preserve the same factual core while changing linguistic difficulty. The word-count ranges below are REQUIRED, not optional; do not compress the upper levels merely to save output tokens:
 - 4級: about 55-90 words. Short sentences, common vocabulary, basic present/past forms. Avoid unnecessary subordinate clauses.
 - 3級: about 85-130 words. Common junior-high grammar, simple connectors and explanations.
 - 準2級: about 125-180 words. High-school accessible vocabulary, clear cause/effect and context.
@@ -179,6 +180,49 @@ VERIFIED RESEARCH PACKET:
 ${researchText}
 
 GROUNDING SOURCE LIST (these URLs are allowed):
+${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
+`.trim();}
+
+export function collectLevelLengthIssues(articles){
+  const issues=[];
+  for(const [articleIndex,article] of (Array.isArray(articles)?articles:[]).entries()){
+    let previousWords=0;
+    for(const level of LEVELS){
+      const words=Number(article?.levels?.[level]?.wordCount)||wordCount(article?.levels?.[level]?.text||'');
+      const [min,max]=LEVEL_TARGET_RANGES[level];
+      if(words<min||words>max)issues.push({articleIndex,id:text(article?.id||article?.title||'',120),level,words,min,max,type:'range'});
+      if(previousWords&&words<previousWords)issues.push({articleIndex,id:text(article?.id||article?.title||'',120),level,words,previousWords,type:'progression'});
+      previousWords=words;
+    }
+  }
+  return issues;
+}
+
+function repairGenerationPrompt(editionDate,researchText,sourceList,currentArticles,issues){return `
+You are repairing a TODAY graded-news JSON draft for Japanese high-school students.
+Edition date: ${editionDate}.
+
+The draft is factually grounded, but some English level texts are outside their required word-count ranges or do not grow progressively with level. Return the COMPLETE six-article JSON again, in the same article order.
+
+STRICT RULES:
+- Preserve each story's identity, category, summary, tags, and source URLs. Do not substitute stories.
+- Use ONLY facts in the verified research packet. Do not invent facts just to make a passage longer.
+- Expand by restating verified context clearly, connecting existing verified facts, and explaining the same event with level-appropriate language. Do not copy source sentences.
+- Every level must meet these REQUIRED ranges: 4級 55-90 words; 3級 85-130; 準2級 125-180; 2級 180-260; 準1級 250-360.
+- A higher level must never be shorter than the level below it.
+- Keep source URLs exactly from the allowed source list.
+- Return JSON only, matching the original schema.
+
+CURRENT LENGTH ISSUES:
+${JSON.stringify(issues,null,2)}
+
+CURRENT SIX-ARTICLE DRAFT:
+${JSON.stringify(currentArticles,null,2)}
+
+VERIFIED RESEARCH PACKET:
+${researchText}
+
+ALLOWED SOURCE URLS:
 ${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
 `.trim();}
 
@@ -207,7 +251,7 @@ export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,
   return articles;
 }
 
-export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',searchModel='gemini-2.5-flash',send,fail}){
+export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',searchModel='gemini-3.8-flash',send,fail}){
   let active=false,cacheDay='',cachePayload=null;
   async function handle(req,res){
     try{
@@ -239,10 +283,23 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
         }
         const allowedUrls=new Set([...extractUrls(research),...sourceList.map(source=>source.url)]);
         if(allowedUrls.size<6)throw fail('TODAYのニュース出典を十分に確認できませんでした。',502);
-        const generated=await callGemini({apiKey,model,label:'TODAY英文生成',timeout:90000,body:{contents:[{role:'user',parts:[{text:generationPrompt(editionDate,research,sourceList)}]}],generationConfig:{temperature:0.2,maxOutputTokens:16384,responseMimeType:'application/json',responseSchema:outputSchema}}});
+        const generated=await callGemini({apiKey,model,label:'TODAY英文生成',timeout:90000,body:{contents:[{role:'user',parts:[{text:generationPrompt(editionDate,research,sourceList)}]}],generationConfig:{temperature:0.15,maxOutputTokens:24576,responseMimeType:'application/json',responseSchema:outputSchema}}});
         let parsed;try{parsed=JSON.parse(modelText(generated));}catch{throw fail('TODAYの英文生成結果をJSONとして読み取れませんでした。',502);}
         const categoryByUrl=new Map(sourceList.filter(source=>CATEGORIES.includes(source.categoryHint)).map(source=>[urlKey(source.url),source.categoryHint]));
-        const articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
+        let articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
+        for(let repairAttempt=0;repairAttempt<2;repairAttempt++){
+          const issues=collectLevelLengthIssues(articles);
+          if(!issues.length)break;
+          console.warn(`TODAY graded text repair ${repairAttempt+1}: ${issues.length} length issues.`);
+          const repaired=await callGemini({apiKey,model,label:`TODAY英文修復${repairAttempt+1}`,timeout:100000,body:{contents:[{role:'user',parts:[{text:repairGenerationPrompt(editionDate,research,sourceList,parsed?.articles||[],issues)}]}],generationConfig:{temperature:0.1,maxOutputTokens:24576,responseMimeType:'application/json',responseSchema:outputSchema}}});
+          try{parsed=JSON.parse(modelText(repaired));}catch{throw fail('TODAYの英文修復結果をJSONとして読み取れませんでした。',502);}
+          articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
+        }
+        const remainingIssues=collectLevelLengthIssues(articles);
+        if(remainingIssues.length){
+          const first=remainingIssues[0];
+          throw fail(`TODAYの5段階英文を目標語数に整えられませんでした: ${first.id} ${first.level} ${first.words}語`,502);
+        }
         const payload={generatedAt:new Date().toISOString(),editionDate,model,discoveryMode,searchQueries,articles};
         cacheDay=editionDate;cachePayload=payload;
         console.log(`TODAY generated: ${editionDate} ${articles.length} stories, ${allowedUrls.size} verified URLs via ${discoveryMode}`);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateOidcClaims,normalizeGeneratedArticles} from './today-news.mjs';
+import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues} from './today-news.mjs';
 
 const now=2_000_000_000;
 const goodClaims={
@@ -41,4 +41,12 @@ test('TODAY normalizer accepts six diverse stories and rejects unverified URLs',
   assert.ok(articles.every(article=>article.sources.length===1));
   assert.ok(articles.every(article=>Number.isInteger(article.levels['4級'].wordCount)));
   assert.throws(()=>normalizeGeneratedArticles(raw.map((item,i)=>i===0?{...item,sources:[{name:'bad',url:'https://evil.example/news'}]}:item),{editionDate:'2026-10-31',allowedUrls}));
+});
+
+const fakeArticleWithCounts=(counts)=>({id:'graded-story',levels:Object.fromEntries(['4級','3級','準2級','2級','準1級'].map((level,i)=>[level,{wordCount:counts[i],text:''}]))});
+test('TODAY detects under-length graded text and accepts target-range progression',()=>{
+  assert.deepEqual(collectLevelLengthIssues([fakeArticleWithCounts([60,95,140,210,290])]),[]);
+  const issues=collectLevelLengthIssues([fakeArticleWithCounts([60,95,32,210,290])]);
+  assert.ok(issues.some(issue=>issue.level==='準2級'&&issue.type==='range'&&issue.words===32));
+  assert.ok(issues.some(issue=>issue.level==='準2級'&&issue.type==='progression'));
 });
