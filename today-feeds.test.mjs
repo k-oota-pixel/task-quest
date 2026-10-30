@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds} from './today-feeds.mjs';
 
-test('parseFeed supports RSS items and Atom links',()=>{
-  const rss=`<rss><channel><item><title>NOAA studies a new ocean event</title><link>https://example.gov/ocean</link><pubDate>Thu, 30 Oct 2026 10:00:00 GMT</pubDate><description><![CDATA[Scientists reported a measured change in the ocean.]]></description></item></channel></rss>`;
+test('parseFeed supports RSS items and Atom links while normalizing HTTP sources to HTTPS',()=>{
+  const rss=`<rss><channel><item><title>NOAA studies a new ocean event</title><link>http://example.gov/ocean</link><pubDate>Thu, 30 Oct 2026 10:00:00 GMT</pubDate><description><![CDATA[Scientists reported a measured change in the ocean.]]></description></item></channel></rss>`;
   const items=parseFeed(rss,{name:'NOAA',url:'https://example.gov/rss.xml',category:'environment'});
   assert.equal(items.length,1);assert.equal(items[0].url,'https://example.gov/ocean');assert.equal(items[0].categoryHint,'environment');assert.match(items[0].summary,/Scientists reported/);
   const atom=`<feed><entry><title>New education program opens</title><link href="/news/education"/><updated>2026-10-30T12:00:00Z</updated><summary>Students can join a new program.</summary></entry></feed>`;
@@ -36,5 +36,5 @@ test('discoverNewsFromFeeds builds a diverse compact packet despite individual s
     return {ok:true,status:200,headers:{get:()=>String(body.length)},arrayBuffer:async()=>Buffer.from(body)};
   };
   const result=await discoverNewsFromFeeds({fetchImpl,now:new Date('2026-10-31T00:00:00Z')});
-  assert.equal(result.mode,'curated-feeds');assert.ok(result.candidateCount>=8);assert.ok(result.sources.length>=8);assert.match(result.research,/official sources/);assert.match(result.research,/environment/);assert.match(result.research,/business/);
+  assert.equal(result.mode,'curated-feeds');assert.ok(result.candidateCount>=8);assert.ok(result.sources.length>=8);assert.ok(result.sources.every(source=>source.url.startsWith('https://')));assert.match(result.research,/official sources/);assert.match(result.research,/environment/);assert.match(result.research,/business/);
 });
