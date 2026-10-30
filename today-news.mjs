@@ -8,8 +8,9 @@ const ALLOWED_REPOSITORY_ID='1416249450';
 const ALLOWED_REF='refs/heads/main';
 const ALLOWED_WORKFLOW_REF='k-oota-pixel/english-playroom/.github/workflows/today-daily.yml@refs/heads/main';
 const ALLOWED_EVENTS=new Set(['schedule','workflow_dispatch','push']);
-const LEVELS=['4級','3級','準2級','2級','準1級'];
-const LEVEL_TARGET_RANGES={'4級':[55,90],'3級':[85,130],'準2級':[125,180],'2級':[180,260],'準1級':[250,360]};
+const LEVELS=['5級','4級','3級','準2級','2級','準1級'];
+const LEVEL_TARGET_RANGES={'5級':[35,55],'4級':[55,90],'3級':[85,130],'準2級':[125,180],'2級':[180,260],'準1級':[250,360]};
+const LEVEL_HARD_LIMITS={'5級':[25,80],'4級':[40,120],'3級':[60,170],'準2級':[90,230],'2級':[130,320],'準1級':[180,430]};
 const CATEGORIES=['world','science','technology','health','sports','culture','business','environment','education','life'];
 const CAREERS=['medicine','education','science','engineering','it','business','public','global','sports','arts','undecided'];
 const RETRYABLE=new Set([429,500,502,503,504]);
@@ -142,7 +143,7 @@ For each candidate provide:
 
 Return a compact research packet. JSON is preferred, but factual completeness and source accuracy are more important than formatting.`.trim();}
 
-const outputSchema={type:'OBJECT',properties:{articles:{type:'ARRAY',minItems:6,maxItems:6,items:{type:'OBJECT',properties:{slug:{type:'STRING'},category:{type:'STRING'},categories:{type:'ARRAY',items:{type:'STRING'}},careerTags:{type:'ARRAY',items:{type:'STRING'}},tags:{type:'ARRAY',items:{type:'STRING'}},title:{type:'STRING'},summaryJa:{type:'STRING'},sourcePublishedAt:{type:'STRING'},levels:{type:'OBJECT',properties:{'4級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'3級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準1級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']}},required:LEVELS},sources:{type:'ARRAY',minItems:1,maxItems:4,items:{type:'OBJECT',properties:{name:{type:'STRING'},url:{type:'STRING'}},required:['name','url']}}},required:['slug','category','categories','careerTags','tags','title','summaryJa','levels','sources']}}},required:['articles']};
+const outputSchema={type:'OBJECT',properties:{articles:{type:'ARRAY',minItems:6,maxItems:6,items:{type:'OBJECT',properties:{slug:{type:'STRING'},category:{type:'STRING'},categories:{type:'ARRAY',items:{type:'STRING'}},careerTags:{type:'ARRAY',items:{type:'STRING'}},tags:{type:'ARRAY',items:{type:'STRING'}},title:{type:'STRING'},summaryJa:{type:'STRING'},sourcePublishedAt:{type:'STRING'},levels:{type:'OBJECT',properties:{'5級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'4級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'3級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準1級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']}},required:LEVELS},sources:{type:'ARRAY',minItems:1,maxItems:4,items:{type:'OBJECT',properties:{name:{type:'STRING'},url:{type:'STRING'}},required:['name','url']}}},required:['slug','category','categories','careerTags','tags','title','summaryJa','levels','sources']}}},required:['articles']};
 
 function generationPrompt(editionDate,researchText,sourceList){return `
 You are the final editor for TODAY, an English-learning news feature for Japanese high-school students.
@@ -166,7 +167,8 @@ Classification:
 - summaryJa: one clear Japanese sentence summarizing the verified event.
 - sourcePublishedAt: ISO date if known; otherwise empty string.
 
-Create five ORIGINAL English versions of the same verified story. Preserve the same factual core while changing linguistic difficulty. The word-count ranges below are REQUIRED, not optional; do not compress the upper levels merely to save output tokens:
+Create six ORIGINAL English versions of the same verified story. Preserve the same factual core while changing linguistic difficulty. The word-count ranges below are REQUIRED generation targets; do not compress the upper levels merely to save output tokens:
+- 5級: about 35-55 words. Use very short sentences and highly frequent junior-high beginner vocabulary. Prefer simple be-verbs, have, can, basic present/past verbs, names, places, numbers, and concrete nouns. Avoid passive voice, long clauses, abstract explanation, and difficult synonyms whenever possible.
 - 4級: about 55-90 words. Short sentences, common vocabulary, basic present/past forms. Avoid unnecessary subordinate clauses.
 - 3級: about 85-130 words. Common junior-high grammar, simple connectors and explanations.
 - 準2級: about 125-180 words. High-school accessible vocabulary, clear cause/effect and context.
@@ -198,6 +200,21 @@ export function collectLevelLengthIssues(articles){
   return issues;
 }
 
+export function collectLevelHardFailures(articles){
+  const failures=[];
+  for(const [articleIndex,article] of (Array.isArray(articles)?articles:[]).entries()){
+    let previousWords=0;
+    for(const level of LEVELS){
+      const words=Number(article?.levels?.[level]?.wordCount)||wordCount(article?.levels?.[level]?.text||'');
+      const [min,max]=LEVEL_HARD_LIMITS[level];
+      if(words<min||words>max)failures.push({articleIndex,id:text(article?.id||article?.title||'',120),level,words,min,max,type:'hard-range'});
+      if(previousWords&&words<previousWords)failures.push({articleIndex,id:text(article?.id||article?.title||'',120),level,words,previousWords,type:'progression'});
+      previousWords=words;
+    }
+  }
+  return failures;
+}
+
 function repairGenerationPrompt(editionDate,researchText,sourceList,currentArticles,issues){return `
 You are repairing a TODAY graded-news JSON draft for Japanese high-school students.
 Edition date: ${editionDate}.
@@ -208,7 +225,8 @@ STRICT RULES:
 - Preserve each story's identity, category, summary, tags, and source URLs. Do not substitute stories.
 - Use ONLY facts in the verified research packet. Do not invent facts just to make a passage longer.
 - Expand by restating verified context clearly, connecting existing verified facts, and explaining the same event with level-appropriate language. Do not copy source sentences.
-- Every level must meet these REQUIRED ranges: 4級 55-90 words; 3級 85-130; 準2級 125-180; 2級 180-260; 準1級 250-360.
+- Every level should aim for these ranges: 5級 35-55 words; 4級 55-90; 3級 85-130; 準2級 125-180; 2級 180-260; 準1級 250-360.
+- For 5級, keep syntax especially simple: short independent sentences, common concrete words, and minimal subordination.
 - A higher level must never be shorter than the level below it.
 - Keep source URLs exactly from the allowed source list.
 - Return JSON only, matching the original schema.
@@ -295,10 +313,10 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
           try{parsed=JSON.parse(modelText(repaired));}catch{throw fail('TODAYの英文修復結果をJSONとして読み取れませんでした。',502);}
           articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
         }
-        const remainingIssues=collectLevelLengthIssues(articles);
-        if(remainingIssues.length){
-          const first=remainingIssues[0];
-          throw fail(`TODAYの5段階英文を目標語数に整えられませんでした: ${first.id} ${first.level} ${first.words}語`,502);
+        const remainingHardFailures=collectLevelHardFailures(articles);
+        if(remainingHardFailures.length){
+          const first=remainingHardFailures[0];
+          throw fail(`TODAYの6段階英文が公開基準を満たしませんでした: ${first.id} ${first.level} ${first.words}語`,502);
         }
         const payload={generatedAt:new Date().toISOString(),editionDate,model,discoveryMode,searchQueries,articles};
         cacheDay=editionDate;cachePayload=payload;
