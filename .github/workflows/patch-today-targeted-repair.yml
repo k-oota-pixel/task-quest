@@ -1,0 +1,29 @@
+name: Patch TODAY targeted level repair
+on:
+  push:
+    branches: [fix/today-targeted-level-repair]
+    paths:
+      - scripts/patch-today-targeted-repair.mjs
+      - .github/workflows/patch-today-targeted-repair.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/today-targeted-level-repair
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/patch-today-targeted-repair.mjs
+      - run: |
+          node --check today-news.mjs
+          node --test today-news.test.mjs today-feeds.test.mjs api-security.test.mjs
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add today-news.mjs
+          git commit -m "Repair only failing TODAY stories at final quality gate"
+          git push origin HEAD:fix/today-targeted-level-repair
