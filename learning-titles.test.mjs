@@ -1,3 +1,4 @@
+import './title-summary.test.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {titleState,activityTitles,TITLE_CONTENTS,creativeTitles} from './title-model.mjs';
 import {createLearningTitles} from './learning-titles.mjs';

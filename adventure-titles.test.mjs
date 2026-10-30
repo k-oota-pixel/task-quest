@@ -39,7 +39,7 @@ test('saved best floors unlock only arrival titles and can be selected without i
 });
 test('title reads include the existing wallet and expose the thirty new titles',async()=>{
  let requested=[];
- const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'t',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,fail,send:(res,status,body)=>Object.assign(res,{status,body}),fetch:async(url,o)=>{requested=JSON.parse(o.body).documents;return {ok:true,json:async()=>[{found:{name:'projects/p/databases/(default)/documents/users/u/apps/english-playroom',fields:{wordTowerBest:25}}}]};}});
+ const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'t',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,fail,send:(res,status,body)=>Object.assign(res,{status,body}),fetch:async(url,o)=>{if(url.endsWith(':batchGet'))requested=JSON.parse(o.body).documents;return {ok:true,json:async()=>[{found:{name:'projects/p/databases/(default)/documents/users/u/apps/english-playroom',fields:{wordTowerBest:25}}}]};}});
  const r={};await api.handle({method:'GET'},r);assert.equal(r.status,200);assert.ok(requested.some(x=>x.endsWith('/apps/english-playroom')));
  assert.equal(r.body.titles.filter(t=>['word-tower','eiken-dungeon'].includes(t.appId)).length,30);
  assert.equal(r.body.titles.find(t=>t.id==='creative:word-tower:11').unlocked,true);
