@@ -33,7 +33,13 @@ function stripHtml(value,max=MAX_EXCERPT){
     .replace(/<[^>]+>/g,' ')),max);
 }
 function normalizeUrl(value,base){
-  try{const url=new URL(decodeEntities(String(value||'')),base);if(!['http:','https:'].includes(url.protocol))return '';url.hash='';return url.toString();}catch{return '';}
+  try{
+    const url=new URL(decodeEntities(String(value||'')),base);
+    if(!['http:','https:'].includes(url.protocol))return '';
+    if(url.protocol==='http:')url.protocol='https:';
+    url.hash='';
+    return url.toString();
+  }catch{return '';}
 }
 function dateIso(value){const time=Date.parse(String(value||''));return Number.isFinite(time)?new Date(time).toISOString():'';}
 function tagText(block,names){
