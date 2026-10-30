@@ -148,6 +148,7 @@ You are the final editor for TODAY, an English-learning news feature for Japanes
 Edition date: ${editionDate}.
 
 Choose EXACTLY SIX distinct stories from the VERIFIED RESEARCH PACKET below. The six stories must cover at least five different primary categories. Prefer stories that are educationally useful, current, concrete, and varied. Avoid six versions of the same technology/business theme.
+If the research packet contains a requiredStories array, you MUST write exactly one article for each requiredStories item in the same order. Do not substitute an alternate. Use each required story's categoryHint as its primary category.
 
 NON-NEGOTIABLE FACT RULES:
 - Use ONLY facts that appear in the research packet or source list below.
@@ -181,12 +182,13 @@ GROUNDING SOURCE LIST (these URLs are allowed):
 ${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
 `.trim();}
 
-export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls}){
+export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,categoryByUrl=new Map()}){
   const allowedMap=new Map([...allowedUrls].map(url=>[urlKey(url),normalizeUrl(url)]).filter(([key])=>key));
   const articles=[];const usedIds=new Set();
   for(const raw of Array.isArray(rawArticles)?rawArticles:[]){
     if(articles.length>=6)break;
-    const category=CATEGORIES.includes(raw?.category)?raw.category:'';if(!category)continue;
+    const hintedCategory=(Array.isArray(raw?.sources)?raw.sources:[]).map(source=>categoryByUrl.get(urlKey(source?.url))).find(item=>CATEGORIES.includes(item));
+    const category=hintedCategory||(CATEGORIES.includes(raw?.category)?raw.category:'');if(!category)continue;
     const categories=uniq(raw.categories,3).filter(item=>CATEGORIES.includes(item)&&item!==category);
     const careerTags=uniq(raw.careerTags,4).filter(item=>CAREERS.includes(item));
     const tags=uniq(raw.tags,8);
@@ -239,7 +241,8 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
         if(allowedUrls.size<6)throw fail('TODAYのニュース出典を十分に確認できませんでした。',502);
         const generated=await callGemini({apiKey,model,label:'TODAY英文生成',timeout:90000,body:{contents:[{role:'user',parts:[{text:generationPrompt(editionDate,research,sourceList)}]}],generationConfig:{temperature:0.2,maxOutputTokens:16384,responseMimeType:'application/json',responseSchema:outputSchema}}});
         let parsed;try{parsed=JSON.parse(modelText(generated));}catch{throw fail('TODAYの英文生成結果をJSONとして読み取れませんでした。',502);}
-        const articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls});
+        const categoryByUrl=new Map(sourceList.filter(source=>CATEGORIES.includes(source.categoryHint)).map(source=>[urlKey(source.url),source.categoryHint]));
+        const articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
         const payload={generatedAt:new Date().toISOString(),editionDate,model,discoveryMode,searchQueries,articles};
         cacheDay=editionDate;cachePayload=payload;
         console.log(`TODAY generated: ${editionDate} ${articles.length} stories, ${allowedUrls.size} verified URLs via ${discoveryMode}`);

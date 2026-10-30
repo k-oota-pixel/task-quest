@@ -114,7 +114,7 @@ async function enrich(candidate,fetchImpl){
 function dedupe(items){
   const seen=new Set(),out=[];for(const item of items){const key=item.url.replace(/\/$/,'');if(seen.has(key))continue;seen.add(key);out.push(item);}return out;
 }
-function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url}])).values()];}
+function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint}])).values()];}
 
 export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date()}={}){
   const groups=await Promise.all(CURATED_SOURCES.map(source=>collectSource(source,fetchImpl)));
@@ -126,14 +126,24 @@ export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date()}={})
   for(let i=0;i<selected.length;i+=6){const batch=await Promise.all(selected.slice(i,i+6).map(item=>enrich(item,fetchImpl)));enriched.push(...batch);}
   const usable=enriched.filter(item=>item.excerpt||item.summary);
   if(usable.length<8)throw new Error(`公式フィードの本文候補が不足しています (${usable.length})`);
-  const compact=usable.slice(0,MAX_CANDIDATES).map(item=>({
+  const allCompact=usable.slice(0,MAX_CANDIDATES).map(item=>({
     source:item.sourceName,categoryHint:item.categoryHint,title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)
   }));
-  const categories=[...new Set(compact.map(item=>item.categoryHint))];
-  if(categories.length<5)throw new Error(`公式フィードの分野が不足しています (${categories.join(', ')})`);
+  const firstByCategory=[];const seenCategories=new Set();
+  for(const item of allCompact){if(seenCategories.has(item.categoryHint))continue;seenCategories.add(item.categoryHint);firstByCategory.push(item);}
+  if(firstByCategory.length<5)throw new Error(`公式フィードの分野が不足しています (${[...seenCategories].join(', ')})`);
+  const requiredStories=firstByCategory.slice(0,6);
+  const requiredUrls=new Set(requiredStories.map(item=>item.url));
+  if(requiredStories.length<6){
+    const extra=allCompact.find(item=>!requiredUrls.has(item.url));
+    if(!extra)throw new Error('公式フィードから6記事を確保できませんでした');
+    requiredStories.push(extra);requiredUrls.add(extra.url);
+  }
+  const alternates=allCompact.filter(item=>!requiredUrls.has(item.url));
+  const compact=[...requiredStories,...alternates];
   return {
     mode:'curated-feeds',
-    research:JSON.stringify({mode:'curated official sources',collectedAt:now.toISOString(),instruction:'Use only facts explicitly present in each candidate summary/excerpt. The URL is the canonical source for that candidate.',candidates:compact},null,2),
+    research:JSON.stringify({mode:'curated official sources',collectedAt:now.toISOString(),instruction:'Use only facts explicitly present in each candidate summary/excerpt. IMPORTANT: create exactly one TODAY article for EACH item in requiredStories, in the same order. Do not replace, merge, or duplicate these stories. Use categoryHint as that story primary category. The URL is the canonical source.',requiredStories,alternates},null,2),
     sources:sourceList(compact),
     queries:[],
     candidateCount:compact.length
