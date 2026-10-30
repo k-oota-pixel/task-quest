@@ -288,7 +288,7 @@ Do not claim to be a human. Stay in character as the student's pet.
   }catch(e){send(res,e.status||500,{error:e.message||'ペットとおしゃべりできませんでした。'});}
 }
 
-const todayNews=createTodayNewsGenerator({apiKey:key,model:process.env.TODAY_GEMINI_MODEL||model,send,fail});
+const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KEY||backupKey||key,model:process.env.TODAY_GEMINI_MODEL||model,send,fail});
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
 export const server=http.createServer(async(req,res)=>{
