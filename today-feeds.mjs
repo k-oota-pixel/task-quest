@@ -37,7 +37,7 @@ function normalizeUrl(value,base){
 }
 function dateIso(value){const time=Date.parse(String(value||''));return Number.isFinite(time)?new Date(time).toISOString():'';}
 function tagText(block,names){
-  for(const name of names){const match=block.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,'i'));if(match)return stripHtml(match[1],6000);}
+  for(const name of names){const match=block.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,'i'));if(match)return stripHtml(decodeEntities(match[1]),6000);}
   return '';
 }
 function linkFromBlock(block,base){
