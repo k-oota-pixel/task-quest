@@ -1,4 +1,5 @@
 import {createPublicKey,verify as verifySignature} from 'node:crypto';
+import {discoverNewsFromFeeds} from './today-feeds.mjs';
 
 const OIDC_ISSUER='https://token.actions.githubusercontent.com';
 const OIDC_AUDIENCE='monstudy-today-daily';
@@ -204,7 +205,7 @@ export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls}
   return articles;
 }
 
-export function createTodayNewsGenerator({apiKey,model='gemini-2.5-flash',send,fail}){
+export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',searchModel='gemini-2.5-flash',send,fail}){
   let active=false,cacheDay='',cachePayload=null;
   async function handle(req,res){
     try{
@@ -219,18 +220,29 @@ export function createTodayNewsGenerator({apiKey,model='gemini-2.5-flash',send,f
       if(active)throw fail('TODAYニュースを生成中です。',409);
       active=true;
       try{
-        const discovery=await callGemini({apiKey,model,label:'TODAYニュース検索',timeout:80000,body:{contents:[{role:'user',parts:[{text:discoveryPrompt(editionDate)}]}],tools:[{google_search:{}}],generationConfig:{temperature:0.1,maxOutputTokens:6000}}});
-        const research=modelText(discovery);if(research.length<300)throw fail('TODAYのニュース調査結果が不足しています。',502);
-        const grounding=groundedSources(discovery);
-        const allowedUrls=new Set([...extractUrls(research),...grounding.sources.map(source=>source.url)]);
+        let discoveryMode='google-search',research='',sourceList=[],searchQueries=[];
+        try{
+          const discovery=await callGemini({apiKey,model:searchModel,label:'TODAYニュース検索',timeout:80000,body:{contents:[{role:'user',parts:[{text:discoveryPrompt(editionDate)}]}],tools:[{google_search:{}}],generationConfig:{temperature:0.1,maxOutputTokens:6000}}});
+          research=modelText(discovery);if(research.length<300)throw fail('TODAYのニュース調査結果が不足しています。',502);
+          const grounding=groundedSources(discovery);
+          searchQueries=grounding.queries;
+          const discoveredUrls=new Set([...extractUrls(research),...grounding.sources.map(source=>source.url)]);
+          if(discoveredUrls.size<6)throw fail('TODAYのニュース出典を十分に確認できませんでした。',502);
+          sourceList=[...new Map([...grounding.sources,...[...discoveredUrls].map(url=>({name:new URL(url).hostname,url}))].map(source=>[urlKey(source.url),source])).values()].slice(0,80);
+        }catch(searchError){
+          console.warn(`TODAY Google Search discovery unavailable (${searchError?.status||'error'}): ${searchError?.message||searchError}. Falling back to curated official sources.`);
+          const fallback=await discoverNewsFromFeeds();
+          discoveryMode=fallback.mode;research=fallback.research;sourceList=fallback.sources;searchQueries=fallback.queries||[];
+          console.log(`TODAY fallback collected ${fallback.candidateCount} candidates from curated official sources.`);
+        }
+        const allowedUrls=new Set([...extractUrls(research),...sourceList.map(source=>source.url)]);
         if(allowedUrls.size<6)throw fail('TODAYのニュース出典を十分に確認できませんでした。',502);
-        const sourceList=[...new Map([...grounding.sources,...[...allowedUrls].map(url=>({name:new URL(url).hostname,url}))].map(source=>[urlKey(source.url),source])).values()].slice(0,80);
         const generated=await callGemini({apiKey,model,label:'TODAY英文生成',timeout:90000,body:{contents:[{role:'user',parts:[{text:generationPrompt(editionDate,research,sourceList)}]}],generationConfig:{temperature:0.2,maxOutputTokens:16384,responseMimeType:'application/json',responseSchema:outputSchema}}});
         let parsed;try{parsed=JSON.parse(modelText(generated));}catch{throw fail('TODAYの英文生成結果をJSONとして読み取れませんでした。',502);}
         const articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls});
-        const payload={generatedAt:new Date().toISOString(),editionDate,model,searchQueries:grounding.queries,articles};
+        const payload={generatedAt:new Date().toISOString(),editionDate,model,discoveryMode,searchQueries,articles};
         cacheDay=editionDate;cachePayload=payload;
-        console.log(`TODAY generated: ${editionDate} ${articles.length} stories, ${allowedUrls.size} verified URLs`);
+        console.log(`TODAY generated: ${editionDate} ${articles.length} stories, ${allowedUrls.size} verified URLs via ${discoveryMode}`);
         return send(res,200,payload);
       }finally{active=false;}
     }catch(error){console.error('TODAY generation failed:',error?.message||error);send(res,error.status||500,{error:error.message||'TODAYニュースを生成できませんでした。'});}
