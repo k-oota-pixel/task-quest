@@ -244,6 +244,50 @@ ALLOWED SOURCE URLS:
 ${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
 `.trim();}
 
+function targetedRepairPrompt(editionDate,researchText,sourceList,article,issues){return `
+You are the final quality-repair editor for ONE TODAY news story.
+Edition date: ${editionDate}.
+
+Rewrite ONLY the six English graded versions of this same story. Return one JSON object with exactly one key named "levels". Do not change the story, sources, category, title metadata, or facts.
+
+Use ONLY facts already supported by the CURRENT ARTICLE and VERIFIED RESEARCH PACKET. Never add a number, cause, motive, quote, person, organization, place, or outcome that is not already verified. You may make a passage longer by explaining the same verified facts in simpler steps, repeating an entity name instead of a pronoun, or connecting already verified facts with level-appropriate language. Do not copy source sentences.
+
+WORD-COUNT TARGETS — stay safely inside these bands rather than near an edge:
+- 5級: 40-50 words. Very short independent sentences; high-frequency beginner words; basic be/have/can/simple present or past.
+- 4級: 65-80 words. Short sentences and common junior-high words.
+- 3級: 95-115 words. Junior-high grammar with simple connectors and explanations.
+- 準2級: 140-160 words. Accessible high-school vocabulary and clear context.
+- 2級: 200-230 words. Fuller context and precise but direct vocabulary.
+- 準1級: 280-320 words. Nuanced, natural prose without unsupported analysis.
+A higher level must never be shorter than the level below it. Every level needs a natural English title.
+
+CURRENT QUALITY ISSUES:
+${JSON.stringify(issues,null,2)}
+
+CURRENT ARTICLE:
+${JSON.stringify(article,null,2)}
+
+VERIFIED RESEARCH PACKET:
+${researchText}
+
+ALLOWED SOURCES:
+${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
+
+Return JSON only in this shape:
+{"levels":{"5級":{"title":"...","text":"..."},"4級":{"title":"...","text":"..."},"3級":{"title":"...","text":"..."},"準2級":{"title":"...","text":"..."},"2級":{"title":"...","text":"..."},"準1級":{"title":"...","text":"..."}}}
+`.trim();}
+
+function normalizeRepairedLevels(rawLevels){
+  const levels={};
+  for(const level of LEVELS){
+    const item=rawLevels?.[level];
+    const levelTitle=text(item?.title,180),body=text(item?.text,12000);
+    if(!levelTitle||!body)return null;
+    levels[level]={title:levelTitle,text:body,wordCount:wordCount(body)};
+  }
+  return levels;
+}
+
 export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,categoryByUrl=new Map()}){
   const allowedMap=new Map([...allowedUrls].map(url=>[urlKey(url),normalizeUrl(url)]).filter(([key])=>key));
   const articles=[];const usedIds=new Set();
@@ -313,7 +357,21 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
           try{parsed=JSON.parse(modelText(repaired));}catch{throw fail('TODAYの英文修復結果をJSONとして読み取れませんでした。',502);}
           articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
         }
-        const remainingHardFailures=collectLevelHardFailures(articles);
+        let remainingHardFailures=collectLevelHardFailures(articles);
+        if(remainingHardFailures.length){
+          const failedIndexes=[...new Set(remainingHardFailures.map(issue=>issue.articleIndex))];
+          console.warn(`TODAY targeted repair: ${failedIndexes.length} article(s) still outside hard publication guards.`);
+          for(const articleIndex of failedIndexes){
+            const article=articles[articleIndex];
+            const articleIssues=remainingHardFailures.filter(issue=>issue.articleIndex===articleIndex);
+            const repaired=await callGemini({apiKey,model,label:`TODAY個別英文修復${articleIndex+1}`,timeout:100000,body:{contents:[{role:'user',parts:[{text:targetedRepairPrompt(editionDate,research,sourceList,article,articleIssues)}]}],generationConfig:{temperature:0.05,maxOutputTokens:8192,responseMimeType:'application/json'}}});
+            let repairedJson;try{repairedJson=JSON.parse(modelText(repaired));}catch{throw fail('TODAYの個別英文修復結果をJSONとして読み取れませんでした。',502);}
+            const repairedLevels=normalizeRepairedLevels(repairedJson?.levels);
+            if(!repairedLevels)throw fail('TODAYの個別英文修復結果に6段階の英文がありません。',502);
+            articles[articleIndex]={...article,levels:repairedLevels};
+          }
+          remainingHardFailures=collectLevelHardFailures(articles);
+        }
         if(remainingHardFailures.length){
           const first=remainingHardFailures[0];
           throw fail(`TODAYの6段階英文が公開基準を満たしませんでした: ${first.id} ${first.level} ${first.words}語`,502);
