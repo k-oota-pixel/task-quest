@@ -134,6 +134,11 @@ export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date()}={})
   if(firstByCategory.length<5)throw new Error(`公式フィードの分野が不足しています (${[...seenCategories].join(', ')})`);
   const requiredStories=firstByCategory.slice(0,6);
   const requiredUrls=new Set(requiredStories.map(item=>item.url));
+  if(requiredStories.length<6){
+    const extra=allCompact.find(item=>!requiredUrls.has(item.url));
+    if(!extra)throw new Error('公式フィードから6記事を確保できませんでした');
+    requiredStories.push(extra);requiredUrls.add(extra.url);
+  }
   const alternates=allCompact.filter(item=>!requiredUrls.has(item.url));
   const compact=[...requiredStories,...alternates];
   return {
