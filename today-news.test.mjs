@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues} from './today-news.mjs';
+import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures} from './today-news.mjs';
 
 const now=2_000_000_000;
 const goodClaims={
@@ -25,6 +25,7 @@ const categories=['science','technology','health','sports','culture','education'
 const raw=categories.map((category,i)=>({
   slug:`story-${i+1}`,category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`,summaryJa:`記事${i+1}の要約です。`,sourcePublishedAt:'2026-10-31',
   levels:{
+    '5級':level('Starter',`This is news number ${i+1}. It is for new English readers. Students can read it today.`),
     '4級':level('Easy',`This is a simple news story number ${i+1}. Students can read it today.`),
     '3級':level('Junior',`This is a clear news story number ${i+1}. It explains the event with a little more detail for students.`),
     '準2級':level('Pre2',`This news story number ${i+1} gives useful background and explains why the event matters to students who are learning English.`),
@@ -43,10 +44,21 @@ test('TODAY normalizer accepts six diverse stories and rejects unverified URLs',
   assert.throws(()=>normalizeGeneratedArticles(raw.map((item,i)=>i===0?{...item,sources:[{name:'bad',url:'https://evil.example/news'}]}:item),{editionDate:'2026-10-31',allowedUrls}));
 });
 
-const fakeArticleWithCounts=(counts)=>({id:'graded-story',levels:Object.fromEntries(['4級','3級','準2級','2級','準1級'].map((level,i)=>[level,{wordCount:counts[i],text:''}]))});
+const fakeArticleWithCounts=(counts)=>({id:'graded-story',levels:Object.fromEntries(['5級','4級','3級','準2級','2級','準1級'].map((level,i)=>[level,{wordCount:counts[i],text:''}]))});
 test('TODAY detects under-length graded text and accepts target-range progression',()=>{
-  assert.deepEqual(collectLevelLengthIssues([fakeArticleWithCounts([60,95,140,210,290])]),[]);
-  const issues=collectLevelLengthIssues([fakeArticleWithCounts([60,95,32,210,290])]);
+  assert.deepEqual(collectLevelLengthIssues([fakeArticleWithCounts([45,70,100,145,210,290])]),[]);
+  const issues=collectLevelLengthIssues([fakeArticleWithCounts([45,70,100,32,210,290])]);
   assert.ok(issues.some(issue=>issue.level==='準2級'&&issue.type==='range'&&issue.words===32));
   assert.ok(issues.some(issue=>issue.level==='準2級'&&issue.type==='progression'));
+});
+
+test('TODAY accepts small target misses after repair when all six levels remain pedagogically ordered',()=>{
+  const articles=[fakeArticleWithCounts([32,49,72,105,160,230])];
+  assert.ok(collectLevelLengthIssues(articles).length>0);
+  assert.deepEqual(collectLevelHardFailures(articles),[]);
+});
+
+test('TODAY hard validation rejects a collapsed Grade 5 text',()=>{
+  const failures=collectLevelHardFailures([fakeArticleWithCounts([10,49,72,105,160,230])]);
+  assert.ok(failures.some(issue=>issue.level==='5級'&&issue.type==='hard-range'));
 });
