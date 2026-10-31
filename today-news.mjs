@@ -166,20 +166,20 @@ export function mergeRepairedArticle(article,raw,issues){
   return {...article,levels};
 }
 
-export async function callGemini({apiKey,model,body,timeout=70000,label='Gemini',fetchImpl=fetch,sleep=waitForRetry}){
+export async function callGemini({apiKey,model,body,timeout=70000,label='Gemini',fetchImpl=fetch,sleep=waitForRetry,maxAttempts=3}){
   let response=null;
-  for(let attempt=0;attempt<3;attempt++){
+  for(let attempt=0;attempt<maxAttempts;attempt++){
     try{
       response=await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{
         method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},signal:AbortSignal.timeout(timeout),body:JSON.stringify(body)
       });
     }catch(error){
-      if(attempt===2)throw Object.assign(new Error(`${label}への接続に失敗しました。`),{status:error?.name==='TimeoutError'?504:502});
+      if(attempt===maxAttempts-1)throw Object.assign(new Error(`${label}への接続に失敗しました。`),{status:error?.name==='TimeoutError'?504:502});
       await sleep(900*(attempt+1));continue;
     }
     if(response.ok)break;
     const detail=await response.text();
-    if(!RETRYABLE.has(response.status)||attempt===2){
+    if(!RETRYABLE.has(response.status)||attempt===maxAttempts-1){
       console.error(`${label} HTTP ${response.status}`);
       throw Object.assign(new Error(response.status===429?'Geminiの利用上限に達しました。':`${label}に接続できません。`),{status:response.status===429?429:502});
     }
@@ -392,7 +392,7 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
       try{
         let discoveryMode='google-search',research='',sourceList=[],searchQueries=[];
         try{
-          const discovery=await callGemini({apiKey,model:searchModel,label:'TODAYニュース検索',timeout:80000,body:{contents:[{role:'user',parts:[{text:discoveryPrompt(editionDate)}]}],tools:[{google_search:{}}],generationConfig:{temperature:0.1,maxOutputTokens:6000}}});
+          const discovery=await callGemini({apiKey,model:searchModel,maxAttempts:1,label:'TODAYニュース検索',timeout:80000,body:{contents:[{role:'user',parts:[{text:discoveryPrompt(editionDate)}]}],tools:[{google_search:{}}],generationConfig:{temperature:0.1,maxOutputTokens:6000}}});
           research=modelText(discovery);if(research.length<300)throw fail('TODAYのニュース調査結果が不足しています。',502);
           const grounding=groundedSources(discovery);
           searchQueries=grounding.queries;

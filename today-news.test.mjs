@@ -101,3 +101,9 @@ test('feed generation uses six planned sources and limits each prompt to one sto
  assert.match(prompt,/Facts 0/);assert.doesNotMatch(prompt,/Facts 1/);
  assert.match(prompt,/ALL SIX/);
 });
+
+test('optional search can fall back immediately without a quota retry storm',async()=>{
+ let calls=0;
+ await assert.rejects(()=>callGemini({apiKey:'test',model:'test',body:{},maxAttempts:1,fetchImpl:async()=>{calls++;return new Response('{}',{status:429});},sleep:async()=>assert.fail('must not wait')}),error=>error.status===429);
+ assert.equal(calls,1);
+});

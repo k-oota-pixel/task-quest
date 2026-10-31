@@ -4,7 +4,7 @@ const CURATED_SOURCES=[
   {kind:'rss',name:'NASA CNEOS',url:'https://cneos.jpl.nasa.gov/feed/news.xml',category:'science'},
   {kind:'rss',name:'FDA MedWatch',url:'https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml',category:'health'},
   {kind:'rss',name:'UNESCO-UNEVOC',url:'https://connect.unevoc.unesco.org/unevoc_news.xml',category:'education'},
-  {kind:'rss',name:'European Central Bank',url:'https://mid.ecb.europa.eu/rss/mid.xml',category:'business'},
+  {kind:'rss',name:'European Central Bank',url:'https://www.ecb.europa.eu/rss/press.html',category:'business'},
   {kind:'html',name:'IOC',url:'https://www.olympics.com/ioc/news',category:'sports',include:/\/ioc\//i},
   {kind:'html',name:'Apple Newsroom',url:'https://www.apple.com/newsroom/',category:'technology',include:/\/newsroom\//i}
 ];

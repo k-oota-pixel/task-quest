@@ -27,7 +27,7 @@ test('discoverNewsFromFeeds builds a diverse compact packet despite individual s
     ['https://cneos.jpl.nasa.gov/feed/news.xml',feedBody('science',3)],
     ['https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml',feedBody('health',4)],
     ['https://connect.unevoc.unesco.org/unevoc_news.xml',feedBody('education',5)],
-    ['https://mid.ecb.europa.eu/rss/mid.xml',feedBody('business',6)],
+    ['https://www.ecb.europa.eu/rss/press.html',feedBody('business',6)],
     ['https://www.olympics.com/ioc/news',indexHtml],
     ['https://www.apple.com/newsroom/',appleHtml]
   ]);
