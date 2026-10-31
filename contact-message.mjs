@@ -71,7 +71,7 @@ async function persistMessage({env,fetchImpl,user,message,page,timestamp,created
     console.error('Contact message persistence failed',{status:response.status,detail:detail.slice(0,300)});
     throw Object.assign(new Error('メッセージを保存できませんでした。少し待ってもう一度お試しください。'),{status:502});
   }
-  return id;
+  return {id,accessToken};
 }
 
 async function tryEmail({env,fetchImpl,user,message,page,timestamp}){
@@ -96,7 +96,18 @@ async function tryEmail({env,fetchImpl,user,message,page,timestamp}){
   return false;
 }
 
-export function createContactMessage({verifyUser,readJson,send,fail,fetchImpl=fetch,env=process.env,now=Date.now}){
+async function incrementUnread({env,fetchImpl,uid,accessToken}){
+  if(!uid)return;
+  const project=env.FIREBASE_PROJECT_ID||'eiken-retry';
+  const name=`projects/${encodeURIComponent(project)}/databases/(default)/documents/users/${encodeURIComponent(uid)}/developerMessageNotifications/current`;
+  const endpoint=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents:commit`;
+  const create=await fetchImpl(endpoint,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name,fields:{unreadCount:{integerValue:'1'},updatedAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}}]),signal:AbortSignal.timeout(8000)});
+  if(create.ok)return;
+  const update=await fetchImpl(endpoint,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{transform:{document:name,fieldTransforms:[{fieldPath:'unreadCount',increment:{integerValue:'1'}},{fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'}]}}]}),signal:AbortSignal.timeout(8000)});
+  if(!update.ok)throw Error('notification update failed');
+}
+
+export function createContactMessage({verifyUser,readJson,send,fail,getAdminUids=async()=>[],fetchImpl=fetch,env=process.env,now=Date.now}){
   const windows=new Map();
   const WINDOW_MS=60*60*1000;
   const LIMIT=5;
@@ -124,10 +135,11 @@ export function createContactMessage({verifyUser,readJson,send,fail,fetchImpl=fe
 
       const createdAt=new Date(now()).toISOString();
       const timestamp=new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',dateStyle:'medium',timeStyle:'medium'}).format(new Date(now()));
-      const id=await persistMessage({env,fetchImpl,user,message,page,timestamp,createdAt});
-      const emailDelivered=await tryEmail({env,fetchImpl,user,message,page,timestamp});
-      if(!emailDelivered)console.info('Contact message saved without email delivery',{id});
-      return send(res,200,{ok:true});
+      const saved=await persistMessage({env,fetchImpl,user,message,page,timestamp,createdAt});
+      try{for(const uid of await getAdminUids())await incrementUnread({env,fetchImpl,uid,accessToken:saved.accessToken});}catch(error){console.error('Contact notification update failed',{id:saved.id});}
+      let emailDelivered=false;try{emailDelivered=await tryEmail({env,fetchImpl,user,message,page,timestamp});}catch{console.info('Contact email delivery unavailable',{id:saved.id});}
+      if(!emailDelivered)console.info('Contact message saved without email delivery',{id:saved.id});
+      return send(res,200,{ok:true,message:'メッセージを受け付けました。ありがとうございます。'});
     }catch(error){
       return send(res,error.status||500,{error:error.message||'メッセージを送信できませんでした。'});
     }
