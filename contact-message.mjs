@@ -101,7 +101,8 @@ async function incrementUnread({env,fetchImpl,uid,accessToken}){
   const project=env.FIREBASE_PROJECT_ID||'eiken-retry';
   const name=`projects/${encodeURIComponent(project)}/databases/(default)/documents/users/${encodeURIComponent(uid)}/developerMessageNotifications/current`;
   const endpoint=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents:commit`;
-  const create=await fetchImpl(endpoint,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name,fields:{unreadCount:{integerValue:'1'},updatedAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}}]),signal:AbortSignal.timeout(8000)});
+  const createBody={writes:[{update:{name,fields:{unreadCount:{integerValue:'1'},updatedAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}}]};
+  const create=await fetchImpl(endpoint,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify(createBody),signal:AbortSignal.timeout(8000)});
   if(create.ok)return;
   const update=await fetchImpl(endpoint,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{transform:{document:name,fieldTransforms:[{fieldPath:'unreadCount',increment:{integerValue:'1'}},{fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'}]}}]}),signal:AbortSignal.timeout(8000)});
   if(!update.ok)throw Error('notification update failed');
