@@ -1,0 +1,17 @@
+[
+  {"id":"creative:case-talk:1","name":"はじめの一歩","condition":"初めて1ケース成功する","metric":"successes","need":1},
+  {"id":"creative:case-talk:2","name":"伝わった！","condition":"累計3ケース成功する","metric":"successes","need":3},
+  {"id":"creative:case-talk:3","name":"会話ビギナー","condition":"累計5ケース成功する","metric":"successes","need":5},
+  {"id":"creative:case-talk:4","name":"話してみよう","condition":"累計10ケース成功する","metric":"successes","need":10},
+  {"id":"creative:case-talk:5","name":"会話に慣れてきた","condition":"累計20ケース成功する","metric":"successes","need":20},
+  {"id":"creative:case-talk:6","name":"ケーストーカー","condition":"累計30ケース成功する","metric":"successes","need":30},
+  {"id":"creative:case-talk:7","name":"会話チャレンジャー","condition":"累計50ケース成功する","metric":"successes","need":50},
+  {"id":"creative:case-talk:8","name":"会話の達人","condition":"累計100ケース成功する","metric":"successes","need":100},
+  {"id":"creative:case-talk:9","name":"NORMALデビュー","condition":"NORMALで初めて1ケース成功する","metric":"normalSuccesses","need":1},
+  {"id":"creative:case-talk:10","name":"NORMALチャレンジャー","condition":"NORMALで累計10ケース成功する","metric":"normalSuccesses","need":10},
+  {"id":"creative:case-talk:11","name":"NORMALマスター","condition":"NORMALで累計30ケース成功する","metric":"normalSuccesses","need":30},
+  {"id":"creative:case-talk:12","name":"めげない話し手","condition":"1ケースで2回以上聞き返された後に成功する","metric":"doubleRepairSuccess","need":1},
+  {"id":"creative:case-talk:13","name":"言い直し上手","condition":"聞き返されたケースを累計10回成功する","metric":"repairedSuccesses","need":10},
+  {"id":"creative:case-talk:14","name":"会話リペア職人","condition":"聞き返されたケースを累計30回成功する","metric":"repairedSuccesses","need":30},
+  {"id":"creative:case-talk:15","name":"ケーストークマスター","condition":"累計100ケース成功し、そのうちNORMALで50ケース成功する","metric":"masterProgress","need":100}
+]
