@@ -18,7 +18,7 @@ export function initialCodes(seed){
 export function specialCodes(raw=''){return [...new Set(String(raw).split(',').map(normalizeCode).filter(code=>/^[A-Z0-9]{6}$/.test(code)&&/[A-Z]/.test(code)&&/[0-9]/.test(code)))];}
 const preissued=new Set([...initialCodes(process.env.REGISTRATION_CODE_SEED),...specialCodes(process.env.SPECIAL_REGISTRATION_CODES)].map(digest));
 export async function passwordRecord(password){
- if(typeof password!=='string'||password.length<8||password.length>128)throw Object.assign(Error('パスワードは8〜128文字で設定してください。'),{status:400});
+ if(typeof password!=='string'||password.length<6||password.length>12)throw Object.assign(Error('パスワードは6〜12文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
  return {salt,hash};
 }
@@ -91,7 +91,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     const account=await state(code.value.uid);if(!account)throw fail('登録情報が見つかりません。',404);
     if(route==='/api/admin/code-lookup')return send(res,200,{uid:account.value.uid,loginId:account.value.loginId});
     if(route==='/api/admin/code-reset'){
-     const temporaryPassword=randomBytes(12).toString('base64url'),record=await passwordRecord(temporaryPassword);
+     const temporaryPassword=randomBytes(9).toString('base64url'),record=await passwordRecord(temporaryPassword);
      await commit([write('code_accounts',digest(account.value.loginId),{...account.value,...record,resetRequired:true,version:Number(account.value.version||0)+1,temporaryUntil:Date.now()+86400000},account)]);
      return send(res,200,{loginId:account.value.loginId,temporaryPassword,expiresHours:24});
     }
