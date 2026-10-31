@@ -134,5 +134,5 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
    }finally{active--;}
   }catch(error){send(res,error.status||500,{error:error.status?error.message:'認証処理に失敗しました。時間をおいて再度お試しください。'});}
  }
- return {handle,admission};
+ return {handle,admission,inventoryFingerprint:digest([...issuedHashes].sort().join('\n'))};
 }
