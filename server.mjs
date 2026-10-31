@@ -18,6 +18,7 @@ import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import {createTodayNewsGenerator} from './today-news.mjs';
+import {createContactMessage} from './contact-message.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -295,6 +296,7 @@ Do not claim to be a human. Stay in character as the student's pet.
 const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KEY||backupKey||key,model:process.env.TODAY_GEMINI_MODEL||model,send,fail});
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
+const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail});
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
@@ -313,6 +315,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/adventure/rankings')return adventureRankings.handle(req,res);
   if(path==='/api/word-breaker/records')return wordBreakerRecords.handle(req,res);
   if(path==='/api/pet-catch/records')return petCatchRecords.handle(req,res);
+  if(path==='/api/contact-message')return handleContactMessage(req,res);
   if(path==='/api/pet-chat')return handlePetChat(req,res);
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/pre2-interview-grade')return handlePre2Interview(req,res);
