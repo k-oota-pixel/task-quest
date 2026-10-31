@@ -34,7 +34,7 @@ const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([key,ite
 function uidFromName(name){const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);return match?decodeURIComponent(match[1]):'';}
 function publicRows(rows){return rows.map(({uid,...row})=>row);}
 function sameRows(a,b){return JSON.stringify(a.map(({uid,petName,floor})=>({uid,petName,floor})))===JSON.stringify(b.map(({uid,petName,floor})=>({uid,petName,floor})));}
-export function createAdventureRankings({base,activeIds,accessToken,decodeFields,decorate,send,fail,fetch:request=globalThis.fetch,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ',rankingStore=runtimePublicRankingCache()}){
+export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],accessToken,decodeFields,decorate,send,fail,fetch:request=globalThis.fetch,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ',rankingStore=runtimePublicRankingCache()}){
  const docUrl=base+'/documents/leaderboards/adventure';
  async function requestUser(req){
   const auth=String(req.headers?.authorization||''),match=auth.match(/^Bearer\s+(.+)$/i);if(!match)throw fail('ログインが必要です。',401);
@@ -55,7 +55,7 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
   return {value:sanitizeStored(value),updateTime:data.updateTime||''};
  }
  async function scanPlayers(){
-  const ids=[...new Set(await activeIds())],token=await accessToken(),players=[];
+  const excluded=new Set(await excludedIds()),ids=[...new Set(await activeIds())].filter(uid=>!excluded.has(uid)),token=await accessToken(),players=[];
   for(let offset=0;offset<ids.length;offset+=200){
    const names=ids.slice(offset,offset+200).map(uid=>base.replace(/^https:\/\/firestore.googleapis.com\/v1\//,'')+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom');
    const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','wordTowerBest','eikenDungeonBest']}})});let rows=[];try{rows=await response.json();}catch{}
@@ -65,7 +65,8 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
   return {token,value:{schemaVersion:1,tower:adventureLeaders(players,'tower'),dungeon:adventureLeaders(players,'dungeon')}};
  }
  async function load(){
-  const token=await accessToken(),stored=await readSummary(token);if(stored)return stored;
+  const token=await accessToken(),stored=await readSummary(token),excluded=new Set(await excludedIds());
+  if(stored){if(![...stored.value.tower,...stored.value.dungeon].some(row=>excluded.has(row.uid)))return stored;const rebuilt=await scanPlayers();return writeSummary(token,rebuilt.value,{updateTime:stored.updateTime});}
   const bootstrap=await scanPlayers();try{return await writeSummary(bootstrap.token,bootstrap.value,{createOnly:true});}catch(error){if(!error.retryable)throw error;const raced=await readSummary(bootstrap.token);if(raced)return raced;throw error;}
  }
  async function decorateSummary(value){
@@ -74,15 +75,17 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
   for(const item of decorated){const currentMode=item.__mode;if(!Object.hasOwn(result,currentMode))continue;const {__mode,...row}=item;result[currentMode].push(row);}return result;
  }
  async function snapshot(){
-  if(cached&&now()-cached.fetchedAt<60000){if(!cached.public)cached.public=await decorateSummary(cached.value);return {fetchedAt:cached.fetchedAt,...cached.public};}
+  if(cached&&now()-cached.fetchedAt<60000){if(!cached.public)cached.public=await decorateSummary(cached.value);return {exclusionVersion:1,fetchedAt:cached.fetchedAt,...cached.public};}
   if(inflight)return inflight;if(now()<retryAfter)throw fail('少し待ってから再表示してください。',503);
-  inflight=load().then(async stored=>{cached={...stored,fetchedAt:now(),public:null};cached.public=await decorateSummary(cached.value);return {fetchedAt:cached.fetchedAt,...cached.public};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});return inflight;
+  inflight=load().then(async stored=>{cached={...stored,fetchedAt:now(),public:null};cached.public=await decorateSummary(cached.value);return {exclusionVersion:1,fetchedAt:cached.fetchedAt,...cached.public};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});return inflight;
  }
- async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot});}
+ async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot,valid:value=>value?.exclusionVersion===1});}
  async function refreshSharedSnapshot(){const result=await snapshot();await rankingStore.setSection('adventure',result);return result;}
  async function publish({uid,mode,floor,petName}){
   if(!uid||!Object.hasOwn(MODES,mode)||(floor=floorOf(floor))===0)return null;
+  if((await excludedIds()).includes(uid))return null;
   const task=async()=>{
+   await snapshot();
    const token=await accessToken();let stored=cached?.value?{value:cached.value,updateTime:cached.updateTime}:await readSummary(token);if(!stored)stored=await load();
    for(let attempt=0;attempt<3;attempt++){
     const next=sanitizeStored(stored.value),current=next[mode],candidateRows=current.filter(row=>row.uid!==uid).map(({rank,...row})=>row);candidateRows.push({uid,petName:petNameOf(petName),floor});const updated=rankTopThree(candidateRows);next[mode]=updated;
@@ -97,6 +100,7 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
   if(req.method==='GET'){const mode=new URL(req.url,'http://localhost').searchParams.get('mode');if(!Object.hasOwn(MODES,mode))throw fail('冒険先を選んでください。',400);const result=await sharedSnapshot();return send(res,200,{mode,fetchedAt:result.fetchedAt,leaders:result[mode]});}
   if(req.method==='POST'){
    if(!req.headers?.['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await requestUser(req),body=await requestJson(req,1024),mode=String(body.mode||'');if(!Object.hasOwn(MODES,mode))throw fail('冒険先を選んでください。',400);
+   if((await excludedIds()).includes(user.uid)){await refreshSharedSnapshot();return send(res,200,{ok:true,excluded:true,record:null});}
    const expectedFloor=floorOf(Number(body.expectedFloor)),token=await accessToken(),data=await userDoc(token,user.uid),savedFloor=floorOf(data[MODES[mode]]);if(expectedFloor&&savedFloor<expectedFloor)return send(res,202,{ok:false,pending:true});
    const record=await publish({uid:user.uid,mode,floor:savedFloor,petName:data.petName});await refreshSharedSnapshot();return send(res,200,{ok:true,record});
   }
@@ -104,3 +108,4 @@ export function createAdventureRankings({base,activeIds,accessToken,decodeFields
  }catch(error){send(res,error.status||503,{error:error.status&&error.status<500?error.message:'ランキングを処理できませんでした。時間を置いて再表示してください。'});}}
  return {handle,snapshot,publish};
 }
+
