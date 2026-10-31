@@ -1,4 +1,7 @@
 const CURATED_SOURCES=[
+  {kind:'rss',name:'NASA News',url:'https://www.nasa.gov/news-release/feed/',category:'science'},
+  {kind:'rss',name:'MIT News',url:'https://news.mit.edu/rss/feed',category:'technology'},
+  {kind:'rss',name:'UN News',url:'https://news.un.org/feed/subscribe/en/news/all/rss.xml',category:'world'},
   {kind:'rss',name:'NOAA',url:'https://www.noaa.gov/rss.xml',category:'environment'},
   {kind:'rss',name:'NASA JPL',url:'https://www.jpl.nasa.gov/feeds/news/',category:'science'},
   {kind:'rss',name:'NASA CNEOS',url:'https://cneos.jpl.nasa.gov/feed/news.xml',category:'science'},
@@ -13,6 +16,13 @@ const GENERIC_LINK=/^(home|news|newsroom|read more|learn more|view all|load more
 const MAX_SOURCE_BYTES=2_000_000;
 const MAX_EXCERPT=3200;
 const MAX_CANDIDATES=28;
+export function isArticleUrl(value){
+  try{const url=new URL(value);return url.protocol==='https:'&&!/\.(?:js|css|json|xml|pdf|png|jpe?g|gif|svg|webp|zip|mp[34])$/i.test(url.pathname);}catch{return false;}
+}
+export function isRecentArticle(value,now=new Date()){
+  const published=Date.parse(value||'');
+  return Number.isFinite(published)&&published<=now.getTime()+3_600_000&&published>=now.getTime()-72*3_600_000;
+}
 
 function clean(value,max=10000){return String(value??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,max);}
 function decodeEntities(value){
@@ -59,7 +69,7 @@ export function parseFeed(xml,source){
   for(const block of blocks){
     const title=tagText(block,['title']);
     const url=linkFromBlock(block,source.url);
-    if(!title||!url)continue;
+    if(!title||!url||!isArticleUrl(url))continue;
     const publishedAt=dateIso(tagText(block,['pubDate','published','updated','dc:date','date']));
     const summary=tagText(block,['description','summary','content:encoded','content']);
     items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,title,url,publishedAt,summary:clean(summary,1800)});
@@ -72,7 +82,7 @@ export function parseHtmlIndex(html,source){
   const linkRe=/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   for(const match of String(html||'').matchAll(linkRe)){
     const title=stripHtml(match[2],240);if(title.length<18||GENERIC_LINK.test(title))continue;
-    const url=normalizeUrl(match[1],source.url);if(!url||seen.has(url))continue;
+    const url=normalizeUrl(match[1],source.url);if(!url||!isArticleUrl(url)||seen.has(url))continue;
     try{const baseHost=new URL(source.url).hostname.replace(/^www\./,'');const host=new URL(url).hostname.replace(/^www\./,'');if(!(host===baseHost||host.endsWith(`.${baseHost}`)))continue;}catch{continue;}
     if(source.include&&!source.include.test(new URL(url).pathname))continue;
     seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,title,url,publishedAt:'',summary:''});
@@ -95,9 +105,10 @@ function articleText(html){
   const main=String(html||'').match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1];
   return stripHtml(article||main||html,MAX_EXCERPT);
 }
-async function fetchText(url,fetchImpl,timeout=12000){
+async function fetchText(url,fetchImpl,timeout=12000,htmlOnly=false){
   const response=await fetchImpl(url,{headers:{'User-Agent':'Monstudy-TODAY/1.0 (+https://k-oota-pixel.github.io/english-playroom/today/)','Accept':'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.5'},redirect:'follow',signal:AbortSignal.timeout(timeout)});
   if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  if(htmlOnly&&!/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(String(response.headers?.get?.('content-type')||'')))throw new Error('not an HTML article');
   const length=Number(response.headers?.get?.('content-length')||0);if(length>MAX_SOURCE_BYTES)throw new Error('response too large');
   const buffer=Buffer.from(await response.arrayBuffer());if(buffer.length>MAX_SOURCE_BYTES)throw new Error('response too large');
   let encoding='utf-8';const contentType=String(response.headers?.get?.('content-type')||'').toLowerCase();if(/charset\s*=\s*utf-16/i.test(contentType)||buffer[0]===0xff&&buffer[1]===0xfe)encoding='utf-16le';
@@ -112,7 +123,7 @@ function candidateScore(candidate,now){
 }
 async function enrich(candidate,fetchImpl){
   try{
-    const html=await fetchText(candidate.url,fetchImpl,10000);
+    const html=await fetchText(candidate.url,fetchImpl,10000,true);
     const excerpt=articleText(html);
     return {...candidate,publishedAt:candidate.publishedAt||publishedFromHtml(html),excerpt:excerpt.length>=120?excerpt:''};
   }catch{return {...candidate,excerpt:''};}
@@ -124,13 +135,13 @@ function sourceList(candidates){return [...new Map(candidates.map(item=>[item.ur
 
 export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date()}={}){
   const groups=await Promise.all(CURATED_SOURCES.map(source=>collectSource(source,fetchImpl)));
-  const all=dedupe(groups.flat()).sort((a,b)=>candidateScore(b,now)-candidateScore(a,now));
+  const all=dedupe(groups.flat()).filter(item=>isArticleUrl(item.url)&&(!item.publishedAt||isRecentArticle(item.publishedAt,now))).sort((a,b)=>candidateScore(b,now)-candidateScore(a,now));
   if(all.length<8)throw new Error(`公式フィードの候補が不足しています (${all.length})`);
   const perCategory=new Map(),selected=[];
   for(const item of all){const count=perCategory.get(item.categoryHint)||0;if(count>=5)continue;perCategory.set(item.categoryHint,count+1);selected.push(item);if(selected.length>=MAX_CANDIDATES)break;}
   const enriched=[];
   for(let i=0;i<selected.length;i+=6){const batch=await Promise.all(selected.slice(i,i+6).map(item=>enrich(item,fetchImpl)));enriched.push(...batch);}
-  const usable=enriched.filter(item=>item.excerpt||item.summary);
+  const usable=enriched.filter(item=>item.excerpt&&isRecentArticle(item.publishedAt,now));
   if(usable.length<8)throw new Error(`公式フィードの本文候補が不足しています (${usable.length})`);
   const allCompact=usable.slice(0,MAX_CANDIDATES).map(item=>({
     source:item.sourceName,categoryHint:item.categoryHint,title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)

@@ -368,7 +368,7 @@ export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,
     for(const source of Array.isArray(raw.sources)?raw.sources:[]){const key=urlKey(source?.url);const approved=allowedMap.get(key);if(!approved)continue;sources.push({name:text(source?.name,180)||new URL(approved).hostname,url:approved});}
     const cleanSources=[...new Map(sources.map(source=>[urlKey(source.url),source])).values()].slice(0,4);if(!cleanSources.length)continue;
     let base=`${editionDate}-${slugify(raw.slug||title)}`,id=base,suffix=2;while(usedIds.has(id))id=`${base}-${suffix++}`;usedIds.add(id);
-    articles.push({id,date:editionDate,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,20),levels,sources:cleanSources});
+    articles.push({id,date:editionDate,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),levels,sources:cleanSources});
   }
   if(articles.length!==6)throw Object.assign(new Error('TODAYの記事を6本に整形できませんでした。'),{status:502});
   if(new Set(articles.map(article=>article.category)).size<5)throw Object.assign(new Error('TODAYの記事分野が偏りすぎています。'),{status:502});
