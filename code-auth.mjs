@@ -8,7 +8,7 @@ const alphabet='23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const normalizeCode=value=>String(value||'').toUpperCase().replace(/[\s-]/g,'');
 export const normalizeId=value=>String(value||'').normalize('NFKC').trim().toLowerCase();
 export const digest=value=>createHash('sha256').update(value).digest('hex');
-export function newCode(){let value;do{value=Array.from({length:16},()=>alphabet[randomInt(alphabet.length)]).join('');}while(!/[2-9]/.test(value)||!/[A-Z]/.test(value));return value.match(/.{4}/g).join('-');}
+export function newCode(){let value;do{value=Array.from({length:6},()=>alphabet[randomInt(alphabet.length)]).join('');}while(!/[2-9]/.test(value)||!/[A-Z]/.test(value));return value;}
 export async function passwordRecord(password){
  if(typeof password!=='string'||password.length<8||password.length>128)throw Object.assign(Error('パスワードは8〜128文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
@@ -39,7 +39,8 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
  }
  const write=(collection,id,value,previous)=>({update:{name:prefix+collection+'/'+id,fields:encodeFields(value)},currentDocument:previous?{updateTime:previous.updateTime}:{exists:false}});
  const commit=writes=>request(base+'/documents:commit',{method:'POST',body:JSON.stringify({writes})});
- const limits=new Map();let active=0;
+ const limits=new Map(),codeFailures=new Map();let active=0;
+ function codeAttempt(req,failed=false){const key=digest(String(req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',').at(-1).trim()),now=Date.now();for(const [id,value]of codeFailures)if(now-value.start>900000)codeFailures.delete(id);const value=codeFailures.get(key)||{start:now,count:0};if(value.count>=20)throw fail('登録コードの入力間違いが続いたため、15分ほど待ってからお試しください。',429);if(failed){value.count++;codeFailures.set(key,value);}}
  function throttle(req){
   // Render's trusted proxy appends the client address. Never use the first, client-supplied entry.
   const ip=String(req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',').at(-1).trim();
@@ -65,7 +66,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     await verifyAdmin(req);
     if(route==='/api/admin/code-issue'){
      const count=Number(body.count);if(!Number.isInteger(count)||count<1||count>200)throw fail('1〜200件ずつ発行してください。',400);
-     const codes=Array.from({length:count},newCode);
+     const unique=new Set();while(unique.size<count){const code=newCode();if(!issuedHashes.has(digest(code)))unique.add(code);}const codes=[...unique];
      await commit(codes.map(code=>write('registration_codes',digest(normalizeCode(code)),{used:false,createdAt:new Date().toISOString()})));
      return send(res,200,{codes});
     }
@@ -112,11 +113,11 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      return send(res,200,{token:customToken(serviceAccount(),account.value.uid,!!account.value.resetRequired,Number(account.value.version||0))});
     }
     if(!['/api/account/register','/api/account/link'].includes(route))throw fail('ページが見つかりません。',404);
-    const code=normalizeCode(body.code);
-    if(!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{16}$/.test(code))throw fail('登録コードを確認してください。',400);
+    codeAttempt(req);const code=normalizeCode(body.code);
+    if(!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(code)){codeAttempt(req,true);throw fail('登録コードを確認してください。',400);}
     const codeKey=digest(code),stored=await read('registration_codes',codeKey);
     const unused=stored|| (issuedHashes.has(codeKey)?{value:{used:false}}:null);
-    if(!unused||unused.value.used)throw fail('登録コードが無効、または使用済みです。',400);
+    if(!unused||unused.value.used){codeAttempt(req,true);throw fail('登録コードが無効、または使用済みです。',400);}
     let uid='code_'+randomBytes(20).toString('hex');
     if(route.endsWith('/link')){const user=await verifyUser(req);await admission(user);uid=user.uid;if(await state(uid))throw fail('このアカウントは紐づけ済みです。',409);}
     const record=await passwordRecord(body.password);

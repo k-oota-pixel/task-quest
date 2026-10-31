@@ -1,5 +1,6 @@
-# Code accounts — 2.3.1
+# Code accounts — 2.3.3
 
+- Registration codes have six characters, with at least one letter and one digit; ambiguous 0/1/I/O are excluded. Twenty invalid code submissions per 15 minutes per client address block further code submissions temporarily.
 - New users register with one issued code, a case-insensitive login ID and a password. No email address is collected.
 - Existing non-anonymous Firebase accounts created before 2026-10-31T05:25:01.087Z retain access. Linking is optional and retains the original Firebase UID, so no learning/pet documents are migrated or overwritten.
 - Existing Google/email sign-in remains available. A new Google/email Firebase identity alone is not admitted by the server.
