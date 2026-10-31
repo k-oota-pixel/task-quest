@@ -5,7 +5,7 @@ export {creativeCatalog};
 const HIDDEN_TITLE_PREFIXES=['creative:pet-instructions:'];
 export function creativeTitles(appId,progress={}){return (creativeCatalog[appId]||[]).map(t=>({...t,appId,label:TITLE_CONTENTS.find(x=>x.id===appId)?.label||appId,done:count(progress.metrics?.[t.metric]),unlocked:count(progress.metrics?.[t.metric])>=t.need}));}
 export function validTitleName(id){if(HIDDEN_TITLE_PREFIXES.some(prefix=>id?.startsWith(prefix)))return '';const t=Object.values(creativeCatalog).flat().find(t=>t.id===id);if(t)return t.name;if(id?.startsWith('retry:'))return retryCatalog.titles.find(t=>'retry:'+t.id===id)?.name||'';return activityTitles('eiken-retry',0).find(t=>t.id===id)?.name||'';}
-export const TITLE_CONTENTS=[...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'}];
+export const TITLE_CONTENTS=[{id:'basic-grammar',label:'並べ替え問題（基本文法）'},{id:'grammar',label:'並べ替え問題（文法別）'},{id:'today',label:'TODAY'},...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'}];
 const count=value=>Math.max(0,Math.floor(Number(value)||0));
 export function activityTitles(appId,total){
  if(appId!=='eiken-retry')return [];
@@ -24,3 +24,4 @@ export function titleState({activity={},retry={},selection={},progress={},wallet
  const selected=titles.find(t=>t.id===selectedId&&t.unlocked)||null;
  return {titles,selectedId:selected?.id||'',selectedTitle:selected?.name||''};
 }
+

@@ -1,3 +1,4 @@
+import grammarUnits from './grammar-reward-units.json' with {type:'json'};
 import {createHash} from 'node:crypto';
 export const keyOf=value=>createHash('sha256').update(String(value)).digest('hex').slice(0,24);
 const n=value=>Math.max(0,Math.min(1000000,Math.floor(Number(value)||0)));
@@ -33,7 +34,22 @@ export function applyTitleEvent(previous={},e,day){
  }else if(app==='ateru'){
   if(e.kind==='run'){inc('runs');max('score',e.score);if(e.cleanRun)max('cleanRun',1);streak('perfectStreak',e.score===5);if(e.score===5)set('perfectDays',day);}
   else{const p=item(),oldRun=p.failedRun,wasRecovered=s.sets.recoveredItems?.[key];question(e.correct);if(!e.correct)p.failedRun=e.sessionId;if(e.correct&&oldRun===e.sessionId&&!wasRecovered){delete s.sets.recoveredItems?.[key];m.recoveredItems=Object.keys(s.sets.recoveredItems||{}).length;}if(e.correct&&e.clean)set('cleanItems',key);}
+ }else if(app==='basic-grammar'||app==='grammar'){
+  set('days',day);
+  question(e.correct);
+  const [unit]=e.itemId.split(':');
+  const definition=grammarUnits[app].find(u=>u.number===Number(unit));
+  if(definition&&Array.from({length:definition.total},(_,i)=>keyOf(unit+':'+i)).every(id=>s.sets.correctItems?.[id]))set('units',unit);
+  if(s.rewardDay!==day){s.rewardDay=day;s.rewardAnswers={};s.rewardOrder=[];}
+  if(e.course===day&&!Object.hasOwn(s.rewardAnswers,e.itemId)){s.rewardAnswers[e.itemId]=e.correct;(s.rewardOrder||=[]).push(e.itemId);}
+ }else if(app==='today'){
+  set('days',day);set('articles',key);set('editionDays',e.course);
+  const p=item();p.levels||={};p.levels[e.grade]=true;
+  if(Object.keys(p.levels).length>=2)set('comparedArticles',key);
+  set('edition:'+e.course,key);
+  if(Object.keys(s.sets['edition:'+e.course]).length>=6)set('editionSix',e.course);
  }else if(app==='basic-quest'){
+
   if(e.kind==='run'){set('stages',key);max('score',e.score);if(e.score===4)set('perfectStages',key);streak('perfectStreak',e.score===4,key);}
   else {question(e.correct);if(e.correct&&e.first)set('firstItems',key);}
  }else if(app==='eiken-cloze'){
@@ -76,3 +92,4 @@ export function applyTitleEvent(previous={},e,day){
  }
  s.schemaVersion=2;return s;
 }
+

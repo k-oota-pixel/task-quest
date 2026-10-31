@@ -4,7 +4,7 @@ import {titleState,activityTitles,TITLE_CONTENTS,creativeTitles} from './title-m
 import {createLearningTitles} from './learning-titles.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import catalog from './retry-title-catalog.json' with {type:'json'};
-test('15 creative titles per activity replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,16);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
+test('15 creative titles per activity replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,19);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
 test('retry titles and selected title migrate using distinct answered questions, with no badges',()=>{
  const ids=Object.keys(catalog.questions).filter(id=>catalog.questions[id]==='4級').slice(0,50);
  const retry={state:{records:Object.fromEntries(ids.map(id=>[id,{attempts:100}]))},profile:{equippedTitle:'g4-50'}};
@@ -38,3 +38,4 @@ test('milestone notification uses the atomic increment result rather than a late
  let calls=0,milestone=10;const api=createLearningActivity({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId:'eiken-retry'}),invalidate(){},fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt)=>{calls++;const writes=JSON.parse(opt.body).writes;const activity=writes.find(w=>w.update.name.endsWith('/learning_activity/u'));assert.equal(activity.updateTransforms[2].increment.integerValue,'1');return {ok:true,json:async()=>({writeResults:writes.map(w=>({transformResults:w===activity?[{},{},{integerValue:String(milestone)}]:[]}))})};}});
  const r={};await api({method:'POST',headers:{'content-type':'application/json'}},r);assert.equal(calls,1);assert.equal(r.body.freshTitles[0].id,'eiken-retry:10');for(const n of [1,50,100]){milestone=n;const unlocked={};await api({method:'POST',headers:{'content-type':'application/json'}},unlocked);assert.equal(unlocked.body.freshTitles[0].id,'eiken-retry:'+n);}
 });
+

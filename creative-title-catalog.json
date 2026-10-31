@@ -1817,5 +1817,326 @@
       "metric": "bestFloor",
       "need": 50
     }
+  ],
+  "basic-grammar": [
+    {
+      "id": "creative:basic-grammar:1",
+      "name": "はじめの語順",
+      "metric": "attemptedItems",
+      "need": 5,
+      "condition": "異なる5問に回答する"
+    },
+    {
+      "id": "creative:basic-grammar:2",
+      "name": "語順の見習い",
+      "metric": "attemptedItems",
+      "need": 25,
+      "condition": "異なる25問に回答する"
+    },
+    {
+      "id": "creative:basic-grammar:3",
+      "name": "語順の探検家",
+      "metric": "attemptedItems",
+      "need": 50,
+      "condition": "異なる50問に回答する"
+    },
+    {
+      "id": "creative:basic-grammar:4",
+      "name": "語順の職人",
+      "metric": "attemptedItems",
+      "need": 100,
+      "condition": "異なる100問に回答する"
+    },
+    {
+      "id": "creative:basic-grammar:5",
+      "name": "語順の達人",
+      "metric": "attemptedItems",
+      "need": 204,
+      "condition": "異なる204問に回答する"
+    },
+    {
+      "id": "creative:basic-grammar:6",
+      "name": "最初の単元クリア",
+      "metric": "units",
+      "need": 1,
+      "condition": "1単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:basic-grammar:7",
+      "name": "基礎の芽",
+      "metric": "units",
+      "need": 3,
+      "condition": "3単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:basic-grammar:8",
+      "name": "基礎の枝",
+      "metric": "units",
+      "need": 6,
+      "condition": "6単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:basic-grammar:9",
+      "name": "基礎の大樹",
+      "metric": "units",
+      "need": 9,
+      "condition": "9単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:basic-grammar:10",
+      "name": "基本文法一周",
+      "metric": "units",
+      "need": 12,
+      "condition": "12単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:basic-grammar:11",
+      "name": "語順の習慣",
+      "metric": "days",
+      "need": 3,
+      "condition": "累計3日学習する"
+    },
+    {
+      "id": "creative:basic-grammar:12",
+      "name": "語順の積み重ね",
+      "metric": "days",
+      "need": 7,
+      "condition": "累計7日学習する"
+    },
+    {
+      "id": "creative:basic-grammar:13",
+      "name": "語順の相棒",
+      "metric": "days",
+      "need": 30,
+      "condition": "累計30日学習する"
+    },
+    {
+      "id": "creative:basic-grammar:14",
+      "name": "まちがい克服",
+      "metric": "recoveredItems",
+      "need": 10,
+      "condition": "間違えた異なる10問に再挑戦して正解する"
+    },
+    {
+      "id": "creative:basic-grammar:15",
+      "name": "基礎の完成者",
+      "metric": "correctItems",
+      "need": 204,
+      "condition": "異なる204問に一度以上正解する"
+    }
+  ],
+  "grammar": [
+    {
+      "id": "creative:grammar:1",
+      "name": "文法の入口",
+      "metric": "attemptedItems",
+      "need": 5,
+      "condition": "異なる5問に回答する"
+    },
+    {
+      "id": "creative:grammar:2",
+      "name": "文法の見習い",
+      "metric": "attemptedItems",
+      "need": 30,
+      "condition": "異なる30問に回答する"
+    },
+    {
+      "id": "creative:grammar:3",
+      "name": "文法の探検家",
+      "metric": "attemptedItems",
+      "need": 100,
+      "condition": "異なる100問に回答する"
+    },
+    {
+      "id": "creative:grammar:4",
+      "name": "文法の職人",
+      "metric": "attemptedItems",
+      "need": 300,
+      "condition": "異なる300問に回答する"
+    },
+    {
+      "id": "creative:grammar:5",
+      "name": "文法の達人",
+      "metric": "attemptedItems",
+      "need": 1080,
+      "condition": "異なる1080問に回答する"
+    },
+    {
+      "id": "creative:grammar:6",
+      "name": "最初の文法クリア",
+      "metric": "units",
+      "need": 1,
+      "condition": "1単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:grammar:7",
+      "name": "文法の芽",
+      "metric": "units",
+      "need": 5,
+      "condition": "5単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:grammar:8",
+      "name": "文法の枝",
+      "metric": "units",
+      "need": 15,
+      "condition": "15単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:grammar:9",
+      "name": "文法の大樹",
+      "metric": "units",
+      "need": 36,
+      "condition": "36単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:grammar:10",
+      "name": "文法全域踏破",
+      "metric": "units",
+      "need": 72,
+      "condition": "72単元の全問に一度以上正解する"
+    },
+    {
+      "id": "creative:grammar:11",
+      "name": "文法の習慣",
+      "metric": "days",
+      "need": 3,
+      "condition": "累計3日学習する"
+    },
+    {
+      "id": "creative:grammar:12",
+      "name": "文法の積み重ね",
+      "metric": "days",
+      "need": 7,
+      "condition": "累計7日学習する"
+    },
+    {
+      "id": "creative:grammar:13",
+      "name": "文法の相棒",
+      "metric": "days",
+      "need": 30,
+      "condition": "累計30日学習する"
+    },
+    {
+      "id": "creative:grammar:14",
+      "name": "文法リベンジャー",
+      "metric": "recoveredItems",
+      "need": 30,
+      "condition": "間違えた異なる30問に再挑戦して正解する"
+    },
+    {
+      "id": "creative:grammar:15",
+      "name": "文法の完成者",
+      "metric": "correctItems",
+      "need": 1080,
+      "condition": "異なる1080問に一度以上正解する"
+    }
+  ],
+  "today": [
+    {
+      "id": "creative:today:1",
+      "name": "ニュースの入口",
+      "metric": "articles",
+      "need": 1,
+      "condition": "異なる1記事を読了する"
+    },
+    {
+      "id": "creative:today:2",
+      "name": "ニュース散歩",
+      "metric": "articles",
+      "need": 5,
+      "condition": "異なる5記事を読了する"
+    },
+    {
+      "id": "creative:today:3",
+      "name": "世界の観察者",
+      "metric": "articles",
+      "need": 15,
+      "condition": "異なる15記事を読了する"
+    },
+    {
+      "id": "creative:today:4",
+      "name": "ニュース探検家",
+      "metric": "articles",
+      "need": 30,
+      "condition": "異なる30記事を読了する"
+    },
+    {
+      "id": "creative:today:5",
+      "name": "世界を読む人",
+      "metric": "articles",
+      "need": 100,
+      "condition": "異なる100記事を読了する"
+    },
+    {
+      "id": "creative:today:6",
+      "name": "読み比べの一歩",
+      "metric": "comparedArticles",
+      "need": 1,
+      "condition": "1記事をそれぞれ好きな2レベルで読了する"
+    },
+    {
+      "id": "creative:today:7",
+      "name": "ことばの見比べ名人",
+      "metric": "comparedArticles",
+      "need": 5,
+      "condition": "5記事をそれぞれ好きな2レベルで読了する"
+    },
+    {
+      "id": "creative:today:8",
+      "name": "ニュースの旅人",
+      "metric": "editionDays",
+      "need": 3,
+      "condition": "異なる3日付の記事を読了する"
+    },
+    {
+      "id": "creative:today:9",
+      "name": "世界の足あと",
+      "metric": "editionDays",
+      "need": 10,
+      "condition": "異なる10日付の記事を読了する"
+    },
+    {
+      "id": "creative:today:10",
+      "name": "今日の一周",
+      "metric": "editionSix",
+      "need": 1,
+      "condition": "同じ日付の異なる6記事を読了する"
+    },
+    {
+      "id": "creative:today:11",
+      "name": "ニュースの習慣",
+      "metric": "days",
+      "need": 3,
+      "condition": "累計3日読了する"
+    },
+    {
+      "id": "creative:today:12",
+      "name": "朝刊の友",
+      "metric": "days",
+      "need": 7,
+      "condition": "累計7日読了する"
+    },
+    {
+      "id": "creative:today:13",
+      "name": "世界とつながる",
+      "metric": "days",
+      "need": 30,
+      "condition": "累計30日読了する"
+    },
+    {
+      "id": "creative:today:14",
+      "name": "読み比べ探究者",
+      "metric": "comparedArticles",
+      "need": 15,
+      "condition": "15記事をそれぞれ好きな2レベルで読了する"
+    },
+    {
+      "id": "creative:today:15",
+      "name": "ニュースの相棒",
+      "metric": "days",
+      "need": 100,
+      "condition": "累計100日読了する"
+    }
   ]
 }
