@@ -1,4 +1,7 @@
 const CURATED_SOURCES=[
+  {kind:'rss',name:'BBC World',url:'https://feeds.bbci.co.uk/news/world/rss.xml',category:'world'},
+  {kind:'rss',name:'BBC Sport',url:'https://feeds.bbci.co.uk/sport/rss.xml',category:'sports'},
+  {kind:'rss',name:'The Guardian World',url:'https://www.theguardian.com/world/rss',category:'world'},
   {kind:'rss',name:'NASA News',url:'https://www.nasa.gov/news-release/feed/',category:'science'},
   {kind:'rss',name:'MIT News',url:'https://news.mit.edu/rss/feed',category:'technology'},
   {kind:'rss',name:'UN News',url:'https://news.un.org/feed/subscribe/en/news/all/rss.xml',category:'world'},
