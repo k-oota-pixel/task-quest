@@ -294,6 +294,56 @@ export function collectLevelHardFailures(articles){
 
 const LEVEL_SAFE_REPAIR_RANGES={'5級':[42,48],'4級':[68,76],'3級':[100,110],'準2級':[145,155],'2級':[205,220],'準1級':[285,305]};
 
+function singleLevelRepairPrompt(editionDate,researchText,sourceList,article,level,issue){
+  const [min,max]=LEVEL_SAFE_REPAIR_RANGES[level];
+  const previousIndex=LEVELS.indexOf(level)-1,nextIndex=LEVELS.indexOf(level)+1;
+  const previous=previousIndex>=0?article.levels?.[LEVELS[previousIndex]]:null;
+  const next=nextIndex<LEVELS.length?article.levels?.[LEVELS[nextIndex]]:null;
+  return `
+You are repairing exactly ONE English level of ONE TODAY news story for Japanese learners.
+Edition date: ${editionDate}.
+Level to rewrite: ${level}.
+
+Return JSON only with exactly two keys: {"title":"...","text":"..."}.
+Rewrite ONLY the ${level} version. Do not change or discuss any other level.
+
+ABSOLUTE WORD-COUNT REQUIREMENT:
+- The English body text must contain between ${min} and ${max} English words.
+- Count the words before answering. If it is outside ${min}-${max}, revise it before returning JSON.
+- Do not count the title as part of the word count.
+
+FACT SAFETY:
+- Use ONLY facts already supported by CURRENT ARTICLE and VERIFIED RESEARCH PACKET.
+- Do not invent numbers, causes, motives, quotations, people, organizations, locations, or outcomes.
+- You may reach the word target by breaking verified information into clearer sentences, repeating a full entity name instead of a pronoun, defining a simple term using only the verified context, and linking facts already present.
+- Do not copy source sentences.
+
+LEVEL STYLE:
+- 5級: very short independent sentences, very common beginner words, basic be/have/can/simple present or past; avoid passive voice and subordinate clauses.
+- 4級: short sentences, common junior-high words, basic present/past and simple connectors.
+- 3級: junior-high grammar, common connectors, and clear explanations.
+- 準2級: accessible high-school vocabulary with context and cause/effect only when verified.
+- 2級: fuller context and precise but direct vocabulary.
+- 準1級: nuanced natural prose without unsupported analysis.
+
+CURRENT ISSUE:
+${JSON.stringify(issue,null,2)}
+
+CURRENT ARTICLE:
+${JSON.stringify(article,null,2)}
+
+NEIGHBOR LENGTHS FOR ORDERING:
+previous=${previous?.wordCount||0}, next=${next?.wordCount||0}
+Follow the required word target above. Neighboring versions may still be awaiting repair; do not shorten this version to match a collapsed neighbor.
+
+VERIFIED RESEARCH PACKET:
+${articleResearch(researchText,article)}
+
+ALLOWED SOURCES:
+${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
+`.trim();
+}
+
 function normalizeSingleRepairedLevel(raw){
   const levelTitle=text(raw?.title,180),body=text(raw?.text,12000);
   if(!levelTitle||!body)return null;
@@ -394,7 +444,23 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
             articles[index]=mergeRepairedArticle(articles[index],repairedJson,articleIssues);
           }
         }
-        const remainingHardFailures=collectLevelHardFailures(articles);
+        let remainingHardFailures=collectLevelHardFailures(articles);
+        for(let round=0;round<2&&remainingHardFailures.length;round++){
+          const issues=[...new Map(remainingHardFailures.map(issue=>[`${issue.articleIndex}:${issue.level}`,issue])).values()];
+          console.log(`TODAY final single-level repair round ${round+1}: ${issues.length} versions.`);
+          for(const issue of issues){
+            const article=articles[issue.articleIndex];
+            const generated=await callGemini({apiKey,model,label:'TODAY級別最終修復',timeout:70000,body:{
+              contents:[{role:'user',parts:[{text:singleLevelRepairPrompt(editionDate,research,article.sources,article,issue.level,issue)}]}],
+              generationConfig:{temperature:0,maxOutputTokens:3000,responseMimeType:'application/json'}
+            }});
+            let raw;try{raw=JSON.parse(modelText(generated));}catch{throw fail('TODAYの級別最終修復結果を読み取れませんでした。',502);}
+            const repaired=normalizeSingleRepairedLevel(raw);
+            if(!repaired)throw fail('TODAYの級別最終修復結果が不足しています。',502);
+            articles[issue.articleIndex]={...article,levels:{...article.levels,[issue.level]:repaired}};
+          }
+          remainingHardFailures=collectLevelHardFailures(articles);
+        }
         if(remainingHardFailures.length){
           const first=remainingHardFailures[0];
           throw fail(`TODAYの6段階英文が公開基準を満たしませんでした: ${first.id} ${first.level} ${first.words}語`,502);
