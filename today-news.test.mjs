@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures} from './today-news.mjs';
+import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini} from './today-news.mjs';
 
 const now=2_000_000_000;
 const goodClaims={
@@ -61,4 +61,34 @@ test('TODAY accepts small target misses after repair when all six levels remain 
 test('TODAY hard validation rejects a collapsed Grade 5 text',()=>{
   const failures=collectLevelHardFailures([fakeArticleWithCounts([10,49,72,105,160,230])]);
   assert.ok(failures.some(issue=>issue.level==='5級'&&issue.type==='hard-range'));
+});
+
+test('repair context includes only matching verified feed material',()=>{
+  const packet=JSON.stringify({requiredStories:[{url:'https://one.example/a',excerpt:'KEEP'}],alternates:[{url:'https://two.example/b',excerpt:'OMIT'}]});
+  const compact=articleResearch(packet,{sources:[{url:'https://one.example/a'}]});
+  assert.match(compact,/KEEP/);assert.doesNotMatch(compact,/OMIT/);
+  assert.equal(articleResearch('free-form verified facts',{}),'free-form verified facts');
+});
+test('repair merge preserves healthy levels and all story metadata',()=>{
+  const article={id:'fixed-id',sources:[{url:'https://one.example/a'}],levels:{'5級':{title:'old',text:'old'},'4級':{title:'healthy',text:'Keep this.'}}};
+  const merged=mergeRepairedArticle(article,{levels:{'5級':{title:'new',text:'This is new.'},'4級':{title:'bad',text:'Ignore'}}},[{level:'5級'}]);
+  assert.equal(merged.levels['4級'],article.levels['4級']);
+  assert.equal(merged.id,article.id);assert.equal(merged.sources,article.sources);
+  assert.equal(merged.levels['5級'].wordCount,3);
+  assert.throws(()=>mergeRepairedArticle(article,{levels:{}},[{level:'5級'}]));
+});
+test('429 respects cooldown, Retry-After and Google RetryInfo',()=>{
+  assert.equal(geminiRetryDelay(429,null),65000);
+  assert.equal(geminiRetryDelay(429,'90'),90000);
+  assert.equal(geminiRetryDelay(429,null,JSON.stringify({error:{details:[{retryDelay:'100.5s'}]}})),101500);
+  assert.equal(geminiRetryDelay(503,null,'',2),4000);
+});
+test('Gemini retries throttling once and returns successful response',async()=>{
+  let attempts=0;const waits=[];
+  const result=await callGemini({apiKey:'test',model:'test',body:{},fetchImpl:async()=>{
+    attempts++;
+    return attempts===1?new Response(JSON.stringify({error:{details:[{retryDelay:'70s'}]}}),{status:429}):
+      new Response(JSON.stringify({candidates:[{content:{parts:[{text:'ok'}]}}]}),{status:200});
+  },sleep:async ms=>waits.push(ms)});
+  assert.equal(attempts,2);assert.deepEqual(waits,[71000]);assert.equal(result.candidates[0].content.parts[0].text,'ok');
 });
