@@ -154,6 +154,20 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
         const account=await authAccount(uid);
         send(res,200,{uid,email:String(account.email||'')});return;
       }
+      if(url.pathname==='/api/admin/contact-messages'){
+        const token=url.searchParams.get('pageToken')||'';
+        if(token.length>4096)throw fail('ページ情報が不正です。',400);
+        const endpoint=new URL(base+'/documents/developerMessages');
+        endpoint.searchParams.set('pageSize','50');
+        endpoint.searchParams.set('orderBy','createdAt desc');
+        if(token)endpoint.searchParams.set('pageToken',token);
+        const result=await json(endpoint.toString());
+        const messages=(result.documents||[]).map(doc=>{
+          const fields=decodeFields(doc.fields||{});
+          return {id:String(doc.name||'').split('/').pop(),uid:String(fields.uid||''),message:String(fields.message||''),page:String(fields.page||''),sentAt:String(fields.sentAt||''),createdAt:String(fields.createdAt||''),emailStatus:String(fields.emailStatus||'unconfigured')};
+        });
+        send(res,200,{messages,nextPageToken:result.nextPageToken||null});return;
+      }
       if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.9'});return;}
       if(url.pathname==='/api/admin/retry-screen-logs'){
         const ids=[...new Set((url.searchParams.get('uids')||'').split(',').filter(Boolean))];
