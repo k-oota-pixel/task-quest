@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
-const preissued=new Set(JSON.parse(readFileSync(new URL('./registration-code-hashes.json',import.meta.url),'utf8')));
-import {randomBytes,randomInt,createHash,createSign,scrypt,timingSafeEqual} from 'node:crypto';
+
+import {randomBytes,randomInt,createHash,createHmac,createSign,scrypt,timingSafeEqual} from 'node:crypto';
 import {promisify} from 'node:util';
 const derive=promisify(scrypt);
 export const LEGACY_BEFORE='2026-10-31T05:25:01.087Z';
@@ -9,6 +9,13 @@ export const normalizeCode=value=>String(value||'').toUpperCase().replace(/[\s-]
 export const normalizeId=value=>String(value||'').normalize('NFKC').trim().toLowerCase();
 export const digest=value=>createHash('sha256').update(value).digest('hex');
 export function newCode(){let value;do{value=Array.from({length:6},()=>alphabet[randomInt(alphabet.length)]).join('');}while(!/[2-9]/.test(value)||!/[A-Z]/.test(value));return value;}
+export function initialCodes(seed){
+ if(!seed)return [];
+ const values=new Set();let counter=0;
+ while(values.size<10000){const bytes=createHmac('sha256',seed).update('registration-v2:'+counter++).digest();const value=Array.from(bytes.subarray(0,6),byte=>alphabet[byte&31]).join('');if(/[2-9]/.test(value)&&/[A-Z]/.test(value))values.add(value);}
+ return [...values];
+}
+const preissued=new Set(initialCodes(process.env.REGISTRATION_CODE_SEED).map(digest));
 export async function passwordRecord(password){
  if(typeof password!=='string'||password.length<8||password.length>128)throw Object.assign(Error('パスワードは8〜128文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
