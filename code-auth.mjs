@@ -32,7 +32,7 @@ export function customToken(sa,uid,reset=false,version=0){
  const unsigned=enc({alg:'RS256',typ:'JWT'})+'.'+enc({iss:sa.client_email,sub:sa.client_email,aud:'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',iat:now,exp:now+3600,uid,claims:{codeAccount:true,codeVersion:version,passwordResetRequired:reset}});
  return unsigned+'.'+createSign('RSA-SHA256').update(unsigned).end().sign(sa.private_key,'base64url');
 }
-export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,issuedHashes=preissued}){
+export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,issuedHashes=preissued}){
  const prefix='projects/'+projectId+'/databases/(default)/documents/';
  async function request(url,options={}){
   const access=await accessToken(),response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},signal:AbortSignal.timeout(20000)});
@@ -97,7 +97,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     }
     throw fail('ページが見つかりません。',404);
    }
-   if(route==='/api/account/session'){const user=await verifyUser(req);return send(res,200,await admission(user));}
+   if(route==='/api/account/session'){const user=await verifyUser(req),session=await admission(user);return send(res,200,{...session,admin:isAdmin(user)===true&&!session.resetRequired});}
    if(route==='/api/account/password'){
     throttle(req);const user=await verifyUser(req),account=await state(user.uid);if(!account)throw fail('コードの紐づけが必要です。',400);
     if(!await passwordMatches(body.currentPassword,account.value))throw fail('現在のパスワードが違います。',403);
@@ -137,3 +137,4 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
  }
  return {handle,admission,inventoryFingerprint:digest([...issuedHashes].sort().join('\n'))};
 }
+
