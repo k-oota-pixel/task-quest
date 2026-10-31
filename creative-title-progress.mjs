@@ -79,6 +79,12 @@ export function applyTitleEvent(previous={},e,day){
  }else if(app==='pet-instructions'){
   if(e.kind==='run'){inc('runs');max('score',e.score);streak('clearStreak',e.score>=4);streak('perfectStreak',e.score===5);if(e.score>=4)set('clearDays',day);if(e.score===5)set('perfectDays',day);}
   else if(e.correct){inc('correct');if(e.recovered)max('recovered',1);if(e.color)inc('color');if(e.shape)inc('shape');if(e.size)inc('size');if(e.color&&e.shape&&e.size)max('allConditions',1);max('minConditions',Math.min(n(m.color),n(m.shape),n(m.size)));}
+ }else if(app==='case-talk'){
+  inc('successes');
+  if(e.mode==='normal')inc('normalSuccesses');
+  if(n(e.score)>=1)inc('repairedSuccesses');
+  if(n(e.score)>=2)max('doubleRepairSuccess',1);
+  max('masterProgress',Math.min(n(m.successes),n(m.normalSuccesses)*2));
  }else if(app==='talk-quest'||app==='pet-chat'){
   const id=keyOf(e.sessionId),session=s.sessions[id]||={turns:0,manual:0,questions:{}};session.turns++;session.manual=e.manual?session.manual+1:0;inc('turns');if(e.manual)inc('manual');max('maxTurns',session.turns);max('manualStreak',session.manual);
   const d=s.days[day]||={turns:0,manual:0,questions:{}};d.turns++;d.manual=e.manual?d.manual+1:0;set('days',day);max('maxDailyTurns',d.turns);max('dailyManualStreak',d.manual);
