@@ -1,5 +1,6 @@
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
 
+export const TOWER_SEASON='2026-11-maou';
 const MODES={tower:'wordTowerBest',dungeon:'eikenDungeonBest'};
 const TOP_RANK=3;
 const floorOf=n=>Number.isSafeInteger(n)&&n>0&&n<=100000?n:0;
@@ -16,10 +17,13 @@ function sanitizeLeaders(list){
 export function adventureLeaders(players,mode){
  const field=MODES[mode];if(!field)return [];
  const seen=new Set(),rows=[];
- for(const player of players){const uid=typeof player?.uid==='string'?player.uid:'',floor=floorOf(player?.[field]);if(!uid||!floor||seen.has(uid))continue;seen.add(uid);rows.push({uid,petName:petNameOf(player.petName),floor});}
+ for(const player of players){
+  if(mode==='tower'&&player?.wordTowerSeason!==TOWER_SEASON)continue;
+  const uid=typeof player?.uid==='string'?player.uid:'',floor=floorOf(player?.[field]);if(!uid||!floor||seen.has(uid))continue;seen.add(uid);rows.push({uid,petName:petNameOf(player.petName),floor});
+ }
  return rankTopThree(rows);
 }
-function sanitizeStored(value){return {schemaVersion:1,tower:sanitizeLeaders(value?.tower),dungeon:sanitizeLeaders(value?.dungeon)};}
+function sanitizeStored(value){return {schemaVersion:2,towerSeason:typeof value?.towerSeason==='string'?value.towerSeason:'',tower:sanitizeLeaders(value?.tower),dungeon:sanitizeLeaders(value?.dungeon)};}
 function encodeValue(value){
  if(value===null)return {nullValue:null};
  if(typeof value==='string')return {stringValue:value};
@@ -58,16 +62,20 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
   const excluded=new Set(await excludedIds()),ids=[...new Set(await activeIds())].filter(uid=>!excluded.has(uid)),token=await accessToken(),players=[];
   for(let offset=0;offset<ids.length;offset+=200){
    const names=ids.slice(offset,offset+200).map(uid=>base.replace(/^https:\/\/firestore.googleapis.com\/v1\//,'')+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom');
-   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','wordTowerBest','eikenDungeonBest']}})});let rows=[];try{rows=await response.json();}catch{}
+   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','wordTowerBest','wordTowerSeason','eikenDungeonBest']}})});let rows=[];try{rows=await response.json();}catch{}
    if(!response.ok||!Array.isArray(rows))throw fail('ランキングを取得できませんでした。',response.status===429?429:502);
    const expected=new Set(names);for(const row of rows)if(row.found&&expected.has(row.found.name))players.push({uid:uidFromName(row.found.name),...decodeFields(row.found.fields||{})});
   }
-  return {token,value:{schemaVersion:1,tower:adventureLeaders(players,'tower'),dungeon:adventureLeaders(players,'dungeon')}};
+  return {token,value:{schemaVersion:2,towerSeason:TOWER_SEASON,tower:adventureLeaders(players,'tower'),dungeon:adventureLeaders(players,'dungeon')}};
  }
  async function load(){
   const token=await accessToken(),stored=await readSummary(token),excluded=new Set(await excludedIds());
-  if(stored){if(![...stored.value.tower,...stored.value.dungeon].some(row=>excluded.has(row.uid)))return stored;const rebuilt=await scanPlayers();return writeSummary(token,rebuilt.value,{updateTime:stored.updateTime});}
-  const bootstrap=await scanPlayers();try{return await writeSummary(bootstrap.token,bootstrap.value,{createOnly:true});}catch(error){if(!error.retryable)throw error;const raced=await readSummary(bootstrap.token);if(raced)return raced;throw error;}
+  if(stored){
+   const staleSeason=stored.value.towerSeason!==TOWER_SEASON,hasExcluded=[...stored.value.tower,...stored.value.dungeon].some(row=>excluded.has(row.uid));
+   if(!staleSeason&&!hasExcluded)return stored;
+   const rebuilt=await scanPlayers();return writeSummary(token,rebuilt.value,{updateTime:stored.updateTime});
+  }
+  const bootstrap=await scanPlayers();try{return await writeSummary(bootstrap.token,bootstrap.value,{createOnly:true});}catch(error){if(!error.retryable)throw error;const raced=await readSummary(bootstrap.token);if(raced&&raced.value.towerSeason===TOWER_SEASON)return raced;throw error;}
  }
  async function decorateSummary(value){
   const tower=sanitizeLeaders(value?.tower),dungeon=sanitizeLeaders(value?.dungeon),combined=[...tower.map(row=>({...row,__mode:'tower'})),...dungeon.map(row=>({...row,__mode:'dungeon'}))];
@@ -75,23 +83,23 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
   for(const item of decorated){const currentMode=item.__mode;if(!Object.hasOwn(result,currentMode))continue;const {__mode,...row}=item;result[currentMode].push(row);}return result;
  }
  async function snapshot(){
-  if(cached&&now()-cached.fetchedAt<60000){if(!cached.public)cached.public=await decorateSummary(cached.value);return {exclusionVersion:1,fetchedAt:cached.fetchedAt,...cached.public};}
+  if(cached&&now()-cached.fetchedAt<60000){if(!cached.public)cached.public=await decorateSummary(cached.value);return {exclusionVersion:1,towerSeason:TOWER_SEASON,fetchedAt:cached.fetchedAt,...cached.public};}
   if(inflight)return inflight;if(now()<retryAfter)throw fail('少し待ってから再表示してください。',503);
-  inflight=load().then(async stored=>{cached={...stored,fetchedAt:now(),public:null};cached.public=await decorateSummary(cached.value);return {exclusionVersion:1,fetchedAt:cached.fetchedAt,...cached.public};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});return inflight;
+  inflight=load().then(async stored=>{cached={...stored,fetchedAt:now(),public:null};cached.public=await decorateSummary(cached.value);return {exclusionVersion:1,towerSeason:TOWER_SEASON,fetchedAt:cached.fetchedAt,...cached.public};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});return inflight;
  }
- async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot,valid:value=>value?.exclusionVersion===1});}
+ async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot,valid:value=>value?.exclusionVersion===1&&value?.towerSeason===TOWER_SEASON});}
  async function refreshSharedSnapshot(){const result=await snapshot();await rankingStore.setSection('adventure',result);return result;}
  async function publish({uid,mode,floor,petName}){
   if(!uid||!Object.hasOwn(MODES,mode)||(floor=floorOf(floor))===0)return null;
   if((await excludedIds()).includes(uid))return null;
   const task=async()=>{
    await snapshot();
-   const token=await accessToken();let stored=cached?.value?{value:cached.value,updateTime:cached.updateTime}:await readSummary(token);if(!stored)stored=await load();
+   const token=await accessToken();let stored=cached?.value?{value:cached.value,updateTime:cached.updateTime}:await readSummary(token);if(!stored||stored.value.towerSeason!==TOWER_SEASON)stored=await load();
    for(let attempt=0;attempt<3;attempt++){
-    const next=sanitizeStored(stored.value),current=next[mode],candidateRows=current.filter(row=>row.uid!==uid).map(({rank,...row})=>row);candidateRows.push({uid,petName:petNameOf(petName),floor});const updated=rankTopThree(candidateRows);next[mode]=updated;
-    if(sameRows(current,updated)){cached={...stored,fetchedAt:now(),public:null};return publicRows(updated);}
+    const next=sanitizeStored(stored.value);next.towerSeason=TOWER_SEASON;const current=next[mode],candidateRows=current.filter(row=>row.uid!==uid).map(({rank,...row})=>row);candidateRows.push({uid,petName:petNameOf(petName),floor});const updated=rankTopThree(candidateRows);next[mode]=updated;
+    if(sameRows(current,updated)){cached={...stored,value:next,fetchedAt:now(),public:null};return publicRows(updated);}
     try{const written=await writeSummary(token,next,{updateTime:stored.updateTime});cached={...written,fetchedAt:now(),public:null};return publicRows(written.value[mode]);}
-    catch(error){if(!error.retryable||attempt===2)throw error;stored=await readSummary(token);if(!stored)stored=await load();}
+    catch(error){if(!error.retryable||attempt===2)throw error;stored=await readSummary(token);if(!stored||stored.value.towerSeason!==TOWER_SEASON)stored=await load();}
    }
   };
   const result=publishChain.then(task,task);publishChain=result.catch(()=>{});return result;
@@ -101,7 +109,7 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
   if(req.method==='POST'){
    if(!req.headers?.['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await requestUser(req),body=await requestJson(req,1024),mode=String(body.mode||'');if(!Object.hasOwn(MODES,mode))throw fail('冒険先を選んでください。',400);
    if((await excludedIds()).includes(user.uid)){await refreshSharedSnapshot();return send(res,200,{ok:true,excluded:true,record:null});}
-   const expectedFloor=floorOf(Number(body.expectedFloor)),token=await accessToken(),data=await userDoc(token,user.uid),savedFloor=floorOf(data[MODES[mode]]);if(expectedFloor&&savedFloor<expectedFloor)return send(res,202,{ok:false,pending:true});
+   const expectedFloor=floorOf(Number(body.expectedFloor)),token=await accessToken(),data=await userDoc(token,user.uid),rawSavedFloor=floorOf(data[MODES[mode]]),savedFloor=mode==='tower'&&data.wordTowerSeason!==TOWER_SEASON?0:rawSavedFloor;if(expectedFloor&&savedFloor<expectedFloor)return send(res,202,{ok:false,pending:true});
    const record=await publish({uid:user.uid,mode,floor:savedFloor,petName:data.petName});await refreshSharedSnapshot();return send(res,200,{ok:true,record});
   }
   throw fail('GETまたはPOSTのみ対応しています。',405);
