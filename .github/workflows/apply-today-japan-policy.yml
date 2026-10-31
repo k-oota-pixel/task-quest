@@ -1,0 +1,196 @@
+name: Apply TODAY Japan-first policy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-today-japan-policy.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply Japan-first TODAY policy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p=Path(path)
+              text=p.read_text()
+              if old not in text:
+                  raise SystemExit(f'Expected snippet not found in {path}: {old[:100]!r}')
+              if text.count(old)!=1:
+                  raise SystemExit(f'Expected one snippet in {path}, found {text.count(old)}')
+              p.write_text(text.replace(old,new,1))
+
+          # Backend policy/configuration and generated article metadata.
+          replace_once('today-news.mjs',
+          "const RETRYABLE=new Set([429,500,502,503,504]);\n",
+          "const RETRYABLE=new Set([429,500,502,503,504]);\nconst DEFAULT_JAPAN_NEWS_RATIO=0.85;\n\nexport function japanNewsRatio(value=process.env.TODAY_JAPAN_NEWS_RATIO){\n  const ratio=Number(value);\n  return Number.isFinite(ratio)?Math.max(0,Math.min(1,ratio)):DEFAULT_JAPAN_NEWS_RATIO;\n}\nexport function regionalStoryTargets(total=6,ratio=japanNewsRatio()){\n  const count=Math.max(1,Math.floor(Number(total)||6));\n  const bounded=Math.max(0,Math.min(1,Number(ratio)));\n  let japan=Math.round(count*bounded);\n  if(count>1&&bounded>0&&bounded<1)japan=Math.max(1,Math.min(count-1,japan));\n  return {japan,world:count-japan,total:count,ratio:bounded};\n}\n")
+
+          replace_once('today-news.mjs',
+          "Return {\\\"articles\\\":[one article]} matching the schema. Use categoryHint as primary category; sourcePublishedAt if known; a concise Japanese summaryJa; category/categories/careerTags/tags, an English title and slug, and the exact provided source URL.",
+          "Return {\\\"articles\\\":[one article]} matching the schema. Use categoryHint as primary category and preserve the source scope exactly as scope (japan or world); sourcePublishedAt if known; a concise Japanese summaryJa; category/categories/careerTags/tags, an English title and slug, and the exact provided source URL.")
+
+          replace_once('today-news.mjs',
+          "function discoveryPrompt(editionDate){return `",
+          "function discoveryPrompt(editionDate){const targets=regionalStoryTargets();return `")
+          replace_once('today-news.mjs',
+          "Use Google Search extensively and build a VERIFIED research packet for 10-14 news candidates from roughly the last 48 hours (up to 72 hours only if a category is unusually quiet).\nThe final publication will choose six stories, so deliberately cover many different fields from this set: world/social affairs, science, AI/technology, health, sports, culture/entertainment, business/economy, environment/nature, education/careers, life/travel.\nInclude a Japan-related story when there is a genuinely useful one, but keep the edition internationally broad.",
+          "Use Google Search extensively and build a VERIFIED research packet for 12-16 news candidates from roughly the last 48 hours (up to 72 hours only if a category is unusually quiet).\nTODAY is Japan-first: the final six-story edition targets ${targets.japan} Japan-related stories and ${targets.world} WORLD story/stories. Build a deep Japan pool first (aim for at least 9 useful Japan-related candidates) plus several strong world candidates for the WORLD slot and fallback.\nA story is scope=japan when the event mainly happens in Japan or directly concerns Japanese people, institutions, companies, policy, research, culture, sports, education, health, nature, or daily life. Otherwise use scope=world. A Japan-related international event still counts as japan when the Japanese connection is central, not incidental.\nDeliberately cover many different fields from this set: world/social affairs, science, AI/technology, health, sports, culture/entertainment, business/economy, environment/nature, education/careers, life/travel. Avoid filling the Japan pool with politics alone.")
+          replace_once('today-news.mjs',
+          "For each candidate provide:\n1) short English working headline,\n2) one primary category from: world, science, technology, health, sports, culture, business, environment, education, life,",
+          "For each candidate provide:\n1) short English working headline,\n2) scope: japan or world using the definition above,\n3) one primary category from: world, science, technology, health, sports, culture, business, environment, education, life,")
+
+          replace_once('today-news.mjs',
+          "properties:{slug:{type:'STRING'},category:{type:'STRING'},",
+          "properties:{slug:{type:'STRING'},scope:{type:'STRING',enum:['japan','world']},category:{type:'STRING'},")
+          replace_once('today-news.mjs',
+          "required:['slug','category','categories','careerTags','tags','title','summaryJa','levels','sources']",
+          "required:['slug','scope','category','categories','careerTags','tags','title','summaryJa','levels','sources']")
+
+          replace_once('today-news.mjs',
+          "function generationPrompt(editionDate,researchText,sourceList){return `",
+          "function generationPrompt(editionDate,researchText,sourceList){const targets=regionalStoryTargets();return `")
+          replace_once('today-news.mjs',
+          "Choose EXACTLY SIX distinct stories from the VERIFIED RESEARCH PACKET below. The six stories must cover at least five different primary categories. Prefer stories that are educationally useful, current, concrete, and varied. Avoid six versions of the same technology/business theme.",
+          "Choose EXACTLY SIX distinct stories from the VERIFIED RESEARCH PACKET below. Target exactly ${targets.japan} stories with scope=japan and ${targets.world} story/stories with scope=world. The six stories must cover at least five different primary categories. Prefer stories that are educationally useful, current, concrete, and varied. Avoid six versions of the same technology/business theme. If the Japan candidate pool is genuinely insufficient, use the best verified world candidate rather than inventing or stretching a Japan connection.")
+          replace_once('today-news.mjs',
+          "Classification:\n- category: exactly one of world, science, technology, health, sports, culture, business, environment, education, life.",
+          "Classification:\n- scope: japan or world. Preserve a required story's supplied scope; otherwise classify using the Japan-first definition in the research packet.\n- category: exactly one of world, science, technology, health, sports, culture, business, environment, education, life.")
+
+          replace_once('today-news.mjs',
+          "export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,categoryByUrl=new Map()}){",
+          "export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,categoryByUrl=new Map(),scopeByUrl=new Map()}){")
+          replace_once('today-news.mjs',
+          "    const hintedCategory=(Array.isArray(raw?.sources)?raw.sources:[]).map(source=>categoryByUrl.get(urlKey(source?.url))).find(item=>CATEGORIES.includes(item));\n    const category=hintedCategory||(CATEGORIES.includes(raw?.category)?raw.category:'');if(!category)continue;",
+          "    const hintedCategory=(Array.isArray(raw?.sources)?raw.sources:[]).map(source=>categoryByUrl.get(urlKey(source?.url))).find(item=>CATEGORIES.includes(item));\n    const hintedScope=(Array.isArray(raw?.sources)?raw.sources:[]).map(source=>scopeByUrl.get(urlKey(source?.url))).find(item=>item==='japan'||item==='world');\n    const scope=hintedScope||(raw?.scope==='japan'||raw?.scope==='world'?raw.scope:'');if(!scope)continue;\n    const category=hintedCategory||(CATEGORIES.includes(raw?.category)?raw.category:'');if(!category)continue;")
+          replace_once('today-news.mjs',
+          "    articles.push({id,date:editionDate,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),levels,sources:cleanSources});",
+          "    articles.push({id,date:editionDate,scope,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),levels,sources:cleanSources});")
+          replace_once('today-news.mjs',
+          "            rawArticles.push({...result.articles[0],category:story.categoryHint,sources:[{name:story.source,url:story.url}]});",
+          "            rawArticles.push({...result.articles[0],scope:story.scope||'world',category:story.categoryHint,sources:[{name:story.source,url:story.url}]});")
+          replace_once('today-news.mjs',
+          "        const categoryByUrl=new Map(sourceList.filter(source=>CATEGORIES.includes(source.categoryHint)).map(source=>[urlKey(source.url),source.categoryHint]));\n        let articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});",
+          "        const categoryByUrl=new Map(sourceList.filter(source=>CATEGORIES.includes(source.categoryHint)).map(source=>[urlKey(source.url),source.categoryHint]));\n        const scopeByUrl=new Map(sourceList.filter(source=>source.scope==='japan'||source.scope==='world').map(source=>[urlKey(source.url),source.scope]));\n        let articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl,scopeByUrl});")
+          replace_once('today-news.mjs',
+          "          const fallback=await discoverNewsFromFeeds();",
+          "          const fallback=await discoverNewsFromFeeds({japanRatio:japanNewsRatio()});")
+
+          # Japan-first curated fallback sources and deterministic regional selection.
+          replace_once('today-feeds.mjs',
+          "const CURATED_SOURCES=[\n",
+          "const CURATED_SOURCES=[\n  {kind:'rss',name:'Digital Agency Japan',url:'https://www.digital.go.jp/rss/news.xml',category:'technology',scope:'japan'},\n  {kind:'rss',name:'Cabinet Office Japan',url:'https://www.cao.go.jp/rss/news.rdf',category:'world',scope:'japan'},\n  {kind:'rss',name:'MHLW Japan',url:'https://www.mhlw.go.jp/stf/news.rdf',category:'health',scope:'japan'},\n  {kind:'rss',name:'Consumer Affairs Agency Japan',url:'https://www.caa.go.jp/news.rss',category:'life',scope:'japan'},\n  {kind:'html',name:'METI Japan',url:'https://www.meti.go.jp/press/',category:'business',scope:'japan',include:/\\/press\\/20\\d\\d\\//i},\n  {kind:'html',name:'JAXA Japan',url:'https://www.jaxa.jp/press/',category:'science',scope:'japan',include:/\\/press\\//i},\n  {kind:'html',name:'Ministry of Environment Japan',url:'https://www.env.go.jp/press/',category:'environment',scope:'japan',include:/\\/press\\//i},\n  {kind:'html',name:'MEXT Japan',url:'https://www.mext.go.jp/b_menu/houdou/',category:'education',scope:'japan',include:/\\/b_menu\\/houdou\\//i},\n  {kind:'html',name:'Japan Sports Agency',url:'https://www.mext.go.jp/sports/b_menu/houdou/',category:'sports',scope:'japan',include:/\\/sports\\/b_menu\\/houdou\\//i},\n  {kind:'html',name:'Agency for Cultural Affairs Japan',url:'https://www.bunka.go.jp/koho_hodo_oshirase/hodohappyo/',category:'culture',scope:'japan',include:/\\/koho_hodo_oshirase\\/hodohappyo\\//i},\n")
+          replace_once('today-feeds.mjs',
+          "  {kind:'html',name:'Apple Newsroom',url:'https://www.apple.com/newsroom/',category:'technology',include:/\\/newsroom\\//i}\n];",
+          "  {kind:'html',name:'Apple Newsroom',url:'https://www.apple.com/newsroom/',category:'technology',include:/\\/newsroom\\//i}\n].map(source=>({...source,scope:source.scope||'world'}));")
+          replace_once('today-feeds.mjs',
+          "    items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,title,url,publishedAt,summary:clean(summary,1800)});",
+          "    items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt,summary:clean(summary,1800)});")
+          replace_once('today-feeds.mjs',
+          "    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,title,url,publishedAt:'',summary:''});",
+          "    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt:'',summary:''});")
+          replace_once('today-feeds.mjs',
+          "function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint}])).values()];}\n",
+          "function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||'world'}])).values()];}\n\nexport function selectRegionalStories(candidates,{total=6,japanRatio=0.85}={}){\n  const items=Array.isArray(candidates)?candidates:[];\n  const count=Math.max(1,Math.floor(Number(total)||6));\n  const ratio=Number.isFinite(Number(japanRatio))?Math.max(0,Math.min(1,Number(japanRatio))):0.85;\n  let japanTarget=Math.round(count*ratio);\n  if(count>1&&ratio>0&&ratio<1)japanTarget=Math.max(1,Math.min(count-1,japanTarget));\n  const worldTarget=count-japanTarget;\n  const selected=[],usedUrls=new Set(),usedCategories=new Set();\n  const take=(scope,wanted)=>{\n    const pool=items.filter(item=>(item.scope||item.scopeHint||'world')===scope&&!usedUrls.has(item.url));\n    for(const preferNew of [true,false]){\n      for(const item of pool){\n        if(selected.filter(x=>(x.scope||x.scopeHint||'world')===scope).length>=wanted)break;\n        if(usedUrls.has(item.url))continue;\n        if(preferNew&&usedCategories.has(item.categoryHint))continue;\n        selected.push(item);usedUrls.add(item.url);usedCategories.add(item.categoryHint);\n      }\n    }\n  };\n  take('japan',japanTarget);take('world',worldTarget);\n  if(selected.length<count){\n    for(const preferNew of [true,false]){\n      for(const item of items){\n        if(selected.length>=count)break;\n        if(usedUrls.has(item.url))continue;\n        if(preferNew&&usedCategories.has(item.categoryHint))continue;\n        selected.push(item);usedUrls.add(item.url);usedCategories.add(item.categoryHint);\n      }\n    }\n  }\n  return selected.slice(0,count);\n}\n")
+          replace_once('today-feeds.mjs',
+          "export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date()}={}){",
+          "export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date(),japanRatio=0.85}={}){")
+          replace_once('today-feeds.mjs',
+          "    source:item.sourceName,categoryHint:item.categoryHint,title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)",
+          "    source:item.sourceName,categoryHint:item.categoryHint,scope:item.scopeHint||'world',title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)")
+          old="""  const firstByCategory=[];const seenCategories=new Set();
+  for(const item of allCompact){if(seenCategories.has(item.categoryHint))continue;seenCategories.add(item.categoryHint);firstByCategory.push(item);}
+  if(firstByCategory.length<5)throw new Error(`公式フィードの分野が不足しています (${[...seenCategories].join(', ')})`);
+  const requiredStories=firstByCategory.slice(0,6);
+  const requiredUrls=new Set(requiredStories.map(item=>item.url));
+  if(requiredStories.length<6){
+    const extra=allCompact.find(item=>!requiredUrls.has(item.url));
+    if(!extra)throw new Error('公式フィードから6記事を確保できませんでした');
+    requiredStories.push(extra);requiredUrls.add(extra.url);
+  }
+  const alternates=allCompact.filter(item=>!requiredUrls.has(item.url));
+"""
+          new="""  const requiredStories=selectRegionalStories(allCompact,{total:6,japanRatio});
+  if(requiredStories.length<6)throw new Error('公式フィードから6記事を確保できませんでした');
+  const seenCategories=new Set(requiredStories.map(item=>item.categoryHint));
+  if(seenCategories.size<5)throw new Error(`公式フィードの分野が不足しています (${[...seenCategories].join(', ')})`);
+  const requiredUrls=new Set(requiredStories.map(item=>item.url));
+  const alternates=allCompact.filter(item=>!requiredUrls.has(item.url));
+"""
+          replace_once('today-feeds.mjs',old,new)
+
+          # Tests: preserve scope and verify 85/15 targeting plus graceful fallback.
+          replace_once('today-news.test.mjs',
+          "import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini,plannedStories,plannedStoryPrompt} from './today-news.mjs';",
+          "import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini,plannedStories,plannedStoryPrompt,japanNewsRatio,regionalStoryTargets} from './today-news.mjs';")
+          replace_once('today-news.test.mjs',
+          "  slug:`story-${i+1}`,category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`",
+          "  slug:`story-${i+1}`,scope:i<5?'japan':'world',category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`")
+          replace_once('today-news.test.mjs',
+          "  assert.ok(articles.every(article=>Number.isInteger(article.levels['4級'].wordCount)));",
+          "  assert.ok(articles.every(article=>Number.isInteger(article.levels['4級'].wordCount)));\n  assert.equal(articles.filter(article=>article.scope==='japan').length,5);\n  assert.equal(articles.filter(article=>article.scope==='world').length,1);")
+          insert="""
+test('TODAY Japan-first ratio defaults to five Japan stories and remains configurable',()=>{
+  assert.equal(japanNewsRatio(undefined),0.85);
+  assert.deepEqual(regionalStoryTargets(6,0.85),{japan:5,world:1,total:6,ratio:0.85});
+  assert.deepEqual(regionalStoryTargets(6,0.5),{japan:3,world:3,total:6,ratio:0.5});
+});
+
+"""
+          replace_once('today-news.test.mjs',"const level=(title,text)=>({title,text});\n",insert+"const level=(title,text)=>({title,text});\n")
+
+          replace_once('today-feeds.test.mjs',
+          "import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds,isArticleUrl,isRecentArticle} from './today-feeds.mjs';",
+          "import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds,isArticleUrl,isRecentArticle,selectRegionalStories} from './today-feeds.mjs';")
+          append="""
+
+test('Japan-first feed planner selects five Japan stories and one WORLD story when available',()=>{
+  const candidates=[
+    ...Array.from({length:6},(_,i)=>({url:`https://jp.example/${i}`,scope:'japan',categoryHint:['science','technology','health','sports','culture','education'][i]})),
+    ...Array.from({length:3},(_,i)=>({url:`https://world.example/${i}`,scope:'world',categoryHint:['world','business','environment'][i]}))
+  ];
+  const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
+  assert.equal(selected.length,6);
+  assert.equal(selected.filter(item=>item.scope==='japan').length,5);
+  assert.equal(selected.filter(item=>item.scope==='world').length,1);
+  assert.ok(new Set(selected.map(item=>item.categoryHint)).size>=5);
+});
+
+test('Japan-first feed planner fills shortages instead of stopping generation',()=>{
+  const candidates=[
+    {url:'https://jp.example/1',scope:'japan',categoryHint:'science'},
+    {url:'https://jp.example/2',scope:'japan',categoryHint:'technology'},
+    ...Array.from({length:6},(_,i)=>({url:`https://world.example/${i}`,scope:'world',categoryHint:['world','health','sports','culture','business','environment'][i]}))
+  ];
+  const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
+  assert.equal(selected.length,6);
+  assert.equal(selected.filter(item=>item.scope==='japan').length,2);
+  assert.equal(selected.filter(item=>item.scope==='world').length,4);
+});
+"""
+          Path('today-feeds.test.mjs').write_text(Path('today-feeds.test.mjs').read_text()+append)
+          PY
+      - name: Run TODAY tests
+        run: node --test today-news.test.mjs today-feeds.test.mjs
+      - name: Commit implementation and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-today-japan-policy.yml
+          git add today-news.mjs today-feeds.mjs today-news.test.mjs today-feeds.test.mjs
+          git commit -m "Make TODAY news Japan-first"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
