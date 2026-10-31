@@ -1,3 +1,4 @@
+import {createCodeAuth} from './code-auth.mjs';
 import {createAdminPetNameReset} from './admin-pet-name-reset.mjs';
 import {createAdventureRankings} from './adventure-rankings.mjs';
 import {creativeCatalog} from './title-model.mjs';
@@ -79,7 +80,8 @@ function applyCors(req,res){if(req.headers.origin===GITHUB_ORIGIN){res.setHeader
 function getServiceAccount(){let raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON||'';if(!raw&&process.env.FIREBASE_SERVICE_ACCOUNT_B64){try{raw=Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64,'base64').toString('utf8');}catch{}}if(!raw)throw fail('管理画面のFirebase管理設定が未完了です。',503);let sa;try{sa=JSON.parse(raw);}catch{throw fail('管理画面のFirebase管理設定を確認してください。',503);}if(!sa?.client_email||!sa?.private_key)throw fail('管理画面のFirebase管理設定を確認してください。',503);return sa;}
 function b64urlJson(value){return Buffer.from(JSON.stringify(value)).toString('base64url');}
 async function getGoogleAccessToken(){if(googleAccessToken&&Date.now()<googleAccessTokenUntil-60000)return googleAccessToken;const sa=getServiceAccount(),now=Math.floor(Date.now()/1000),header=b64urlJson({alg:'RS256',typ:'JWT'}),claims=b64urlJson({iss:sa.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600}),unsigned=`${header}.${claims}`,signer=createSign('RSA-SHA256');signer.update(unsigned);signer.end();const assertion=`${unsigned}.${signer.sign(sa.private_key).toString('base64url')}`;const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});let data={};try{data=await response.json();}catch{}if(!response.ok||!data.access_token)throw fail('Firebase管理用の認証に失敗しました。',503);googleAccessToken=data.access_token;googleAccessTokenUntil=Date.now()+Number(data.expires_in||3600)*1000;return googleAccessToken;}
-const {verifyUser,checkApp}=createSecurityGate();
+const {verifyUser:verifyRawUser,checkApp}=createSecurityGate();
+async function verifyUser(req){const user=await verifyRawUser(req);const session=await codeAuth.admission(user);if(session.resetRequired)throw fail('パスワードを再設定してください。',403);return user;}
 async function verifyAdmin(req){if(!ADMIN_EMAIL)throw fail('管理者メールアドレスが未設定です。',503);const user=await verifyUser(req);if(String(user.email).toLowerCase()!==ADMIN_EMAIL||!user.emailVerified)throw fail('このアカウントには管理権限がありません。',403);return user;}
 
 function decodeFirestoreValue(v){if(!v||typeof v!=='object')return null;if('nullValue'in v)return null;if('stringValue'in v)return v.stringValue;if('booleanValue'in v)return !!v.booleanValue;if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return Number(v.doubleValue);if('timestampValue'in v)return v.timestampValue;if('referenceValue'in v)return v.referenceValue;if('bytesValue'in v)return v.bytesValue;if('geoPointValue'in v)return v.geoPointValue;if('arrayValue'in v)return (v.arrayValue.values||[]).map(decodeFirestoreValue);if('mapValue'in v){const out={};for(const [k,val]of Object.entries(v.mapValue.fields||{}))out[k]=decodeFirestoreValue(val);return out;}return null;}
@@ -188,6 +190,7 @@ async function handleDailyCoinLeaderboard(req,res){
     send(res,200,board);
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
+const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,serviceAccount:getServiceAccount,verifyUser:verifyRawUser,verifyAdmin,readJson,send,fail,encodeFields:encodeFirestoreFields,decodeFields});
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname});
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:adminData.invalidate});
 const handleMaterialOpen=createMaterialOpen({send,fail});
@@ -296,6 +299,8 @@ export const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
   if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
   const path=new URL(req.url,'http://localhost').pathname;
+  if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
+  if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
   if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest"].includes(path)){
     try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
   }
@@ -324,7 +329,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{securityVersion:'2026-10-22',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'1.10.20',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{codeAuthVersion:'2.3.1',securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'1.10.20',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});

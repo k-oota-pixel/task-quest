@@ -1,12 +1,17 @@
+import {generateKeyPairSync} from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';process.env.ADMIN_EMAIL='admin@example.test';
+const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+process.env.FIREBASE_SERVICE_ACCOUNT_JSON=JSON.stringify({client_email:'test@example.test',private_key:privateKey.export({type:'pkcs8',format:'pem'})});
 const nativeFetch=globalThis.fetch;let googleCalls=0,geminiCalls=0;
 globalThis.fetch=async(url,options)=>{
+  if(String(url).includes('oauth2.googleapis.com'))return Response.json({access_token:'test-access',expires_in:3600});
+  if(String(url).includes('firestore.googleapis.com'))return Response.json({},{status:404});
   if(String(url).includes('identitytoolkit.googleapis.com')){
     googleCalls++;const idToken=JSON.parse(options.body).idToken;
     if(idToken.endsWith('.rejected'))return new Response('{}',{status:400});
-    return new Response(JSON.stringify({users:[{localId:'student',email:'admin@example.test',emailVerified:!idToken.endsWith('.unverified')}]}));
+    return new Response(JSON.stringify({users:[{localId:'student',createdAt:'1700000000000',email:'admin@example.test',emailVerified:!idToken.endsWith('.unverified')}]}));
   }
   if(String(url).includes('generativelanguage.googleapis.com')){geminiCalls++;throw Error('Unexpected AI request');}
   return nativeFetch(url,options);
@@ -36,3 +41,4 @@ for(const [repo,file,routes] of [["task-quest","server.mjs",["/api/evaluate","/a
   }finally{await new Promise(r=>server.close(r));}
  });
 }
+
