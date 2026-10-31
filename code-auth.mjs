@@ -8,7 +8,7 @@ const alphabet='23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const normalizeCode=value=>String(value||'').toUpperCase().replace(/[\s-]/g,'');
 export const normalizeId=value=>String(value||'').normalize('NFKC').trim().toLowerCase();
 export const digest=value=>createHash('sha256').update(value).digest('hex');
-export function newCode(){return Array.from({length:16},()=>alphabet[randomInt(alphabet.length)]).join('').match(/.{4}/g).join('-');}
+export function newCode(){let value;do{value=Array.from({length:16},()=>alphabet[randomInt(alphabet.length)]).join('');}while(!/[2-9]/.test(value)||!/[A-Z]/.test(value));return value.match(/.{4}/g).join('-');}
 export async function passwordRecord(password){
  if(typeof password!=='string'||password.length<8||password.length>128)throw Object.assign(Error('パスワードは8〜128文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
