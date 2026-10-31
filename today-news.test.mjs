@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini,plannedStories,plannedStoryPrompt} from './today-news.mjs';
+import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini,plannedStories,plannedStoryPrompt,japanNewsRatio,regionalStoryTargets} from './today-news.mjs';
 
 const now=2_000_000_000;
 const goodClaims={
@@ -19,11 +19,18 @@ test('TODAY OIDC claims are narrowly scoped to the daily workflow',()=>{
   assert.equal(validateOidcClaims({...goodClaims,exp:now-100},now),false);
 });
 
+test('TODAY Japan-first ratio defaults to five Japan stories and remains configurable',()=>{
+  assert.equal(japanNewsRatio('bad'),0.85);
+  assert.equal(japanNewsRatio('0.5'),0.5);
+  assert.deepEqual(regionalStoryTargets(6,0.85),{japan:5,world:1,total:6,ratio:0.85});
+  assert.deepEqual(regionalStoryTargets(6,0.5),{japan:3,world:3,total:6,ratio:0.5});
+});
+
 const level=(title,text)=>({title,text});
 const allowedUrls=new Set(Array.from({length:6},(_,i)=>`https://example${i}.com/news`));
 const categories=['science','technology','health','sports','culture','education'];
 const raw=categories.map((category,i)=>({
-  slug:`story-${i+1}`,category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`,summaryJa:`記事${i+1}の要約です。`,sourcePublishedAt:'2026-10-31',
+  slug:`story-${i+1}`,scope:i<5?'japan':'world',category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`,summaryJa:`記事${i+1}の要約です。`,sourcePublishedAt:'2026-10-31',
   levels:{
     '5級':level('Starter',`This is news number ${i+1}. It is for new English readers. Students can read it today.`),
     '4級':level('Easy',`This is a simple news story number ${i+1}. Students can read it today.`),
@@ -34,13 +41,15 @@ const raw=categories.map((category,i)=>({
   },
   sources:[{name:`Source ${i+1}`,url:`https://example${i}.com/news`}]
 }));
-test('TODAY normalizer accepts six diverse stories and rejects unverified URLs',()=>{
+test('TODAY normalizer accepts six diverse regional stories and rejects unverified URLs',()=>{
   const articles=normalizeGeneratedArticles(raw,{editionDate:'2026-10-31',allowedUrls});
   assert.equal(articles.length,6);
   assert.equal(articles[0].date,'2026-10-31');
   assert.match(articles[0].id,/^2026-10-31-story-1/);
   assert.ok(articles.every(article=>article.sources.length===1));
   assert.ok(articles.every(article=>Number.isInteger(article.levels['4級'].wordCount)));
+  assert.equal(articles.filter(article=>article.scope==='japan').length,5);
+  assert.equal(articles.filter(article=>article.scope==='world').length,1);
   assert.throws(()=>normalizeGeneratedArticles(raw.map((item,i)=>i===0?{...item,sources:[{name:'bad',url:'https://evil.example/news'}]}:item),{editionDate:'2026-10-31',allowedUrls}));
 });
 
@@ -94,12 +103,12 @@ test('Gemini retries throttling once and returns successful response',async()=>{
 });
 
 test('feed generation uses six planned sources and limits each prompt to one story',()=>{
- const stories=Array.from({length:6},(_,i)=>({title:'Story '+i,url:'https://example.com/'+i,excerpt:'Facts '+i}));
+ const stories=Array.from({length:6},(_,i)=>({title:'Story '+i,scope:i<5?'japan':'world',url:'https://example.com/'+i,excerpt:'Facts '+i}));
  assert.equal(plannedStories(JSON.stringify({requiredStories:stories})).length,6);
  assert.equal(plannedStories('{}'),null);
  const prompt=plannedStoryPrompt('2026-10-31',stories[0]);
  assert.match(prompt,/Facts 0/);assert.doesNotMatch(prompt,/Facts 1/);
- assert.match(prompt,/ALL SIX/);
+ assert.match(prompt,/ALL SIX/);assert.match(prompt,/scope/);
 });
 
 test('optional search can fall back immediately without a quota retry storm',async()=>{
