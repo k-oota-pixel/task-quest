@@ -147,7 +147,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
         send(res,200,{ok:true,passwordResetRequired:true});return;
       }
       if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
-      await verifyAdmin(req); // Cache never bypasses authentication or authorization.
+      const admin=await verifyAdmin(req); // Cache never bypasses authentication or authorization.
       if(url.pathname==='/api/admin/users'&&url.searchParams.has('emailUid')){
         const uid=url.searchParams.get('emailUid')||'';
         if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
@@ -166,6 +166,13 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
           const fields=decodeFields(doc.fields||{});
           return {id:String(doc.name||'').split('/').pop(),uid:String(fields.uid||''),message:String(fields.message||''),page:String(fields.page||''),sentAt:String(fields.sentAt||''),createdAt:String(fields.createdAt||''),emailStatus:String(fields.emailStatus||'unconfigured')};
         });
+        if(!token){
+          try{
+            const access=await accessToken(),notificationUrl=`${base}/documents/users/${encodeURIComponent(admin.uid)}/developerMessageNotifications/current?updateMask.fieldPaths=unreadCount`;
+            const reset=await request(notificationUrl,{method:'PATCH',headers:{Authorization:`Bearer ${access}`,'Content-Type':'application/json'},body:JSON.stringify({fields:{unreadCount:{integerValue:'0'}}})});
+            if(!reset.ok&&reset.status!==404)console.warn('Contact unread count reset failed',{status:reset.status});
+          }catch{console.warn('Contact unread count reset failed');}
+        }
         send(res,200,{messages,nextPageToken:result.nextPageToken||null});return;
       }
       if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.9'});return;}
