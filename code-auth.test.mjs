@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,verify} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {createCodeAuth,newCode,normalizeCode,digest,passwordRecord,passwordMatches,customToken,LEGACY_BEFORE,initialCodes} from './code-auth.mjs';
+import {createCodeAuth,newCode,normalizeCode,digest,passwordRecord,passwordMatches,customToken,LEGACY_BEFORE,initialCodes,specialCodes} from './code-auth.mjs';
 const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
 const sa={client_email:'test@example.test',private_key:privateKey.export({type:'pkcs8',format:'pem'})};
 const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([key,v])=>[key,{raw:v}]));
@@ -41,3 +41,5 @@ test('importing existing codes never resets their used state',async()=>{const s=
 
 test('issued codes contain six unambiguous letters and digits',()=>{for(let i=0;i<1000;i++){const code=newCode();assert.match(code,/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/);assert.match(code,/[2-9]/);assert.match(code,/[A-Z]/);}});
 test('repeated wrong code guesses are rate limited without consuming a valid code',async()=>{const s=setup(),code=newCode();s.seed(code);for(let i=0;i<20;i++)assert.equal((await s.call('register',{loginId:'try_'+i,password:'password-123',code:'222222'})).status,400);assert.equal((await s.call('register',{...credentials,code})).status,429);assert.equal(s.get('registration_codes',digest(normalizeCode(code))).used,false);});
+
+test('privately configured special codes accept all Latin letters and digits and remain single-use',async()=>{const codes=specialCodes('1AB2CI,9AB0DO,1AB2CI,invalid');assert.deepEqual(codes,['1AB2CI','9AB0DO']);for(let i=0;i<codes.length;i++){const s=setup(new Set(codes.map(digest))),body={...credentials,loginId:'special_'+i,code:codes[i].toLowerCase()};assert.equal((await s.call('register',body)).status,200);assert.equal((await s.call('register',{...body,loginId:'second_'+i})).status,400);}const s=setup(new Set(codes.map(digest)));assert.equal((await s.call('register',{...credentials,code:'1AB2CU'})).status,400);});

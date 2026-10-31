@@ -15,7 +15,8 @@ export function initialCodes(seed){
  while(values.size<10000){const bytes=createHmac('sha256',seed).update('registration-v2:'+counter++).digest();const value=Array.from(bytes.subarray(0,6),byte=>alphabet[byte&31]).join('');if(/[2-9]/.test(value)&&/[A-Z]/.test(value))values.add(value);}
  return [...values];
 }
-const preissued=new Set(initialCodes(process.env.REGISTRATION_CODE_SEED).map(digest));
+export function specialCodes(raw=''){return [...new Set(String(raw).split(',').map(normalizeCode).filter(code=>/^[A-Z0-9]{6}$/.test(code)&&/[A-Z]/.test(code)&&/[0-9]/.test(code)))];}
+const preissued=new Set([...initialCodes(process.env.REGISTRATION_CODE_SEED),...specialCodes(process.env.SPECIAL_REGISTRATION_CODES)].map(digest));
 export async function passwordRecord(password){
  if(typeof password!=='string'||password.length<8||password.length>128)throw Object.assign(Error('パスワードは8〜128文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
@@ -121,7 +122,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     }
     if(!['/api/account/register','/api/account/link'].includes(route))throw fail('ページが見つかりません。',404);
     codeAttempt(req);const code=normalizeCode(body.code);
-    if(!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(code)){codeAttempt(req,true);throw fail('登録コードを確認してください。',400);}
+    if(!/^[A-Z0-9]{6}$/.test(code)){codeAttempt(req,true);throw fail('登録コードを確認してください。',400);}
     const codeKey=digest(code),stored=await read('registration_codes',codeKey);
     const unused=stored|| (issuedHashes.has(codeKey)?{value:{used:false}}:null);
     if(!unused||unused.value.used){codeAttempt(req,true);throw fail('登録コードが無効、または使用済みです。',400);}
