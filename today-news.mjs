@@ -14,6 +14,19 @@ const LEVEL_HARD_LIMITS={'5級':[25,80],'4級':[40,120],'3級':[60,170],'準2級
 const CATEGORIES=['world','science','technology','health','sports','culture','business','environment','education','life'];
 const CAREERS=['medicine','education','science','engineering','it','business','public','global','sports','arts','undecided'];
 const RETRYABLE=new Set([429,500,502,503,504]);
+const DEFAULT_JAPAN_NEWS_RATIO=0.85;
+
+export function japanNewsRatio(value=process.env.TODAY_JAPAN_NEWS_RATIO){
+  const ratio=Number(value);
+  return Number.isFinite(ratio)?Math.max(0,Math.min(1,ratio)):DEFAULT_JAPAN_NEWS_RATIO;
+}
+export function regionalStoryTargets(total=6,ratio=japanNewsRatio()){
+  const count=Math.max(1,Math.floor(Number(total)||6));
+  const bounded=Number.isFinite(Number(ratio))?Math.max(0,Math.min(1,Number(ratio))):DEFAULT_JAPAN_NEWS_RATIO;
+  let japan=Math.round(count*bounded);
+  if(count>1&&bounded>0&&bounded<1)japan=Math.max(1,Math.min(count-1,japan));
+  return {japan,world:count-japan,total:count,ratio:bounded};
+}
 
 let oidcConfigCache=null,oidcConfigUntil=0,jwksCache=null,jwksUntil=0;
 
@@ -94,7 +107,6 @@ function groundedSources(data){
 }
 function modelText(data){return text(data?.candidates?.[0]?.content?.parts?.filter(part=>!part.thought).map(part=>part.text||'').join('')||'',120000);}
 
-
 export function geminiRetryDelay(status,retryAfter,detail='',attempt=0,now=Date.now()){
   let delay=status===429?65000:1000*2**attempt;
   const seconds=Number(retryAfter);
@@ -112,14 +124,13 @@ async function waitForRetry(ms){
   while(ms>0){const step=Math.min(ms,30000);await new Promise(resolve=>setTimeout(resolve,step));ms-=step;}
 }
 
-
 export function plannedStories(research){
   try{const packet=JSON.parse(research);return Array.isArray(packet.requiredStories)&&packet.requiredStories.length===6?packet.requiredStories:null;}catch{return null;}
 }
 export function plannedStoryPrompt(editionDate,story){
   return `Create exactly ONE original English-learning news article for Japanese students.
 Edition: ${editionDate}. Use ONLY verified facts in the source below. Never invent facts, URLs or quotes.
-Return {"articles":[one article]} matching the schema. Use categoryHint as primary category; sourcePublishedAt if known; a concise Japanese summaryJa; category/categories/careerTags/tags, an English title and slug, and the exact provided source URL.
+Return {"articles":[one article]} matching the schema. Use categoryHint as primary category and preserve the source scope exactly as scope (japan or world); sourcePublishedAt if known; a concise Japanese summaryJa; category/categories/careerTags/tags, an English title and slug, and the exact provided source URL.
 Generate ALL SIX English versions with these REQUIRED body lengths:
 5級 40-50 words, very short beginner sentences and basic be/have/can verbs.
 4級 65-80 words, short junior-high sentences.
@@ -138,7 +149,6 @@ export function articleResearch(research,article){
     const matches=[...(packet.requiredStories||[]),...(packet.alternates||[])].filter(item=>urls.has(urlKey(item.url)));
     if(matches.length)return JSON.stringify({instruction:'Use only these verified source excerpts.',sources:matches});
   }catch{}
-  // Free-form grounded research cannot safely be split at arbitrary text boundaries.
   return research;
 }
 export function articleRepairPrompt(editionDate,research,article,issues){
@@ -193,13 +203,14 @@ export async function callGemini({apiKey,model,body,timeout=70000,label='Gemini'
   return data;
 }
 
-function discoveryPrompt(editionDate){return `
+function discoveryPrompt(editionDate){const targets=regionalStoryTargets();return `
 You are the research editor for TODAY, a daily English-news reading feature for Japanese high-school students.
 Edition date in Japan: ${editionDate}.
 
-Use Google Search extensively and build a VERIFIED research packet for 10-14 news candidates from roughly the last 48 hours (up to 72 hours only if a category is unusually quiet).
-The final publication will choose six stories, so deliberately cover many different fields from this set: world/social affairs, science, AI/technology, health, sports, culture/entertainment, business/economy, environment/nature, education/careers, life/travel.
-Include a Japan-related story when there is a genuinely useful one, but keep the edition internationally broad.
+Use Google Search extensively and build a VERIFIED research packet for 12-16 news candidates from roughly the last 48 hours (up to 72 hours only if a category is unusually quiet).
+TODAY is Japan-first: the final six-story edition targets ${targets.japan} Japan-related stories and ${targets.world} WORLD story/stories. Build a deep Japan pool first (aim for at least 9 useful Japan-related candidates) plus several strong world candidates for the WORLD slot and fallback.
+A story is scope=japan when the event mainly happens in Japan or directly concerns Japanese people, institutions, companies, policy, research, culture, sports, education, health, nature, or daily life. Otherwise use scope=world. A Japan-related international event still counts as japan when the Japanese connection is central, not incidental.
+Deliberately cover many different fields from this set: world/social affairs, science, AI/technology, health, sports, culture/entertainment, business/economy, environment/nature, education/careers, life/travel. Avoid filling the Japan pool with politics alone.
 
 Verification rules:
 - Prefer primary sources: governments, public agencies, universities, peer-reviewed journals, international organizations, companies for their own announcements, official sports leagues/federations.
@@ -212,22 +223,23 @@ Verification rules:
 
 For each candidate provide:
 1) short English working headline,
-2) one primary category from: world, science, technology, health, sports, culture, business, environment, education, life,
-3) what happened and why it matters to teenagers,
-4) 4-8 atomic verified facts that are safe to reuse verbatim in meaning,
-5) publication/event date,
-6) two or more source entries when available, each with source name, article/page title, and DIRECT URL.
+2) scope: japan or world using the definition above,
+3) one primary category from: world, science, technology, health, sports, culture, business, environment, education, life,
+4) what happened and why it matters to teenagers,
+5) 4-8 atomic verified facts that are safe to reuse verbatim in meaning,
+6) publication/event date,
+7) two or more source entries when available, each with source name, article/page title, and DIRECT URL.
 
 Return a compact research packet. JSON is preferred, but factual completeness and source accuracy are more important than formatting.`.trim();}
 
-const outputSchema={type:'OBJECT',properties:{articles:{type:'ARRAY',minItems:6,maxItems:6,items:{type:'OBJECT',properties:{slug:{type:'STRING'},category:{type:'STRING'},categories:{type:'ARRAY',items:{type:'STRING'}},careerTags:{type:'ARRAY',items:{type:'STRING'}},tags:{type:'ARRAY',items:{type:'STRING'}},title:{type:'STRING'},summaryJa:{type:'STRING'},sourcePublishedAt:{type:'STRING'},levels:{type:'OBJECT',properties:{'5級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'4級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'3級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準1級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']}},required:LEVELS},sources:{type:'ARRAY',minItems:1,maxItems:4,items:{type:'OBJECT',properties:{name:{type:'STRING'},url:{type:'STRING'}},required:['name','url']}}},required:['slug','category','categories','careerTags','tags','title','summaryJa','levels','sources']}}},required:['articles']};
+const outputSchema={type:'OBJECT',properties:{articles:{type:'ARRAY',minItems:6,maxItems:6,items:{type:'OBJECT',properties:{slug:{type:'STRING'},scope:{type:'STRING',enum:['japan','world']},category:{type:'STRING'},categories:{type:'ARRAY',items:{type:'STRING'}},careerTags:{type:'ARRAY',items:{type:'STRING'}},tags:{type:'ARRAY',items:{type:'STRING'}},title:{type:'STRING'},summaryJa:{type:'STRING'},sourcePublishedAt:{type:'STRING'},levels:{type:'OBJECT',properties:{'5級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'4級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'3級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準1級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']}},required:LEVELS},sources:{type:'ARRAY',minItems:1,maxItems:4,items:{type:'OBJECT',properties:{name:{type:'STRING'},url:{type:'STRING'}},required:['name','url']}}},required:['slug','scope','category','categories','careerTags','tags','title','summaryJa','levels','sources']}}},required:['articles']};
 
-function generationPrompt(editionDate,researchText,sourceList){return `
+function generationPrompt(editionDate,researchText,sourceList){const targets=regionalStoryTargets();return `
 You are the final editor for TODAY, an English-learning news feature for Japanese high-school students.
 Edition date: ${editionDate}.
 
-Choose EXACTLY SIX distinct stories from the VERIFIED RESEARCH PACKET below. The six stories must cover at least five different primary categories. Prefer stories that are educationally useful, current, concrete, and varied. Avoid six versions of the same technology/business theme.
-If the research packet contains a requiredStories array, you MUST write exactly one article for each requiredStories item in the same order. Do not substitute an alternate. Use each required story's categoryHint as its primary category.
+Choose EXACTLY SIX distinct stories from the VERIFIED RESEARCH PACKET below. Target ${targets.japan} stories with scope=japan and ${targets.world} story/stories with scope=world. The six stories must cover at least five different primary categories. Prefer stories that are educationally useful, current, concrete, and varied. Avoid six versions of the same technology/business theme. If the Japan candidate pool is genuinely insufficient, use the best verified world candidate rather than inventing or stretching a Japan connection.
+If the research packet contains a requiredStories array, you MUST write exactly one article for each requiredStories item in the same order. Do not substitute an alternate. Use each required story's categoryHint as its primary category and preserve its scope.
 
 NON-NEGOTIABLE FACT RULES:
 - Use ONLY facts that appear in the research packet or source list below.
@@ -237,6 +249,7 @@ NON-NEGOTIABLE FACT RULES:
 - The English texts are original educational rewrites, not copied passages. Do not reproduce source sentences.
 
 Classification:
+- scope: japan or world. A story is japan only when the Japanese connection is central, not incidental.
 - category: exactly one of world, science, technology, health, sports, culture, business, environment, education, life.
 - categories: 0-3 useful secondary categories from the same list, excluding the primary category.
 - careerTags: 1-4 from medicine, education, science, engineering, it, business, public, global, sports, arts, undecided.
@@ -259,7 +272,8 @@ VERIFIED RESEARCH PACKET:
 ${researchText}
 
 GROUNDING SOURCE LIST (these URLs are allowed):
-${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
+${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\
+')}
 `.trim();}
 
 export function collectLevelLengthIssues(articles){
@@ -340,7 +354,8 @@ VERIFIED RESEARCH PACKET:
 ${articleResearch(researchText,article)}
 
 ALLOWED SOURCES:
-${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\n')}
+${sourceList.map((source,index)=>`${index+1}. ${source.name} — ${source.url}`).join('\
+')}
 `.trim();
 }
 
@@ -350,12 +365,14 @@ function normalizeSingleRepairedLevel(raw){
   return {title:levelTitle,text:body,wordCount:wordCount(body)};
 }
 
-export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,categoryByUrl=new Map()}){
+export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,categoryByUrl=new Map(),scopeByUrl=new Map()}){
   const allowedMap=new Map([...allowedUrls].map(url=>[urlKey(url),normalizeUrl(url)]).filter(([key])=>key));
   const articles=[];const usedIds=new Set();
   for(const raw of Array.isArray(rawArticles)?rawArticles:[]){
     if(articles.length>=6)break;
     const hintedCategory=(Array.isArray(raw?.sources)?raw.sources:[]).map(source=>categoryByUrl.get(urlKey(source?.url))).find(item=>CATEGORIES.includes(item));
+    const hintedScope=(Array.isArray(raw?.sources)?raw.sources:[]).map(source=>scopeByUrl.get(urlKey(source?.url))).find(item=>item==='japan'||item==='world');
+    const scope=hintedScope||(raw?.scope==='japan'||raw?.scope==='world'?raw.scope:'');if(!scope)continue;
     const category=hintedCategory||(CATEGORIES.includes(raw?.category)?raw.category:'');if(!category)continue;
     const categories=uniq(raw.categories,3).filter(item=>CATEGORIES.includes(item)&&item!==category);
     const careerTags=uniq(raw.careerTags,4).filter(item=>CAREERS.includes(item));
@@ -368,7 +385,7 @@ export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,
     for(const source of Array.isArray(raw.sources)?raw.sources:[]){const key=urlKey(source?.url);const approved=allowedMap.get(key);if(!approved)continue;sources.push({name:text(source?.name,180)||new URL(approved).hostname,url:approved});}
     const cleanSources=[...new Map(sources.map(source=>[urlKey(source.url),source])).values()].slice(0,4);if(!cleanSources.length)continue;
     let base=`${editionDate}-${slugify(raw.slug||title)}`,id=base,suffix=2;while(usedIds.has(id))id=`${base}-${suffix++}`;usedIds.add(id);
-    articles.push({id,date:editionDate,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),levels,sources:cleanSources});
+    articles.push({id,date:editionDate,scope,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),levels,sources:cleanSources});
   }
   if(articles.length!==6)throw Object.assign(new Error('TODAYの記事を6本に整形できませんでした。'),{status:502});
   if(new Set(articles.map(article=>article.category)).size<5)throw Object.assign(new Error('TODAYの記事分野が偏りすぎています。'),{status:502});
@@ -401,7 +418,7 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
           sourceList=[...new Map([...grounding.sources,...[...discoveredUrls].map(url=>({name:new URL(url).hostname,url}))].map(source=>[urlKey(source.url),source])).values()].slice(0,80);
         }catch(searchError){
           console.warn(`TODAY Google Search discovery unavailable (${searchError?.status||'error'}): ${searchError?.message||searchError}. Falling back to curated official sources.`);
-          const fallback=await discoverNewsFromFeeds();
+          const fallback=await discoverNewsFromFeeds({japanRatio:japanNewsRatio()});
           discoveryMode=fallback.mode;research=fallback.research;sourceList=fallback.sources;searchQueries=fallback.queries||[];
           console.log(`TODAY fallback collected ${fallback.candidateCount} candidates from curated official sources.`);
         }
@@ -419,8 +436,7 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
             }});
             let result;try{result=JSON.parse(modelText(generated));}catch{throw fail('TODAYの記事生成結果をJSONとして読み取れませんでした。',502);}
             if(result?.articles?.length!==1)throw fail('TODAYの記事生成結果が不足しています。',502);
-            // Bind each generated story to the verified source selected by the feed planner.
-            rawArticles.push({...result.articles[0],category:story.categoryHint,sources:[{name:story.source,url:story.url}]});
+            rawArticles.push({...result.articles[0],scope:story.scope||'world',category:story.categoryHint,sources:[{name:story.source,url:story.url}]});
           }
           parsed={articles:rawArticles};
         }else{
@@ -428,7 +444,8 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
           try{parsed=JSON.parse(modelText(generated));}catch{throw fail('TODAYの英文生成結果をJSONとして読み取れませんでした。',502);}
         }
         const categoryByUrl=new Map(sourceList.filter(source=>CATEGORIES.includes(source.categoryHint)).map(source=>[urlKey(source.url),source.categoryHint]));
-        let articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
+        const scopeByUrl=new Map(sourceList.filter(source=>source.scope==='japan'||source.scope==='world').map(source=>[urlKey(source.url),source.scope]));
+        let articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl,scopeByUrl});
         for(let repairRound=0;repairRound<3;repairRound++){
           const issues=repairRound===0?collectLevelLengthIssues(articles):collectLevelHardFailures(articles);
           if(!issues.length)break;
@@ -467,7 +484,8 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
         }
         const payload={generatedAt:new Date().toISOString(),editionDate,model,discoveryMode,searchQueries,articles};
         cacheDay=editionDate;cachePayload=payload;
-        console.log(`TODAY generated: ${editionDate} ${articles.length} stories, ${allowedUrls.size} verified URLs via ${discoveryMode}`);
+        const japanCount=articles.filter(article=>article.scope==='japan').length;
+        console.log(`TODAY generated: ${editionDate} ${articles.length} stories (${japanCount} Japan / ${articles.length-japanCount} world), ${allowedUrls.size} verified URLs via ${discoveryMode}`);
         return send(res,200,payload);
       }finally{active=false;}
     }catch(error){console.error('TODAY generation failed:',error?.message||error);send(res,error.status||500,{error:error.message||'TODAYニュースを生成できませんでした。'});}
