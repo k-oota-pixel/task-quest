@@ -1,20 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds,isArticleUrl,isRecentArticle} from './today-feeds.mjs';
+import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds,isArticleUrl,isRecentArticle,selectRegionalStories} from './today-feeds.mjs';
 
 test('parseFeed supports RSS items and Atom links while normalizing HTTP sources to HTTPS',()=>{
   const rss=`<rss><channel><item><title>NOAA studies a new ocean event</title><link>http://example.gov/ocean</link><pubDate>Thu, 30 Oct 2026 10:00:00 GMT</pubDate><description><![CDATA[Scientists reported a measured change in the ocean.]]></description></item></channel></rss>`;
   const items=parseFeed(rss,{name:'NOAA',url:'https://example.gov/rss.xml',category:'environment'});
-  assert.equal(items.length,1);assert.equal(items[0].url,'https://example.gov/ocean');assert.equal(items[0].categoryHint,'environment');assert.match(items[0].summary,/Scientists reported/);
+  assert.equal(items.length,1);assert.equal(items[0].url,'https://example.gov/ocean');assert.equal(items[0].categoryHint,'environment');assert.equal(items[0].scopeHint,'world');assert.match(items[0].summary,/Scientists reported/);
   const atom=`<feed><entry><title>New education program opens</title><link href="/news/education"/><updated>2026-10-30T12:00:00Z</updated><summary>Students can join a new program.</summary></entry></feed>`;
-  const atomItems=parseFeed(atom,{name:'Education',url:'https://example.edu/feed',category:'education'});
-  assert.equal(atomItems[0].url,'https://example.edu/news/education');
+  const atomItems=parseFeed(atom,{name:'Education',url:'https://example.edu/feed',category:'education',scope:'japan'});
+  assert.equal(atomItems[0].url,'https://example.edu/news/education');assert.equal(atomItems[0].scopeHint,'japan');
 });
 
 test('parseHtmlIndex keeps useful same-site newsroom links',()=>{
   const html=`<a href="/ioc/news/story-one">A new youth sports program begins in Senegal</a><a href="/home">Home</a><a href="https://evil.example/story">An unrelated external story should not be kept</a>`;
   const items=parseHtmlIndex(html,{name:'IOC',url:'https://www.olympics.com/ioc/news',category:'sports',include:/\/ioc\//i});
-  assert.equal(items.length,1);assert.equal(items[0].categoryHint,'sports');assert.match(items[0].url,/olympics\.com\/ioc\/news\/story-one/);
+  assert.equal(items.length,1);assert.equal(items[0].categoryHint,'sports');assert.equal(items[0].scopeHint,'world');assert.match(items[0].url,/olympics\.com\/ioc\/news\/story-one/);
+});
+
+test('Japan-first feed planner selects five Japan stories and one WORLD story when available',()=>{
+  const candidates=[
+    ...Array.from({length:6},(_,i)=>({url:`https://jp.example/${i}`,scope:'japan',categoryHint:['science','technology','health','sports','culture','education'][i]})),
+    ...Array.from({length:3},(_,i)=>({url:`https://world.example/${i}`,scope:'world',categoryHint:['world','business','environment'][i]}))
+  ];
+  const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
+  assert.equal(selected.length,6);
+  assert.equal(selected.filter(item=>item.scope==='japan').length,5);
+  assert.equal(selected.filter(item=>item.scope==='world').length,1);
+  assert.ok(new Set(selected.map(item=>item.categoryHint)).size>=5);
+});
+
+test('Japan-first feed planner fills shortages instead of stopping generation',()=>{
+  const candidates=[
+    {url:'https://jp.example/1',scope:'japan',categoryHint:'science'},
+    {url:'https://jp.example/2',scope:'japan',categoryHint:'technology'},
+    ...Array.from({length:6},(_,i)=>({url:`https://world.example/${i}`,scope:'world',categoryHint:['world','health','sports','culture','business','environment'][i]}))
+  ];
+  const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
+  assert.equal(selected.length,6);
+  assert.equal(selected.filter(item=>item.scope==='japan').length,2);
+  assert.equal(selected.filter(item=>item.scope==='world').length,4);
 });
 
 test('discoverNewsFromFeeds builds a diverse compact packet despite individual source failures',async()=>{
