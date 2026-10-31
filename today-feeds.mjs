@@ -159,6 +159,28 @@ function dedupe(items){
 }
 function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||item.scope||'world'}])).values()];}
 function countBy(items,key){const counts=new Map();for(const item of items){const value=key(item);counts.set(value,(counts.get(value)||0)+1);}return [...counts].map(([name,count])=>`${name}=${count}`).join(', ');}
+function takeDiverse(pool,wanted,selected,usedUrls){
+  const categoryCounts=new Map();
+  for(let round=0;round<5&&selected.length<MAX_CANDIDATES;round++){
+    for(const item of pool){
+      if(selected.length>=MAX_CANDIDATES||wanted<=0)break;
+      if(usedUrls.has(item.url)||(categoryCounts.get(item.categoryHint)||0)!==round)continue;
+      selected.push(item);usedUrls.add(item.url);categoryCounts.set(item.categoryHint,round+1);wanted--;
+    }
+  }
+  return wanted;
+}
+function selectEnrichmentCandidates(items){
+  const selected=[],usedUrls=new Set();
+  const japan=items.filter(item=>(item.scopeHint||'world')==='japan');
+  const world=items.filter(item=>(item.scopeHint||'world')==='world');
+  let japanRemaining=Math.min(18,japan.length);
+  japanRemaining=takeDiverse(japan,japanRemaining,selected,usedUrls);
+  let worldWanted=Math.min(10,MAX_CANDIDATES-selected.length);
+  worldWanted=takeDiverse(world,worldWanted,selected,usedUrls);
+  for(const item of items){if(selected.length>=MAX_CANDIDATES)break;if(usedUrls.has(item.url))continue;selected.push(item);usedUrls.add(item.url);}
+  return selected;
+}
 
 export function selectRegionalStories(candidates,{total=6,japanRatio=0.85}={}){
   const items=Array.isArray(candidates)?candidates:[];
@@ -199,9 +221,9 @@ export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date(),japa
   const groups=await Promise.all(CURATED_SOURCES.map(source=>collectSource(source,fetchImpl)));
   console.log(`TODAY fallback index candidates: ${groups.map((items,index)=>`${CURATED_SOURCES[index].name}=${items.length}`).join(', ')}`);
   const all=dedupe(groups.flat()).filter(item=>isArticleUrl(item.url)&&(!item.publishedAt||isRecentArticle(item.publishedAt,now))).sort((a,b)=>candidateScore(b,now)-candidateScore(a,now));
+  console.log(`TODAY fallback recent candidates: ${countBy(all,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
   if(all.length<8)throw new Error(`公式フィードの候補が不足しています (${all.length})`);
-  const perCategory=new Map(),selected=[];
-  for(const item of all){const key=`${item.scopeHint||'world'}:${item.categoryHint}`;const count=perCategory.get(key)||0;if(count>=5)continue;perCategory.set(key,count+1);selected.push(item);if(selected.length>=MAX_CANDIDATES)break;}
+  const selected=selectEnrichmentCandidates(all);
   console.log(`TODAY fallback enrichment set: ${countBy(selected,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
   const enriched=[];
   for(let i=0;i<selected.length;i+=6){const batch=await Promise.all(selected.slice(i,i+6).map(item=>enrich(item,fetchImpl)));enriched.push(...batch);}
