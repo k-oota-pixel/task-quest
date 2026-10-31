@@ -112,6 +112,25 @@ async function waitForRetry(ms){
   while(ms>0){const step=Math.min(ms,30000);await new Promise(resolve=>setTimeout(resolve,step));ms-=step;}
 }
 
+
+export function plannedStories(research){
+  try{const packet=JSON.parse(research);return Array.isArray(packet.requiredStories)&&packet.requiredStories.length===6?packet.requiredStories:null;}catch{return null;}
+}
+export function plannedStoryPrompt(editionDate,story){
+  return `Create exactly ONE original English-learning news article for Japanese students.
+Edition: ${editionDate}. Use ONLY verified facts in the source below. Never invent facts, URLs or quotes.
+Return {"articles":[one article]} matching the schema. Use categoryHint as primary category; sourcePublishedAt if known; a concise Japanese summaryJa; category/categories/careerTags/tags, an English title and slug, and the exact provided source URL.
+Generate ALL SIX English versions with these REQUIRED body lengths:
+5級 40-50 words, very short beginner sentences and basic be/have/can verbs.
+4級 65-80 words, short junior-high sentences.
+3級 95-115 words, junior-high grammar and simple connectors.
+準2級 140-160 words, accessible high-school language and verified context.
+2級 200-230 words, precise fuller context.
+準1級 280-320 words, nuanced natural prose.
+Each version needs its own English title and text. Count words before returning; preserve the same factual core.
+Verified source: ${JSON.stringify(story)}`;
+}
+
 export function articleResearch(research,article){
   try{
     const packet=JSON.parse(research);
@@ -338,8 +357,26 @@ export function createTodayNewsGenerator({apiKey,model='gemini-3.5-flash-lite',s
         }
         const allowedUrls=new Set([...extractUrls(research),...sourceList.map(source=>source.url)]);
         if(allowedUrls.size<6)throw fail('TODAYのニュース出典を十分に確認できませんでした。',502);
-        const generated=await callGemini({apiKey,model,label:'TODAY英文生成',timeout:90000,body:{contents:[{role:'user',parts:[{text:generationPrompt(editionDate,research,sourceList)}]}],generationConfig:{temperature:0.15,maxOutputTokens:24576,responseMimeType:'application/json',responseSchema:outputSchema}}});
-        let parsed;try{parsed=JSON.parse(modelText(generated));}catch{throw fail('TODAYの英文生成結果をJSONとして読み取れませんでした。',502);}
+        let parsed;
+        const plan=plannedStories(research);
+        if(plan){
+          const articleSchema={...outputSchema,properties:{articles:{...outputSchema.properties.articles,minItems:1,maxItems:1}}};
+          const rawArticles=[];
+          for(const story of plan){
+            const generated=await callGemini({apiKey,model,label:'TODAY記事生成',timeout:100000,body:{
+              contents:[{role:'user',parts:[{text:plannedStoryPrompt(editionDate,story)}]}],
+              generationConfig:{temperature:0.15,maxOutputTokens:8000,responseMimeType:'application/json',responseSchema:articleSchema}
+            }});
+            let result;try{result=JSON.parse(modelText(generated));}catch{throw fail('TODAYの記事生成結果をJSONとして読み取れませんでした。',502);}
+            if(result?.articles?.length!==1)throw fail('TODAYの記事生成結果が不足しています。',502);
+            // Bind each generated story to the verified source selected by the feed planner.
+            rawArticles.push({...result.articles[0],category:story.categoryHint,sources:[{name:story.source,url:story.url}]});
+          }
+          parsed={articles:rawArticles};
+        }else{
+          const generated=await callGemini({apiKey,model,label:'TODAY英文生成',timeout:90000,body:{contents:[{role:'user',parts:[{text:generationPrompt(editionDate,research,sourceList)}]}],generationConfig:{temperature:0.15,maxOutputTokens:24576,responseMimeType:'application/json',responseSchema:outputSchema}}});
+          try{parsed=JSON.parse(modelText(generated));}catch{throw fail('TODAYの英文生成結果をJSONとして読み取れませんでした。',502);}
+        }
         const categoryByUrl=new Map(sourceList.filter(source=>CATEGORIES.includes(source.categoryHint)).map(source=>[urlKey(source.url),source.categoryHint]));
         let articles=normalizeGeneratedArticles(parsed?.articles,{editionDate,allowedUrls,categoryByUrl});
         for(let repairRound=0;repairRound<3;repairRound++){

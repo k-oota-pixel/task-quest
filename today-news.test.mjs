@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini} from './today-news.mjs';
+import {validateOidcClaims,normalizeGeneratedArticles,collectLevelLengthIssues,collectLevelHardFailures,articleResearch,mergeRepairedArticle,geminiRetryDelay,callGemini,plannedStories,plannedStoryPrompt} from './today-news.mjs';
 
 const now=2_000_000_000;
 const goodClaims={
@@ -91,4 +91,13 @@ test('Gemini retries throttling once and returns successful response',async()=>{
       new Response(JSON.stringify({candidates:[{content:{parts:[{text:'ok'}]}}]}),{status:200});
   },sleep:async ms=>waits.push(ms)});
   assert.equal(attempts,2);assert.deepEqual(waits,[71000]);assert.equal(result.candidates[0].content.parts[0].text,'ok');
+});
+
+test('feed generation uses six planned sources and limits each prompt to one story',()=>{
+ const stories=Array.from({length:6},(_,i)=>({title:'Story '+i,url:'https://example.com/'+i,excerpt:'Facts '+i}));
+ assert.equal(plannedStories(JSON.stringify({requiredStories:stories})).length,6);
+ assert.equal(plannedStories('{}'),null);
+ const prompt=plannedStoryPrompt('2026-10-31',stories[0]);
+ assert.match(prompt,/Facts 0/);assert.doesNotMatch(prompt,/Facts 1/);
+ assert.match(prompt,/ALL SIX/);
 });
