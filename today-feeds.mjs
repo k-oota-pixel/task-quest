@@ -65,6 +65,16 @@ function normalizeUrl(value,base){
   }catch{return '';}
 }
 function dateIso(value){const time=Date.parse(String(value||''));return Number.isFinite(time)?new Date(time).toISOString():'';}
+function localizedDateIso(value){
+  const source=stripHtml(value,12000);const found=[];
+  for(const match of source.matchAll(/(20\d{2})\s*[年\/.\-]\s*(\d{1,2})\s*[月\/.\-]\s*(\d{1,2})\s*日?/g))found.push({index:match.index||0,year:Number(match[1]),month:Number(match[2]),day:Number(match[3])});
+  for(const match of source.matchAll(/令和\s*(元|\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g)){
+    const eraYear=match[1]==='元'?1:Number(match[1]);found.push({index:match.index||0,year:2018+eraYear,month:Number(match[2]),day:Number(match[3])});
+  }
+  found.sort((a,b)=>b.index-a.index);const item=found[0];if(!item)return '';
+  const date=new Date(Date.UTC(item.year,item.month-1,item.day));
+  return Number.isNaN(date.getTime())?'':date.toISOString();
+}
 function tagText(block,names){
   for(const name of names){const match=block.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,'i'));if(match)return stripHtml(decodeEntities(match[1]),6000);}
   return '';
@@ -83,7 +93,7 @@ export function parseFeed(xml,source){
     const title=tagText(block,['title']);
     const url=linkFromBlock(block,source.url);
     if(!title||!url||!isArticleUrl(url))continue;
-    const publishedAt=dateIso(tagText(block,['pubDate','published','updated','dc:date','date']));
+    const publishedAt=dateIso(tagText(block,['pubDate','published','updated','dc:date','date']))||localizedDateIso(block);
     const summary=tagText(block,['description','summary','content:encoded','content']);
     items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt,summary:clean(summary,1800)});
   }
@@ -91,14 +101,16 @@ export function parseFeed(xml,source){
 }
 
 export function parseHtmlIndex(html,source){
-  const out=[];const seen=new Set();
+  const raw=String(html||''),out=[];const seen=new Set();
   const linkRe=/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  for(const match of String(html||'').matchAll(linkRe)){
+  for(const match of raw.matchAll(linkRe)){
     const title=stripHtml(match[2],240);if(title.length<18||GENERIC_LINK.test(title))continue;
     const url=normalizeUrl(match[1],source.url);if(!url||!isArticleUrl(url)||seen.has(url))continue;
     try{const baseHost=new URL(source.url).hostname.replace(/^www\./,'');const host=new URL(url).hostname.replace(/^www\./,'');if(!(host===baseHost||host.endsWith(`.${baseHost}`)))continue;}catch{continue;}
     if(source.include&&!source.include.test(new URL(url).pathname))continue;
-    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt:'',summary:''});
+    const index=Number(match.index)||0;
+    const publishedAt=localizedDateIso(raw.slice(Math.max(0,index-6000),index));
+    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt,summary:''});
     if(out.length>=18)break;
   }
   return out;
@@ -108,10 +120,11 @@ function publishedFromHtml(html){
   const candidates=[
     html.match(/<time\b[^>]*datetime=["']([^"']+)["']/i)?.[1],
     html.match(/["']datePublished["']\s*:\s*["']([^"']+)["']/i)?.[1],
-    html.match(/<meta\b[^>]*(?:property|name)=["'](?:article:published_time|date|pubdate)["'][^>]*content=["']([^"']+)["']/i)?.[1]
+    html.match(/<meta\b[^>]*(?:property|name)=["'](?:article:published_time|date|pubdate)["'][^>]*content=["']([^"']+)["']/i)?.[1],
+    html.match(/<meta\b[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["'](?:article:published_time|date|pubdate)["']/i)?.[1]
   ];
   for(const value of candidates){const iso=dateIso(value);if(iso)return iso;}
-  return '';
+  return localizedDateIso(html);
 }
 function articleText(html){
   const article=String(html||'').match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1];
