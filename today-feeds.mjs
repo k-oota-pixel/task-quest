@@ -152,12 +152,13 @@ async function enrich(candidate,fetchImpl){
     const html=await fetchText(candidate.url,fetchImpl,10000,true);
     const excerpt=articleText(html);
     return {...candidate,publishedAt:candidate.publishedAt||publishedFromHtml(html),excerpt:excerpt.length>=120?excerpt:''};
-  }catch{return {...candidate,excerpt:''};}
+  }catch(error){console.warn(`TODAY fallback article failed: ${candidate.sourceName}: ${candidate.url}: ${error?.message||error}`);return {...candidate,excerpt:''};}
 }
 function dedupe(items){
   const seen=new Set(),out=[];for(const item of items){const key=item.url.replace(/\/$/,'');if(seen.has(key))continue;seen.add(key);out.push(item);}return out;
 }
 function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||item.scope||'world'}])).values()];}
+function countBy(items,key){const counts=new Map();for(const item of items){const value=key(item);counts.set(value,(counts.get(value)||0)+1);}return [...counts].map(([name,count])=>`${name}=${count}`).join(', ');}
 
 export function selectRegionalStories(candidates,{total=6,japanRatio=0.85}={}){
   const items=Array.isArray(candidates)?candidates:[];
@@ -196,13 +197,16 @@ export function selectRegionalStories(candidates,{total=6,japanRatio=0.85}={}){
 
 export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date(),japanRatio=0.85}={}){
   const groups=await Promise.all(CURATED_SOURCES.map(source=>collectSource(source,fetchImpl)));
+  console.log(`TODAY fallback index candidates: ${groups.map((items,index)=>`${CURATED_SOURCES[index].name}=${items.length}`).join(', ')}`);
   const all=dedupe(groups.flat()).filter(item=>isArticleUrl(item.url)&&(!item.publishedAt||isRecentArticle(item.publishedAt,now))).sort((a,b)=>candidateScore(b,now)-candidateScore(a,now));
   if(all.length<8)throw new Error(`公式フィードの候補が不足しています (${all.length})`);
   const perCategory=new Map(),selected=[];
   for(const item of all){const key=`${item.scopeHint||'world'}:${item.categoryHint}`;const count=perCategory.get(key)||0;if(count>=5)continue;perCategory.set(key,count+1);selected.push(item);if(selected.length>=MAX_CANDIDATES)break;}
+  console.log(`TODAY fallback enrichment set: ${countBy(selected,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
   const enriched=[];
   for(let i=0;i<selected.length;i+=6){const batch=await Promise.all(selected.slice(i,i+6).map(item=>enrich(item,fetchImpl)));enriched.push(...batch);}
   const usable=enriched.filter(item=>item.excerpt&&isRecentArticle(item.publishedAt,now));
+  console.log(`TODAY fallback usable: ${countBy(usable,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
   if(usable.length<8)throw new Error(`公式フィードの本文候補が不足しています (${usable.length})`);
   const allCompact=usable.slice(0,MAX_CANDIDATES).map(item=>({
     source:item.sourceName,categoryHint:item.categoryHint,scope:item.scopeHint||'world',title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)
