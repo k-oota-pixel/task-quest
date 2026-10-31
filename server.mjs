@@ -296,7 +296,7 @@ Do not claim to be a human. Stay in character as the student's pet.
 const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KEY||backupKey||key,model:process.env.TODAY_GEMINI_MODEL||model,send,fail});
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
-const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail});
+const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds});
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
