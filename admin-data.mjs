@@ -106,7 +106,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
   });}
   async function search(query){
     const normalized=normalizeNickname(query),needle=normalized.toLocaleLowerCase('ja-JP');
-    const length=[...normalized].length;if(!normalized||length>20)throw fail('検索語は1〜20文字で入力してください。',400);
+    const length=[...normalized].length;if(!normalized||length>32)throw fail('検索語は1〜32文字で入力してください。',400);
     const [directory,nicknames,codeNames]=await Promise.all([authDirectory(),nicknameDirectory(),codeDirectory()]);
     const authByUid=new Map(directory.map(user=>[String(user.localId||''),user]));
     const nickByUid=new Map(nicknames.filter(row=>authByUid.has(row.uid)).map(row=>[row.uid,row.nickname]));
