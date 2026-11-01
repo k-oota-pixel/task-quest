@@ -1,0 +1,17 @@
+[
+  {"id":"creative:pet-fishing:1","name":"水面に糸を垂らす者","condition":"初めて1匹釣る","metric":"totalCatches","need":1},
+  {"id":"creative:pet-fishing:2","name":"潮目を読む者","condition":"累計10匹釣る","metric":"totalCatches","need":10},
+  {"id":"creative:pet-fishing:3","name":"蒼波を手繰る者","condition":"累計30匹釣る","metric":"totalCatches","need":30},
+  {"id":"creative:pet-fishing:4","name":"海鳴りを従えし者","condition":"累計100匹釣る","metric":"totalCatches","need":100},
+  {"id":"creative:pet-fishing:5","name":"千尋の釣り人","condition":"累計300匹釣る","metric":"totalCatches","need":300},
+  {"id":"creative:pet-fishing:6","name":"五潮の収集家","condition":"5種類の獲物を図鑑に登録する","metric":"uniqueSpecies","need":5},
+  {"id":"creative:pet-fishing:7","name":"海図を満たす者","condition":"通常の海のいきもの11種類をすべて図鑑に登録する","metric":"regularSpecies","need":11},
+  {"id":"creative:pet-fishing:8","name":"泡影を射抜く者","condition":"1回の釣行で10回連続釣りに成功する","metric":"bestStreak","need":10},
+  {"id":"creative:pet-fishing:9","name":"巨影を引き上げし者","condition":"クジラを釣る","metric":"whaleCaught","need":1},
+  {"id":"creative:pet-fishing:10","name":"災海に糸を垂らす者","condition":"大ボスを初めて1体釣る","metric":"bossSpecies","need":1},
+  {"id":"creative:pet-fishing:11","name":"四災を引き上げし者","condition":"4種類の大ボスをすべて釣る","metric":"legendaryBosses","need":4},
+  {"id":"creative:pet-fishing:12","name":"深淵より魔を引きずり出す者","condition":"闇の魔術師を釣る","metric":"darkMage","need":1},
+  {"id":"creative:pet-fishing:13","name":"王前の守護を奪いし者","condition":"魔王親衛隊を釣る","metric":"royalGuard","need":1},
+  {"id":"creative:pet-fishing:14","name":"終焉を水面へ堕とす者","condition":"魔王を釣る","metric":"demonKing","need":1},
+  {"id":"creative:pet-fishing:15","name":"海界万象を釣り尽くせし者","condition":"全18種類を図鑑に登録する","metric":"uniqueSpecies","need":18}
+]
