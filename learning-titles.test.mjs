@@ -4,7 +4,7 @@ import {titleState,activityTitles,TITLE_CONTENTS,creativeTitles} from './title-m
 import {createLearningTitles} from './learning-titles.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import catalog from './retry-title-catalog.json' with {type:'json'};
-test('creative title catalogs replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,20);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,id==='word-tower'?18:15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
+test('creative title catalogs replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,21);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,id==='word-tower'?18:15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
 test('retry titles and selected title migrate using distinct answered questions, with no badges',()=>{
  const ids=Object.keys(catalog.questions).filter(id=>catalog.questions[id]==='4級').slice(0,50);
  const retry={state:{records:Object.fromEntries(ids.map(id=>[id,{attempts:100}]))},profile:{equippedTitle:'g4-50'}};
