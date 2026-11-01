@@ -2,12 +2,13 @@ import {CHALLENGE_CONTENTS} from './challenge-model.mjs';
 import retryCatalog from './retry-title-catalog.json' with {type:'json'};
 import baseCreativeCatalog from './creative-title-catalog.json' with {type:'json'};
 import caseTalkCatalog from './case-talk-title-catalog.json' with {type:'json'};
+const wordTowerBaseTitles=(baseCreativeCatalog['word-tower']||[]).map(t=>t.id==='creative:word-tower:14'?{...t,name:'無傷の魔将斬り'}:t.id==='creative:word-tower:15'?{...t,name:'高みを征く者'}:t);
 const wordTowerEndgameTitles=[
  {id:'creative:word-tower:16',name:'災厄を討ちし者',condition:'大ボスを初めて撃破する',metric:'bestFloor',need:51,displayNeed:1},
  {id:'creative:word-tower:17',name:'深淵の門を越えし者',condition:'100階に到達し、魔王の前に立つ',metric:'bestFloor',need:100,displayNeed:1},
  {id:'creative:word-tower:18',name:'終焉を喰らう者',condition:'100階の魔王を撃破する',metric:'bestFloor',need:101,displayNeed:1}
 ];
-export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...(baseCreativeCatalog['word-tower']||[]),...wordTowerEndgameTitles],'case-talk':caseTalkCatalog};
+export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog};
 const HIDDEN_TITLE_PREFIXES=['creative:pet-instructions:'];
 export function creativeTitles(appId,progress={}){return (creativeCatalog[appId]||[]).map(t=>{const raw=count(progress.metrics?.[t.metric]),unlocked=raw>=t.need,displayNeed=count(t.displayNeed)||t.need;return {...t,appId,label:TITLE_CONTENTS.find(x=>x.id===appId)?.label||appId,need:displayNeed,done:t.displayNeed?(unlocked?displayNeed:0):raw,unlocked};});}
 export function validTitleName(id){if(HIDDEN_TITLE_PREFIXES.some(prefix=>id?.startsWith(prefix)))return '';const t=Object.values(creativeCatalog).flat().find(t=>t.id===id);if(t)return t.name;if(id?.startsWith('retry:'))return retryCatalog.titles.find(t=>'retry:'+t.id===id)?.name||'';return activityTitles('eiken-retry',0).find(t=>t.id===id)?.name||'';}
