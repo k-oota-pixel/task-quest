@@ -1,4 +1,7 @@
 const CURATED_SOURCES=[
+  {kind:'rss',name:'NHK News Japan — Society',url:'https://www.nhk.or.jp/rss/news/cat1.xml',category:'world',scope:'japan',sourceType:'newsroom'},
+  {kind:'rss',name:'Hokkaido Electric Power',url:'https://www.hepco.co.jp/info/rss/press_rss.xml',category:'business',scope:'japan',sourceType:'company',regional:true},
+  {kind:'html',name:'JR Hokkaido Newsroom',url:'https://www.jrhokkaido.co.jp/CM/Info/press/presstop.html',category:'life',scope:'japan',include:/press/i,sourceType:'company',regional:true},
   {kind:'rss',name:'Digital Agency Japan',url:'https://www.digital.go.jp/rss/news.xml',category:'technology',scope:'japan'},
   {kind:'rss',name:'Cabinet Office Japan',url:'https://www.cao.go.jp/rss/news.rdf',category:'world',scope:'japan'},
   {kind:'rss',name:'MHLW Japan',url:'https://www.mhlw.go.jp/stf/news.rdf',category:'health',scope:'japan'},
@@ -95,7 +98,7 @@ export function parseFeed(xml,source){
     if(!title||!url||!isArticleUrl(url))continue;
     const publishedAt=dateIso(tagText(block,['pubDate','published','updated','dc:date','date']))||localizedDateIso(block);
     const summary=tagText(block,['description','summary','content:encoded','content']);
-    items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt,summary:clean(summary,1800)});
+    items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',sourceTypeHint:source.sourceType||'institution',regionalHint:source.regional===true,title,url,publishedAt,summary:clean(summary,1800)});
   }
   return items;
 }
@@ -110,7 +113,7 @@ export function parseHtmlIndex(html,source){
     if(source.include&&!source.include.test(new URL(url).pathname))continue;
     const index=Number(match.index)||0;
     const publishedAt=localizedDateIso(raw.slice(Math.max(0,index-6000),index));
-    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',title,url,publishedAt,summary:''});
+    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',sourceTypeHint:source.sourceType||'institution',regionalHint:source.regional===true,title,url,publishedAt,summary:''});
     if(out.length>=18)break;
   }
   return out;
@@ -157,7 +160,7 @@ async function enrich(candidate,fetchImpl){
 function dedupe(items){
   const seen=new Set(),out=[];for(const item of items){const key=item.url.replace(/\/$/,'');if(seen.has(key))continue;seen.add(key);out.push(item);}return out;
 }
-function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||item.scope||'world'}])).values()];}
+function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||item.scope||'world',sourceType:item.sourceTypeHint||'institution',regional:item.regionalHint===true}])).values()];}
 function countBy(items,key){const counts=new Map();for(const item of items){const value=key(item);counts.set(value,(counts.get(value)||0)+1);}return [...counts].map(([name,count])=>`${name}=${count}`).join(', ');}
 function takeDiverse(pool,wanted,selected,usedUrls){
   const categoryCounts=new Map();
@@ -202,6 +205,16 @@ export function selectRegionalStories(candidates,{total=6,japanRatio=0.85}={}){
       }
     }
   };
+  // Keep Japan stories connected to local communities and employers, not only agencies.
+  const takePreferred=(scope,predicate)=>{
+    const pool=items.filter(item=>(item.scope||item.scopeHint||'world')===scope&&!usedUrls.has(item.url)&&predicate(item));
+    const item=pool.find(candidate=>!usedCategories.has(candidate.categoryHint))||pool[0];
+    if(item){selected.push(item);usedUrls.add(item.url);usedCategories.add(item.categoryHint);}
+  };
+  if(japanTarget>=2){
+    takePreferred('japan',item=>item.sourceTypeHint==='company');
+    takePreferred('japan',item=>item.regionalHint===true);
+  }
   take('japan',japanTarget);
   take('world',worldTarget);
   if(selected.length<count){
@@ -231,7 +244,7 @@ export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date(),japa
   console.log(`TODAY fallback usable: ${countBy(usable,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
   if(usable.length<8)throw new Error(`公式フィードの本文候補が不足しています (${usable.length})`);
   const allCompact=usable.slice(0,MAX_CANDIDATES).map(item=>({
-    source:item.sourceName,categoryHint:item.categoryHint,scope:item.scopeHint||'world',title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)
+    source:item.sourceName,sourceName:item.sourceName,sourceTypeHint:item.sourceTypeHint||'institution',regionalHint:item.regionalHint===true,categoryHint:item.categoryHint,scope:item.scopeHint||'world',title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)
   }));
   const requiredStories=selectRegionalStories(allCompact,{total:6,japanRatio});
   if(requiredStories.length<6)throw new Error('公式フィードから6記事を確保できませんでした');
@@ -242,7 +255,7 @@ export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date(),japa
   const compact=[...requiredStories,...alternates];
   return {
     mode:'curated-feeds',
-    research:JSON.stringify({mode:'curated official sources',collectedAt:now.toISOString(),instruction:'Use only facts explicitly present in each candidate summary/excerpt. IMPORTANT: create exactly one TODAY article for EACH item in requiredStories, in the same order. Do not replace, merge, or duplicate these stories. Preserve each item scope (japan or world) and use categoryHint as that story primary category. The URL is the canonical source.',requiredStories,alternates},null,2),
+    research:JSON.stringify({mode:'curated official sources',collectedAt:now.toISOString(),instruction:'Use only facts explicitly present in each candidate summary/excerpt. IMPORTANT: create exactly one TODAY article for EACH item in requiredStories, in the same order. Do not replace, merge, or duplicate these stories. Preserve each item scope (japan or world) and use categoryHint as that story primary category. The URL is the canonical source. Keep company and regional sources represented when available; explain concrete relevance to students.',requiredStories,alternates},null,2),
     sources:sourceList(compact),
     queries:[],
     candidateCount:compact.length
