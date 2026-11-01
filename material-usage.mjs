@@ -4,6 +4,7 @@ export const USAGE_CONTENTS=[
  ['eigo-meter','エイゴメーター'],
  ['word-wolf','ワードウルフ'],
  ...CHALLENGE_CONTENTS.map(x=>[x.id,x.label]),
+ ['pet-fishing','PET FISHING'],
  ['adventure-tower','魔王の塔'],
  ['adventure-dungeon','魔物の巣窟'],
  ['today','TODAY']
