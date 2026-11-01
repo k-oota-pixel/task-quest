@@ -31,6 +31,12 @@ export function applyTitleEvent(previous={},e,day){
   s.courses[e.course]=Math.max(n(s.courses[e.course]),n(e.score));max('courses30',Object.values(s.courses).filter(v=>v>=30).length);max('courses50',Object.values(s.courses).filter(v=>v>=50).length);
  }else if(app==='pet-catch'){
   inc('runs');max('score',e.score);max('combo',e.combo);max('afterMiss',e.afterMissCorrect);s.courses[e.mode]=Math.max(n(s.courses[e.mode]),n(e.score));max('modes10',Object.values(s.courses).filter(v=>v>=10).length);max('modes30',Object.values(s.courses).filter(v=>v>=30).length);if(e.score>=10)set('tenDays',day);
+ }else if(app==='pet-fishing'){
+  inc('runs');max('totalCatches',e.total);max('bestStreak',e.combo);
+  for(const id of e.caughtIds||[])set('caughtSpecies',id);
+  const caught=s.sets.caughtSpecies||{},regular=['salmon','eel','crab','shrimp','squid','octopus','oyster','jellyfish','shark','dolphin','whale'],legendary=['crysturtle','magmander','runegolem','abyssdragon'],bosses=[...legendary,'dark_mage','royal_guard','demon_king'];
+  max('uniqueSpecies',Object.keys(caught).length);max('regularSpecies',regular.filter(id=>caught[id]).length);max('legendaryBosses',legendary.filter(id=>caught[id]).length);max('bossSpecies',bosses.filter(id=>caught[id]).length);
+  if(caught.whale)max('whaleCaught',1);if(caught.dark_mage)max('darkMage',1);if(caught.royal_guard)max('royalGuard',1);if(caught.demon_king)max('demonKing',1);
  }else if(app==='ateru'){
   if(e.kind==='run'){inc('runs');max('score',e.score);if(e.cleanRun)max('cleanRun',1);streak('perfectStreak',e.score===5);if(e.score===5)set('perfectDays',day);}
   else{const p=item(),oldRun=p.failedRun,wasRecovered=s.sets.recoveredItems?.[key];question(e.correct);if(!e.correct)p.failedRun=e.sessionId;if(e.correct&&oldRun===e.sessionId&&!wasRecovered){delete s.sets.recoveredItems?.[key];m.recoveredItems=Object.keys(s.sets.recoveredItems||{}).length;}if(e.correct&&e.clean)set('cleanItems',key);}
