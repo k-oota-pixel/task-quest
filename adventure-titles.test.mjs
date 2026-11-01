@@ -18,6 +18,17 @@ test('all adventure titles are reachable through validated events',()=>{
   for(const title of titles)assert.equal(validTitleName(title.id),title.name);
  }
 });
+test('renamed tower titles keep their existing unlock conditions',()=>{
+ const titles=creativeTitles('word-tower',{metrics:{bestFloor:50,noDamageBoss:1}});
+ const flawless=titles.find(t=>t.id==='creative:word-tower:14');
+ const halfway=titles.find(t=>t.id==='creative:word-tower:15');
+ assert.equal(flawless.name,'無傷の魔将斬り');
+ assert.equal(flawless.condition,'そのボスから一度もダメージを受けずにボスを倒す');
+ assert.equal(flawless.unlocked,true);
+ assert.equal(halfway.name,'高みを征く者');
+ assert.equal(halfway.condition,'50階に到達する');
+ assert.equal(halfway.unlocked,true);
+});
 test('boss rewards are derived from the floor, duplicate defeats do not inflate counts, and streaks stay within one run',()=>{
  const appId='word-tower';let s={};
  const push=e=>s=applyTitleEvent(s,{appId,sessionId:'one',floor:1,eventId:crypto.randomUUID(),...e},'2026-10-25');
