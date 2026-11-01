@@ -23,7 +23,7 @@ test('global learning order wins over authentication time; query only requests s
  assert.ok(results[0].body.users.every(u=>u.petName==='Pet'&&u.coins===7&&u.lastLearningAt&&!('lastLoginAt'in u)&&!('email'in u)&&!('apps'in u)));
  const second=await f.call('/api/admin/users?pageToken='+encodeURIComponent(results[0].body.nextPageToken));assert.deepEqual(second.body.users.map(u=>u.uid),Array.from({length:6},(_,i)=>'u'+(13-i)));
  const third=await f.call('/api/admin/users?pageToken='+encodeURIComponent(second.body.nextPageToken));assert.deepEqual(third.body.users.map(u=>u.uid),Array.from({length:6},(_,i)=>'u'+(7-i)));
- const fourth=await f.call('/api/admin/users?pageToken='+encodeURIComponent(third.body.nextPageToken));assert.deepEqual(fourth.body.users.map(u=>u.uid),['u1','u0','u20','u21']);assert.deepEqual(fourth.body.users.map(u=>u.lastLearningAt),[Date.parse(stamp(1)),Date.parse(stamp(0)),null,null]);assert.equal(fourth.body.nextPageToken,null);
+ const fourth=await f.call('/api/admin/users?pageToken='+encodeURIComponent(third.body.nextPageToken));assert.deepEqual(fourth.body.users.map(u=>u.uid),['u1','u0','u20','u21']);assert.deepEqual(fourth.body.users.map(u=>u.lastLearningAt),[1700000001000,1700000000000,null,null]);assert.equal(fourth.body.nextPageToken,null);
  assert.equal((await f.call('/api/admin/users?limit=100')).status,400);assert.equal((await f.call('/api/admin/users?pageToken=bad')).status,400);
 });
 test('session check has no Firestore reads; cached lists still require admin authorization',async()=>{
