@@ -3,19 +3,22 @@ import {applyTitleEvent,keyOf} from './creative-title-progress.mjs';
 import {creativeTitles,creativeCatalog} from './title-model.mjs';
 import {challengePeriods} from './challenge-model.mjs';
 const encode=v=>v===null?{nullValue:null}:typeof v==='boolean'?{booleanValue:v}:typeof v==='number'?{integerValue:String(Math.floor(v))}:typeof v==='string'?{stringValue:v}:Array.isArray(v)?{arrayValue:{values:v.map(encode)}}:{mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,x])=>[k,encode(x)]))}};
+const PET_FISHING_IDS=new Set(['salmon','eel','crab','shrimp','squid','octopus','oyster','jellyfish','shark','dolphin','whale','crysturtle','magmander','runegolem','abyssdragon','dark_mage','royal_guard','demon_king']);
 export function validateTitleEvent(b,fail){
  if(!b||!creativeCatalog[b.appId]||!(/^[\w-]{8,100}$/).test(b.eventId||''))throw fail('称号の記録が不正です。',400);
  const e={appId:b.appId,eventId:b.eventId};
  for(const k of ['kind','itemId','sessionId','grade','course','mode','questionType','language','answer'])if(b[k]!==undefined){if(typeof b[k]!=='string'||b[k].length>(k==='answer'?3000:300))throw fail('記録が長すぎます。',400);e[k]=b[k];}
  for(const k of ['score','total','combo','oneLifeCorrect','afterMissCorrect','previousMistakes','previousWrongAt','floor'])if(b[k]!==undefined){if(!Number.isInteger(b[k])||b[k]<0||b[k]>(k==='previousWrongAt'?Date.now():100000))throw fail('記録の数値が不正です。',400);e[k]=b[k];}
  for(const k of ['correct','clean','cleanRun','recovered','color','shape','size','manual','question','reason','followUp','series','first','critical','noDamage'])if(b[k]!==undefined){if(typeof b[k]!=='boolean')throw fail('記録の条件が不正です。',400);e[k]=b[k];}
- const kinds={ 'word-tower':['run','answer','defeat'],'eiken-dungeon':['run','answer','defeat'],'word-breaker':['run'],'pet-catch':['run'],ateru:['question','run'],'basic-quest':['question','run'],'basic-grammar':['question'],grammar:['question'],today:['read'],'eiken-cloze':['passage'],'reading-training':['exercise','summary'],'pet-instructions':['round','run'],'talk-quest':['chat'],'pet-chat':['chat']};
+ if(b.caughtIds!==undefined){if(!Array.isArray(b.caughtIds)||b.caughtIds.length>18||b.caughtIds.some(id=>typeof id!=='string'||!PET_FISHING_IDS.has(id))||new Set(b.caughtIds).size!==b.caughtIds.length)throw fail('釣り図鑑の記録が不正です。',400);e.caughtIds=[...b.caughtIds];}
+ const kinds={ 'word-tower':['run','answer','defeat'],'eiken-dungeon':['run','answer','defeat'],'word-breaker':['run'],'pet-catch':['run'],'pet-fishing':['run'],ateru:['question','run'],'basic-quest':['question','run'],'basic-grammar':['question'],grammar:['question'],today:['read'],'eiken-cloze':['passage'],'reading-training':['exercise','summary'],'pet-instructions':['round','run'],'talk-quest':['chat'],'pet-chat':['chat']};
  if(!(kinds[e.appId]||['answer']).includes(e.kind))throw fail('記録の種類が不正です。',400);
  if(e.kind==='run'&&!Number.isInteger(e.score))throw fail('結果が必要です。',400);
  if(!['run','chat'].includes(e.kind)&&!e.itemId)throw fail('問題が必要です。',400);
  if(e.kind==='chat'&&(!e.sessionId||!e.itemId))throw fail('会話が必要です。',400);
  if(e.appId==='word-breaker'&&!['junior1','junior2','junior3','high1','high2','basic'].includes(e.course))throw fail('コースが不正です。',400);
  if(e.appId==='pet-catch'&&!['en-ja','ja-en'].includes(e.mode))throw fail('モードが不正です。',400);
+ if(e.appId==='pet-fishing'&&(!e.sessionId||!Number.isInteger(e.total)||!Number.isInteger(e.combo)||!Array.isArray(e.caughtIds)||e.total<e.score||e.combo>e.score))throw fail('釣りの記録が不正です。',400);
  if(e.appId==='eiken-cloze'){
   if(!['choice','free'].includes(e.mode)||!Array.isArray(b.results)||!b.results.length||b.results.length>20||b.results.some(r=>!r||!['string','number'].includes(typeof r.id)||String(r.id).length>100||typeof r.correct!=='boolean')||new Set(b.results.map(r=>String(r.id))).size!==b.results.length)throw fail('採点結果が不正です。',400);
   e.results=b.results.map(r=>({id:String(r.id),correct:r.correct}));
@@ -55,9 +58,9 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
   }
   try{
   const token=await accessToken(),headers={Authorization:'Bearer '+token,'Content-Type':'application/json'},path=`title_progress/${user.uid}/activities/${body.appId}`,receipt=`title_events/${user.uid}/events/${keyOf(body.appId+':batch:'+body.batchId)}`,day=challengePeriods().day;
-  const usageId=body.appId==='word-tower'?'adventure-tower':body.appId==='eiken-dungeon'?'adventure-dungeon':'';
+  const usageId=body.appId==='word-tower'?'adventure-tower':body.appId==='eiken-dungeon'?'adventure-dungeon':body.appId==='pet-fishing'?'pet-fishing':'';
   const answeredSessions=new Set(events.filter(event=>event.kind==='answer'&&event.sessionId).map(event=>event.sessionId));
-  const completedRuns=new Set(events.filter(event=>event.kind==='run'&&event.sessionId&&answeredSessions.has(event.sessionId)).map(event=>event.sessionId));
+  const completedRuns=body.appId==='pet-fishing'?new Set(events.filter(event=>event.kind==='run'&&event.sessionId).map(event=>event.sessionId)):new Set(events.filter(event=>event.kind==='run'&&event.sessionId&&answeredSessions.has(event.sessionId)).map(event=>event.sessionId));
   const usageCounts=usageId&&completedRuns.size?{[usageId]:completedRuns.size}:{};
   for(let attempt=0;attempt<5;attempt++){
    const response=await request(base+'/documents:batchGet',{method:'POST',headers,body:JSON.stringify({documents:[prefix+path,prefix+receipt,...(grammarUnits[body.appId]?[prefix+`users/${user.uid}/apps/english-playroom`]:[])]})});
