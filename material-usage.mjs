@@ -5,7 +5,8 @@ export const USAGE_CONTENTS=[
  ['word-wolf','ワードウルフ'],
  ...CHALLENGE_CONTENTS.map(x=>[x.id,x.label]),
  ['adventure-tower','魔王の塔'],
- ['adventure-dungeon','魔物の巣窟']
+ ['adventure-dungeon','魔物の巣窟'],
+ ['today','TODAY']
 ];
 const ids=new Set(USAGE_CONTENTS.map(x=>x[0]));
 const countValue=value=>Math.max(0,Math.floor(Number(value)||0));
@@ -71,7 +72,7 @@ export function createMaterialActivity({base,projectId,accessToken,readJson,send
   if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
   if(!req.headers?.['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
   const body=await readJson(req,1024),appId=body?.appId,eventId=body?.eventId;
-  if(!['eigo-meter','word-wolf'].includes(appId)||typeof eventId!=='string'||!/^\w[\w-]{7,99}$/.test(eventId))throw fail('教材または記録IDが不正です。',400);
+  if(!['eigo-meter','word-wolf','today'].includes(appId)||typeof eventId!=='string'||!/^\w[\w-]{7,99}$/.test(eventId))throw fail('教材または記録IDが不正です。',400);
   const time=now(),ip=String(req.socket?.remoteAddress||'unknown');
   for(const [key,value] of windows)if(time-value.start>=60000)windows.delete(key);
   if(time-globalWindow.start>=60000)globalWindow={start:time,count:0};
