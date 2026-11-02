@@ -86,6 +86,22 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      if(writes.length)await commit(writes);
      return send(res,200,{imported:writes.length});
     }
+    if(route==='/api/admin/code-name-import'){
+     if(!Array.isArray(body.codes)||body.codes.length<1||body.codes.length>200||body.codes.some(value=>!/^[A-Z0-9]{6}$/.test(normalizeCode(value))))throw fail('登録コードデータが不正です。',400);
+     const writes=[],seen=new Set();let unlinked=0,unchanged=0;
+     for(const raw of new Set(body.codes)){
+      const code=normalizeCode(raw),stored=await read('registration_codes',digest(code));
+      if(!stored?.value.uid){unlinked++;continue;}
+      const account=await state(stored.value.uid);
+      if(!account){unlinked++;continue;}
+      if(account.value.codeName){unchanged++;continue;}
+      if(seen.has(account.value.uid)){unchanged++;continue;}
+      seen.add(account.value.uid);
+      writes.push(write('code_accounts',digest(account.value.loginId),{...account.value,codeName:code},account));
+     }
+     if(writes.length)await commit(writes);
+     return send(res,200,{restored:writes.length,unchanged,unlinked});
+    }
     const key=digest(normalizeCode(body.code)),code=await read('registration_codes',key);
     if(!code?.value.uid)throw fail('紐づいた利用者が見つかりません。',404);
     const account=await state(code.value.uid);if(!account)throw fail('登録情報が見つかりません。',404);
@@ -129,7 +145,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     let uid='code_'+randomBytes(20).toString('hex');
     if(route.endsWith('/link')){const user=await verifyUser(req);await admission(user);uid=user.uid;if(await state(uid))throw fail('このアカウントは紐づけ済みです。',409);}
     const record=await passwordRecord(body.password);
-    const writes=[write('registration_codes',codeKey,{...unused.value,used:true,uid},stored),write('code_accounts',idKey,{uid,loginId,...record,resetRequired:false,createdAt:new Date().toISOString()}),write('account_uids',uid,{idKey})];
+    const writes=[write('registration_codes',codeKey,{...unused.value,used:true,uid},stored),write('code_accounts',idKey,{uid,loginId,codeName:code,...record,resetRequired:false,createdAt:new Date().toISOString()}),write('account_uids',uid,{idKey})];
     await commit(writes);
     return send(res,200,{token:customToken(serviceAccount(),uid)});
    }finally{active--;}
