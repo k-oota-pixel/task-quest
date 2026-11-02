@@ -140,9 +140,18 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     room.players=players;room.status='waiting';room.updatedAt=now();room.seq++;writes.push(roomWrite(id,room,stored));
    }else if(operation==='leave'){
     if(index<0)return {room:publicRoom(room,id)};
-    if(room.status==='playing')throw error('対戦中は退室できません。',409);
-    room.players=players.filter(p=>p.uid!==uid).map(p=>({...p,ready:false,rematchReady:false}));
-    room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
+    if(room.status==='playing'){
+     const opponent=players.find(p=>p.uid!==uid),at=now();
+     if(opponent){
+      room.players=[{...opponent,ready:false,rematchReady:false}];room.status='finished';room.winnerUid=opponent.uid;room.lastEvent={type:'forfeit',from:uid,to:opponent.uid,at};room.seq++;room.updatedAt=at;
+      await awardWinner(token,writes,opponent.uid);writes.push(roomWrite(id,room,stored));
+     }else{
+      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.seq++;room.updatedAt=at;writes.push(roomWrite(id,room,stored));
+     }
+    }else{
+     room.players=players.filter(p=>p.uid!==uid).map(p=>({...p,ready:false,rematchReady:false}));
+     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
+    }
    }else{
     if(index<0)throw error('先にルームへ入室してください。',403);
     if(operation==='ready'){
@@ -205,7 +214,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;await awardWinner(token,writes,uid);}
     }else if(operation==='continue'){
-     if(room.status!=='finished')throw error('対戦結果が確定していません。',409);
+     if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
       const wallets=await Promise.all(players.map(p=>userWallet(token,p.uid))),balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
