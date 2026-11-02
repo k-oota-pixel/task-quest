@@ -131,7 +131,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
    active++;
    try{
     const loginId=normalizeId(body.loginId),idKey=digest(loginId);
-    if(!/^[a-z0-9][a-z0-9_-]{3,31}$/.test(loginId))throw fail('IDは4〜32文字の半角英数字・ハイフン・アンダーバーで入力してください。',400);
+    if(!/^[a-z0-9][a-z0-9_-]{3,31}$/.test(loginId))throw fail('IDは4〜32文字で入力してください。',400);
     if(route==='/api/account/login'){
      const account=await read('code_accounts',idKey);
      const dummy={salt:'0'.repeat(32),hash:'0'.repeat(128)};
