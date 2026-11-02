@@ -7,9 +7,10 @@ const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
 const sa={client_email:'test@example.test',private_key:privateKey.export({type:'pkcs8',format:'pem'})};
 const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([key,v])=>[key,{raw:v}]));
 const decodeFields=value=>Object.fromEntries(Object.entries(value||{}).map(([key,v])=>[key,v.raw]));
-function setup(issuedHashes){
+function setup(issuedHashes,issuedCodes){
  const docs=new Map();let clock=0;
  const fail=(m,status)=>Object.assign(Error(m),{status});
+ const prefix='projects/test/databases/(default)/documents/';
  const fetchImpl=async(url,options={})=>{
   const json=options.body?JSON.parse(options.body):{};
   if(url.endsWith('documents:commit')){
@@ -17,10 +18,17 @@ function setup(issuedHashes){
    for(const write of json.writes)docs.set(write.update.name,{fields:write.update.fields,updateTime:String(++clock)});
    return Response.json({writeResults:[]});
   }
+  if(url.endsWith('documents:batchGet')){
+   return Response.json((json.documents||[]).map(name=>docs.has(name)?{found:{name,...docs.get(name)}}:{missing:name}));
+  }
+  if(url.includes('/documents/registration_codes?')){
+   const root=prefix+'registration_codes/';
+   const documents=[...docs.entries()].filter(([name])=>name.startsWith(root)).map(([name,doc])=>({name,...doc}));
+   return Response.json({documents});
+  }
   const key=url.slice(url.indexOf('projects/'));return docs.has(key)?Response.json(docs.get(key)):Response.json({},{status:404});
  };
- const prefix='projects/test/databases/(default)/documents/';
- const api=createCodeAuth({base:'https://firestore.test/v1/projects/test/databases/(default)',projectId:'test',accessToken:async()=> 'access',serviceAccount:()=>sa,verifyUser:async req=>{if(!req.user)throw fail('login',401);return req.user;},verifyAdmin:async req=>{if(!req.admin)throw fail('admin',403);return {uid:'teacher'};},readJson:async req=>req.body,send:(res,status,data)=>{res.status=status;res.data=data;},fail,encodeFields,decodeFields,fetchImpl,...(issuedHashes?{issuedHashes}:{})});
+ const api=createCodeAuth({base:'https://firestore.test/v1/projects/test/databases/(default)',projectId:'test',accessToken:async()=> 'access',serviceAccount:()=>sa,verifyUser:async req=>{if(!req.user)throw fail('login',401);return req.user;},verifyAdmin:async req=>{if(!req.admin)throw fail('admin',403);return {uid:'teacher'};},readJson:async req=>req.body,send:(res,status,data)=>{res.status=status;res.data=data;},fail,encodeFields,decodeFields,fetchImpl,...(issuedHashes?{issuedHashes}:{}),...(issuedCodes?{issuedCodes}:{})});
  const call=async(action,body={},extra={})=>{const res={};await api.handle({url:action.startsWith('admin/')?'/api/admin/code-'+action.slice(6):'/api/account/'+action,method:'POST',headers:{'content-type':'application/json'},body,socket:{remoteAddress:'127.0.0.1'},...extra},res);return res;};
  const get=(collection,key)=>decodeFields(docs.get(prefix+collection+'/'+key)?.fields);
  const seed=code=>docs.set(prefix+'registration_codes/'+digest(normalizeCode(code)),{fields:encodeFields({used:false}),updateTime:String(++clock)});
@@ -38,6 +46,7 @@ test('concurrent code claims and duplicate IDs never consume two accounts',async
 test('teacher can look up ID and issue one expiring temporary password; student must change it',async()=>{const s=setup(),code=newCode();s.seed(code);await s.call('link',{...credentials,code},{user});assert.equal((await s.call('admin/lookup',{code})).status,403);const lookup=await s.call('admin/lookup',{code},{admin:true});assert.equal(lookup.data.loginId,credentials.loginId);const reset=await s.call('admin/reset',{code},{admin:true});assert.equal(reset.status,200);assert.equal(reset.data.temporaryPassword.length,12);await assert.rejects(s.api.admission({...user,provider:'custom',codeVersion:0}),{status:401});assert.equal((await s.api.admission({...user,provider:'custom',codeVersion:1})).resetRequired,true);assert.notEqual(reset.data.temporaryPassword,'000000');assert.equal((await s.call('login',credentials)).status,401);assert.equal((await s.api.admission(user)).resetRequired,true);const temporary=await s.call('login',{loginId:credentials.loginId,password:reset.data.temporaryPassword});assert.equal(temporary.status,200);const changed=await s.call('password',{currentPassword:reset.data.temporaryPassword,password:'newpass456'},{user});assert.equal(changed.status,200);assert.equal((await s.api.admission(user)).resetRequired,false);assert.equal((await s.call('login',{loginId:credentials.loginId,password:reset.data.temporaryPassword})).status,401);assert.equal((await s.call('login',{loginId:credentials.loginId,password:'newpass456'})).status,200);});
 test('self-registration and linking reject malformed IDs, weak or overlong passwords and unauthenticated linking',async()=>{const s=setup(),code=newCode();s.seed(code);assert.equal((await s.call('register',{...credentials,loginId:'name@example.com',code})).status,400);assert.equal((await s.call('register',{...credentials,password:'short',code})).status,400);assert.equal((await s.call('register',{...credentials,password:'1234567890123',code})).status,400);assert.equal((await s.call('link',{...credentials,code})).status,401);assert.equal(s.get('registration_codes',digest(normalizeCode(code))).used,false);});
 test('importing existing codes never resets their used state',async()=>{const s=setup(),code=newCode();s.seed(code);await s.call('register',{...credentials,code});const imported=await s.call('admin/import',{hashes:[digest(normalizeCode(code))]},{admin:true});assert.equal(imported.status,200);assert.equal(s.get('registration_codes',digest(normalizeCode(code))).used,true);});
+test('admin can auto-restore a legacy missing codeName from the configured code inventory without changing the code claim',async()=>{const code=newCode(),s=setup(new Set([digest(normalizeCode(code))]),[code]);const registered=await s.call('register',{...credentials,code});assert.equal(registered.status,200);const accountName='projects/test/databases/(default)/documents/code_accounts/'+digest(credentials.loginId),account=s.docs.get(accountName),legacy=decodeFields(account.fields);delete legacy.codeName;account.fields=encodeFields(legacy);const claimBefore={...s.get('registration_codes',digest(normalizeCode(code)))};assert.equal((await s.call('admin/name-auto-restore')).status,403);const restored=await s.call('admin/name-auto-restore',{}, {admin:true});assert.equal(restored.status,200);assert.equal(restored.data.restored,1);assert.equal(restored.data.linked,1);assert.equal(s.get('code_accounts',digest(credentials.loginId)).codeName,normalizeCode(code));assert.deepEqual(s.get('registration_codes',digest(normalizeCode(code))),claimBefore);const second=await s.call('admin/name-auto-restore',{}, {admin:true});assert.equal(second.status,200);assert.equal(second.data.restored,0);assert.equal(second.data.unchanged,1);});
 
 test('issued codes contain six unambiguous letters and digits',()=>{for(let i=0;i<1000;i++){const code=newCode();assert.match(code,/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/);assert.match(code,/[2-9]/);assert.match(code,/[A-Z]/);}});
 test('repeated wrong code guesses are rate limited without consuming a valid code',async()=>{const s=setup(),code=newCode();s.seed(code);for(let i=0;i<20;i++)assert.equal((await s.call('register',{loginId:'try_'+i,password:'password-123',code:'222222'})).status,400);assert.equal((await s.call('register',{...credentials,code})).status,429);assert.equal(s.get('registration_codes',digest(normalizeCode(code))).used,false);});
