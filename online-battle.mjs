@@ -53,7 +53,7 @@ function publicRoom(value,id){
  const room=safeRoom(value,id);
  return {...room,players:room.players.map(p=>({...p,uid:p.uid,petShop:p.petShop||{}}))};
 }
-export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,fetch:request=globalThis.fetch,now=Date.now}){
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now}){
  const error=failExternal||fail;
  async function getDoc(token,path){
   const response=await request(base+'/documents/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
