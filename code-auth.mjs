@@ -87,7 +87,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      return send(res,200,{imported:writes.length});
     }
     if(route==='/api/admin/code-name-import'){
-     if(!Array.isArray(body.codes)||body.codes.length<1||body.codes.length>200||body.codes.some(value=>!/^[A-Z0-9]{6}$/.test(normalizeCode(value))))throw fail('登録コードデータが不正です。',400);
+     if(!Array.isArray(body.codes)||body.codes.length<1||body.codes.length>200||body.codes.some(value=>{const code=normalizeCode(value);return !/^[A-Z0-9]{6}$/.test(code)||!/[A-Z]/.test(code)||!/[0-9]/.test(code);}))throw fail('登録コードデータが不正です。',400);
      const codes=[...new Set(body.codes.map(normalizeCode))],docName=(collection,id)=>prefix+collection+'/'+id;
      const fetchDocs=async names=>{
       if(!names.length)return new Map();
