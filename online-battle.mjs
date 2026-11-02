@@ -122,6 +122,20 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
       const winnerWallet=await userWallet(token,room.winnerUid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));
       writes.push(walletWrite(room.winnerUid,winnerWallet,coins+2));
      }
+    }else if(operation==='magic'){
+     if(room.status!=='playing')throw error('対戦中ではありません。',409);
+     if(room.noItems)throw error('このルームは魔法・アイテムなしです。',400);
+     const attacker=players[index],targetIndex=index===0?1:0,defender=players[targetIndex],at=now();
+     if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
+     const damage=Math.max(2,Math.floor(number(attacker.stats?.attack,1)+5-number(defender.stats?.defense,1)));
+     defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'magic',from:uid,to:defender.uid,damage,at};
+     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;const winnerWallet=await userWallet(token,uid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));writes.push(walletWrite(uid,winnerWallet,coins+2));}
+    }else if(operation==='item'){
+     if(room.status!=='playing')throw error('対戦中ではありません。',409);
+     if(room.noItems)throw error('このルームは魔法・アイテムなしです。',400);
+     const attacker=players[index],at=now();
+     if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってからアイテムを使ってください。',429);
+     attacker.hp=Math.min(attacker.stats.hp,Math.floor(number(attacker.hp))+3);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'item',from:uid,heal:3,at};
     }else if(operation==='attack'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],targetIndex=index===0?1:0,defender=players[targetIndex],at=now();
@@ -157,7 +171,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   try{
    const user=await verifyUser(req),token=await accessToken();
    if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(token)});
-   const match=path.match(/^\/api\/online-battle\/room\/(1[0-2]|[1-9])(?:\/(join|ready|attack|miss|continue|leave))?$/);
+   const match=path.match(/^\/api\/online-battle\/room\/(1[0-2]|[1-9])(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
    if(!match)throw error('対戦ルームが見つかりません。',404);
    const id=match[1],operation=match[2];
    if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,token)});
