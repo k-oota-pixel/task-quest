@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createAdventureRankings} from './adventure-rankings.mjs';
+import {createAdventureRankings,TOWER_SEASON} from './adventure-rankings.mjs';
 const send=(res,status,body)=>Object.assign(res,{status,body}),fail=(message,status)=>Object.assign(Error(message),{status});
 test('admin is removed from old summaries, eligible player fills third place, and POST cannot reinsert admin',async()=>{
  const base='https://firestore.googleapis.com/v1/projects/p/databases/(default)',prefix='projects/p/databases/(default)/documents/';
@@ -10,7 +10,7 @@ test('admin is removed from old summaries, eligible player fills third place, an
  rankingStore:{async getSection(key,{load,valid}){if(!valid(cachedFile))cachedFile=await load();return cachedFile;},async setSection(key,value){cachedFile=value;}},
  fetch:async(url,options={})=>{const target=String(url);
  if(target.includes('identitytoolkit'))return {ok:true,json:async()=>({users:[{localId:'admin'}]})};
- if(target.includes('documents:batchGet')){scans++;const names=JSON.parse(options.body).documents;assert.ok(names.every(n=>!n.includes('/users/admin/')));return {ok:true,json:async()=>['a','b','c'].map((uid,i)=>({found:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{petName:uid.toUpperCase(),wordTowerBest:50-i*10,eikenDungeonBest:10}}}))};}
+ if(target.includes('documents:batchGet')){scans++;const names=JSON.parse(options.body).documents;assert.ok(names.every(n=>!n.includes('/users/admin/')));return {ok:true,json:async()=>['a','b','c'].map((uid,i)=>({found:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{petName:uid.toUpperCase(),wordTowerBest:50-i*10,wordTowerSeason:TOWER_SEASON,eikenDungeonBest:10}}}))};}
  if(target.includes('/leaderboards/adventure')){if(options.method==='PATCH'){writes++;return {ok:true,json:async()=>({updateTime:'v2'})};}return {ok:true,json:async()=>({fields:stored,updateTime:'v1'})};}
  throw Error('Unexpected '+target);}});
  const res={};await api.handle({method:'GET',url:'/?mode=tower',headers:{}},res);assert.equal(res.status,200);assert.deepEqual(res.body.leaders.map(r=>r.petName),['A','B','C']);assert.deepEqual(res.body.leaders.map(r=>r.rank),[1,2,3]);assert.equal(scans,1);assert.equal(writes,1);
