@@ -16,7 +16,8 @@ export function initialCodes(seed){
  return [...values];
 }
 export function specialCodes(raw=''){return [...new Set(String(raw).split(',').map(normalizeCode).filter(code=>/^[A-Z0-9]{6}$/.test(code)&&/[A-Z]/.test(code)&&/[0-9]/.test(code)))];}
-const preissued=new Set([...initialCodes(process.env.REGISTRATION_CODE_SEED),...specialCodes(process.env.SPECIAL_REGISTRATION_CODES)].map(digest));
+const configuredCodes=[...initialCodes(process.env.REGISTRATION_CODE_SEED),...specialCodes(process.env.SPECIAL_REGISTRATION_CODES)];
+const preissued=new Set(configuredCodes.map(digest));
 export async function passwordRecord(password){
  if(typeof password!=='string'||password.length<6||password.length>12)throw Object.assign(Error('パスワードは6〜12文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
@@ -32,7 +33,7 @@ export function customToken(sa,uid,reset=false,version=0){
  const unsigned=enc({alg:'RS256',typ:'JWT'})+'.'+enc({iss:sa.client_email,sub:sa.client_email,aud:'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',iat:now,exp:now+3600,uid,claims:{codeAccount:true,codeVersion:version,passwordResetRequired:reset}});
  return unsigned+'.'+createSign('RSA-SHA256').update(unsigned).end().sign(sa.private_key,'base64url');
 }
-export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,issuedHashes=preissued}){
+export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,issuedHashes=preissued,issuedCodes=configuredCodes}){
  const prefix='projects/'+projectId+'/databases/(default)/documents/';
  async function request(url,options={}){
   const access=await accessToken(),response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},signal:AbortSignal.timeout(20000)});
@@ -53,7 +54,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
   // Render's trusted proxy appends the client address. Never use the first, client-supplied entry.
   const ip=String(req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',').at(-1).trim();
   const now=Date.now(),key=digest(ip),old=limits.get(key);
-  if(limits.size>10000)for(const [k,v] of limits)if(now-v.start>900000)limits.delete(k);
+  if(limits.size>10000)for(const [k,v]of limits)if(now-v.start>900000)limits.delete(k);
   const item=old&&now-old.start<900000?old:{start:now,count:0};item.count++;limits.set(key,item);
   if(item.count>1000||active>=8)throw fail('試行回数が多いため、時間をおいて再度お試しください。',429);
  }
@@ -101,9 +102,29 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      const uidToAccountKey=new Map();
      for(const uid of codeByUid.keys()){const index=uidDocs.get(docName('account_uids',uid));if(index?.value.idKey)uidToAccountKey.set(uid,String(index.value.idKey));else unlinked++;}
      const accountNames=[...new Set([...uidToAccountKey.values()])].map(idKey=>docName('code_accounts',idKey)),accountDocs=await fetchDocs(accountNames),writes=[],seen=new Set();
-     for(const [uid,code] of codeByUid){const idKey=uidToAccountKey.get(uid);if(!idKey)continue;const name=docName('code_accounts',idKey),account=accountDocs.get(name);if(!account){unlinked++;continue;}if(account.value.codeName){unchanged++;continue;}if(seen.has(name)){unchanged++;continue;}seen.add(name);writes.push(write('code_accounts',idKey,{...account.value,codeName:code},account));}
+     for(const [uid,code]of codeByUid){const idKey=uidToAccountKey.get(uid);if(!idKey)continue;const name=docName('code_accounts',idKey),account=accountDocs.get(name);if(!account){unlinked++;continue;}if(account.value.codeName){unchanged++;continue;}if(seen.has(name)){unchanged++;continue;}seen.add(name);writes.push(write('code_accounts',idKey,{...account.value,codeName:code},account));}
      if(writes.length)await commit(writes);
      return send(res,200,{restored:writes.length,unchanged,unlinked});
+    }
+    if(route==='/api/admin/code-name-auto-restore'){
+     const validCodes=[...new Set((issuedCodes||[]).map(normalizeCode).filter(code=>/^[A-Z0-9]{6}$/.test(code)&&/[A-Z]/.test(code)&&/[0-9]/.test(code)))];
+     if(!validCodes.length)throw fail('自動復元用の登録コード設定がありません。',503);
+     const codeByHash=new Map(validCodes.map(code=>[digest(code),code])),codeByUid=new Map();
+     let pageToken='',scanned=0,unmatched=0,unused=0;
+     do{
+      const url=new URL(base+'/documents/registration_codes');url.searchParams.set('pageSize','1000');url.searchParams.append('mask.fieldPaths','uid');url.searchParams.append('mask.fieldPaths','used');if(pageToken)url.searchParams.set('pageToken',pageToken);
+      const page=await request(url.toString());
+      for(const doc of page.documents||[]){scanned++;const code=codeByHash.get(String(doc.name||'').split('/').at(-1));if(!code){unmatched++;continue;}const value=decodeFields(doc.fields||{});if(!value.uid){unused++;continue;}codeByUid.set(String(value.uid),code);}
+      pageToken=page.nextPageToken||'';
+     }while(pageToken);
+     const docName=(collection,id)=>prefix+collection+'/'+id;
+     const fetchDocs=async names=>{const found=new Map();for(let i=0;i<names.length;i+=200){const rows=await request(base+'/documents:batchGet',{method:'POST',body:JSON.stringify({documents:names.slice(i,i+200)})});for(const row of rows)if(row.found)found.set(row.found.name,{value:decodeFields(row.found.fields||{}),updateTime:row.found.updateTime});}return found;};
+     const uidDocs=await fetchDocs([...codeByUid.keys()].map(uid=>docName('account_uids',uid))),uidToAccountKey=new Map();let unlinked=0,unchanged=0;
+     for(const uid of codeByUid.keys()){const index=uidDocs.get(docName('account_uids',uid));if(index?.value.idKey)uidToAccountKey.set(uid,String(index.value.idKey));else unlinked++;}
+     const accountNames=[...new Set([...uidToAccountKey.values()])].map(idKey=>docName('code_accounts',idKey)),accountDocs=await fetchDocs(accountNames),writes=[],seen=new Set();
+     for(const [uid,code]of codeByUid){const idKey=uidToAccountKey.get(uid);if(!idKey)continue;const name=docName('code_accounts',idKey),account=accountDocs.get(name);if(!account){unlinked++;continue;}if(account.value.codeName){unchanged++;continue;}if(seen.has(name)){unchanged++;continue;}seen.add(name);writes.push(write('code_accounts',idKey,{...account.value,codeName:code},account));}
+     for(let i=0;i<writes.length;i+=400)await commit(writes.slice(i,i+400));
+     return send(res,200,{restored:writes.length,unchanged,unlinked,linked:codeByUid.size,scanned,unmatched,unused});
     }
     const key=digest(normalizeCode(body.code)),code=await read('registration_codes',key);
     if(!code?.value.uid)throw fail('紐づいた利用者が見つかりません。',404);
@@ -143,7 +164,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     codeAttempt(req);const code=normalizeCode(body.code);
     if(!/^[A-Z0-9]{6}$/.test(code)){codeAttempt(req,true);throw fail('登録コードを確認してください。',400);}
     const codeKey=digest(code),stored=await read('registration_codes',codeKey);
-    const unused=stored|| (issuedHashes.has(codeKey)?{value:{used:false}}:null);
+    const unused=stored||(issuedHashes.has(codeKey)?{value:{used:false}}:null);
     if(!unused||unused.value.used){codeAttempt(req,true);throw fail('登録コードが無効、または使用済みです。',400);}
     let uid='code_'+randomBytes(20).toString('hex');
     if(route.endsWith('/link')){const user=await verifyUser(req);await admission(user);uid=user.uid;if(await state(uid))throw fail('このアカウントは紐づけ済みです。',409);}
@@ -156,4 +177,3 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
  }
  return {handle,admission,inventoryFingerprint:digest([...issuedHashes].sort().join('\n'))};
 }
-
