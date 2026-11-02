@@ -13,6 +13,7 @@ const LEVEL_TARGET_RANGES={'5級':[35,55],'4級':[55,90],'3級':[85,130],'準2�
 const LEVEL_HARD_LIMITS={'5級':[25,80],'4級':[40,120],'3級':[60,170],'準2級':[90,230],'2級':[130,320],'準1級':[180,430]};
 const CATEGORIES=['world','science','technology','health','sports','culture','business','environment','education','life'];
 const CAREERS=['medicine','education','science','engineering','it','business','public','global','sports','arts','undecided'];
+const MISSION_TYPES=['decision','prediction','advice','ranking','personal','recommendation','information-hunt'];
 const RETRYABLE=new Set([429,500,502,503,504]);
 const DEFAULT_JAPAN_NEWS_RATIO=0.85;
 const JAPANESE_HEADLINE_LIMIT=14;
@@ -140,6 +141,7 @@ Generate ALL SIX English versions with these REQUIRED body lengths:
 2級 200-230 words, precise fuller context.
 準1級 280-320 words, nuanced natural prose.
 Each version needs its own English title and text. Count words before returning; preserve the same factual core.
+Also create ONE purposeful reading mission. Choose the best type from decision, prediction, advice, ranking, personal, recommendation, information-hunt. It must give the learner a reason to read the article, not merely test factual recall. The learner should need information from the story to answer well. Provide a short Japanese purpose, a short Japanese follow-up cue, and one English question for EACH of the six levels, simplified appropriately from 5級 through 準1級. Do not ask for sensitive personal information.
 Verified source: ${JSON.stringify(story)}`;
 }
 
@@ -234,7 +236,7 @@ For each candidate provide:
 
 Return a compact research packet. JSON is preferred, but factual completeness and source accuracy are more important than formatting.`.trim();}
 
-const outputSchema={type:'OBJECT',properties:{articles:{type:'ARRAY',minItems:6,maxItems:6,items:{type:'OBJECT',properties:{slug:{type:'STRING'},scope:{type:'STRING',enum:['japan','world']},category:{type:'STRING'},categories:{type:'ARRAY',items:{type:'STRING'}},careerTags:{type:'ARRAY',items:{type:'STRING'}},tags:{type:'ARRAY',items:{type:'STRING'}},titleJa:{type:'STRING'},title:{type:'STRING'},summaryJa:{type:'STRING'},sourcePublishedAt:{type:'STRING'},levels:{type:'OBJECT',properties:{'5級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'4級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'3級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準1級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']}},required:LEVELS},sources:{type:'ARRAY',minItems:1,maxItems:4,items:{type:'OBJECT',properties:{name:{type:'STRING'},url:{type:'STRING'}},required:['name','url']}}},required:['slug','scope','category','categories','careerTags','tags','titleJa','title','summaryJa','levels','sources']}}},required:['articles']};
+const outputSchema={type:'OBJECT',properties:{articles:{type:'ARRAY',minItems:6,maxItems:6,items:{type:'OBJECT',properties:{slug:{type:'STRING'},scope:{type:'STRING',enum:['japan','world']},category:{type:'STRING'},categories:{type:'ARRAY',items:{type:'STRING'}},careerTags:{type:'ARRAY',items:{type:'STRING'}},tags:{type:'ARRAY',items:{type:'STRING'}},titleJa:{type:'STRING'},title:{type:'STRING'},summaryJa:{type:'STRING'},sourcePublishedAt:{type:'STRING'},mission:{type:'OBJECT',properties:{type:{type:'STRING',enum:MISSION_TYPES},purposeJa:{type:'STRING'},followUpJa:{type:'STRING'},questions:{type:'OBJECT',properties:{'5級':{type:'STRING'},'4級':{type:'STRING'},'3級':{type:'STRING'},'準2級':{type:'STRING'},'2級':{type:'STRING'},'準1級':{type:'STRING'}},required:LEVELS}},required:['type','purposeJa','followUpJa','questions']},levels:{type:'OBJECT',properties:{'5級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'4級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'3級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'2級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']},'準1級':{type:'OBJECT',properties:{title:{type:'STRING'},text:{type:'STRING'}},required:['title','text']}},required:LEVELS},sources:{type:'ARRAY',minItems:1,maxItems:4,items:{type:'OBJECT',properties:{name:{type:'STRING'},url:{type:'STRING'}},required:['name','url']}}},required:['slug','scope','category','categories','careerTags','tags','titleJa','title','summaryJa','mission','levels','sources']}}},required:['articles']};
 
 function generationPrompt(editionDate,researchText,sourceList){const targets=regionalStoryTargets();return `
 You are the final editor for TODAY, an English-learning news feature for Japanese high-school students.
@@ -269,7 +271,24 @@ Create six ORIGINAL English versions of the same verified story. Preserve the sa
 - 準1級: about 250-360 words. Nuanced context and sophisticated but natural vocabulary; no unsupported analysis.
 Each level needs its own natural English title.
 
-Do not add comprehension questions, translations, vocabulary lists, commentary, or Markdown. Return only the requested JSON.
+PURPOSEFUL READING MISSION — REQUIRED FOR EVERY STORY:
+- Create exactly one mission that gives the learner a genuine reason to read, not a quiz after reading.
+- Choose the best type from: decision, prediction, advice, ranking, personal, recommendation, information-hunt.
+- The mission must depend on information in THIS story. A learner who skips the article should not be able to answer it well from general opinion alone.
+- Avoid simple factual-recall questions such as “Where did this happen?” or “How many...?”.
+- Avoid asking for sensitive personal, family, health, financial, political, religious, or identifying information.
+- purposeJa: one short Japanese sentence explaining what the learner is reading to decide/find/consider.
+- followUpJa: one short Japanese cue such as 「記事の情報を1つ使って理由も考えよう。」
+- questions: create the SAME core mission at all six Eiken levels, but rewrite the English question to fit each level.
+  5級: extremely simple question, usually one short sentence.
+  4級: simple junior-high English.
+  3級: natural junior-high English with a simple reason/choice when appropriate.
+  準2級: accessible high-school English.
+  2級: more precise reasoning.
+  準1級: nuanced but answerable from the article.
+- Across the six-story edition, vary mission types when the stories allow it; do not make all six “Do you agree?” questions.
+
+Do not add comprehension questions, translations, vocabulary lists, commentary, or Markdown. The mission is a purposeful task, not a comprehension quiz. Return only the requested JSON.
 
 VERIFIED RESEARCH PACKET:
 ${researchText}
@@ -389,6 +408,13 @@ export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,
     const careerTags=uniq(raw.careerTags,4).filter(item=>CAREERS.includes(item));
     const tags=uniq(raw.tags,8);
     const title=text(raw.title,180),summaryJa=text(raw.summaryJa,260),titleJa=shortJapaneseHeadline(raw.titleJa,summaryJa);if(!title||!summaryJa||!titleJa)continue;
+    const missionRaw=raw?.mission||{};
+    const missionType=MISSION_TYPES.includes(missionRaw.type)?missionRaw.type:'';
+    const purposeJa=text(missionRaw.purposeJa,220),followUpJa=text(missionRaw.followUpJa,220);
+    const missionQuestions=Object.fromEntries(LEVELS.map(level=>[level,text(missionRaw?.questions?.[level],420)]));
+    const missionOk=missionType&&purposeJa&&followUpJa&&LEVELS.every(level=>missionQuestions[level]);
+    if(!missionOk)continue;
+    const mission={type:missionType,purposeJa,followUpJa,questions:missionQuestions};
     const levels={};let levelsOk=true;
     for(const level of LEVELS){const item=raw?.levels?.[level];const levelTitle=text(item?.title,180),body=text(item?.text,12000);if(!levelTitle||!body){levelsOk=false;break;}levels[level]={title:levelTitle,text:body,wordCount:wordCount(body)};}
     if(!levelsOk)continue;
@@ -396,7 +422,7 @@ export function normalizeGeneratedArticles(rawArticles,{editionDate,allowedUrls,
     for(const source of Array.isArray(raw.sources)?raw.sources:[]){const key=urlKey(source?.url);const approved=allowedMap.get(key);if(!approved)continue;sources.push({name:text(source?.name,180)||new URL(approved).hostname,url:approved});}
     const cleanSources=[...new Map(sources.map(source=>[urlKey(source.url),source])).values()].slice(0,4);if(!cleanSources.length)continue;
     let base=`${editionDate}-${slugify(raw.slug||title)}`,id=base,suffix=2;while(usedIds.has(id))id=`${base}-${suffix++}`;usedIds.add(id);
-    articles.push({id,date:editionDate,scope,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,titleJa,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),levels,sources:cleanSources});
+    articles.push({id,date:editionDate,scope,category,categories,careerTags:careerTags.length?careerTags:['undecided'],tags,titleJa,title,summaryJa,sourcePublishedAt:text(raw.sourcePublishedAt,40),mission,levels,sources:cleanSources});
   }
   if(articles.length!==6)throw Object.assign(new Error('TODAYの記事を6本に整形できませんでした。'),{status:502});
   if(new Set(articles.map(article=>article.category)).size<5)throw Object.assign(new Error('TODAYの記事分野が偏りすぎています。'),{status:502});

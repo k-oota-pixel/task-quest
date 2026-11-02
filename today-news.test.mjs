@@ -30,7 +30,7 @@ const level=(title,text)=>({title,text});
 const allowedUrls=new Set(Array.from({length:6},(_,i)=>`https://example${i}.com/news`));
 const categories=['science','technology','health','sports','culture','education'];
 const raw=categories.map((category,i)=>({
-  slug:`story-${i+1}`,scope:i<5?'japan':'world',category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`,summaryJa:`記事${i+1}の要約です。`,sourcePublishedAt:'2026-10-31',
+  slug:`story-${i+1}`,scope:i<5?'japan':'world',category,categories:[],careerTags:['undecided'],tags:['tag'],title:`Story ${i+1}`,summaryJa:`記事${i+1}の要約です。`,sourcePublishedAt:'2026-10-31',mission:{type:'decision',purposeJa:'記事の情報を使って考えよう。',followUpJa:'理由も考えよう。',questions:{'5級':'Is this good?','4級':'Do you like this idea?','3級':'Do you think this is a good idea?','準2級':'Would you support this idea? Why?','2級':'Do you think the benefits are greater than the problems?','準1級':'Based on the article, would you support this approach, and why?'}},
   levels:{
     '5級':level('Starter',`This is news number ${i+1}. It is for new English readers. Students can read it today.`),
     '4級':level('Easy',`This is a simple news story number ${i+1}. Students can read it today.`),
@@ -48,6 +48,8 @@ test('TODAY normalizer accepts six diverse regional stories and rejects unverifi
   assert.match(articles[0].id,/^2026-10-31-story-1/);
   assert.ok(articles.every(article=>article.sources.length===1));
   assert.ok(articles.every(article=>Number.isInteger(article.levels['4級'].wordCount)));
+  assert.equal(articles[0].mission.type,'decision');
+  assert.match(articles[0].mission.questions['準2級'],/support/);
   assert.equal(articles.filter(article=>article.scope==='japan').length,5);
   assert.equal(articles.filter(article=>article.scope==='world').length,1);
   assert.throws(()=>normalizeGeneratedArticles(raw.map((item,i)=>i===0?{...item,sources:[{name:'bad',url:'https://evil.example/news'}]}:item),{editionDate:'2026-10-31',allowedUrls}));
@@ -108,7 +110,7 @@ test('feed generation uses six planned sources and limits each prompt to one sto
  assert.equal(plannedStories('{}'),null);
  const prompt=plannedStoryPrompt('2026-10-31',stories[0]);
  assert.match(prompt,/Facts 0/);assert.doesNotMatch(prompt,/Facts 1/);
- assert.match(prompt,/ALL SIX/);assert.match(prompt,/scope/);
+ assert.match(prompt,/ALL SIX/);assert.match(prompt,/scope/);assert.match(prompt,/purposeful reading mission/i);
 });
 
 test('optional search can fall back immediately without a quota retry storm',async()=>{
