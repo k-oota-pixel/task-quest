@@ -70,15 +70,15 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
     return cached('code-directory',async()=>{
       const rows=[];let startAt='',lastName='';
       do{
-        const structuredQuery={from:[{collectionId:'code_accounts'}],select:{fields:[{fieldPath:'uid'},{fieldPath:'loginId'}]},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:1000};
+        const structuredQuery={from:[{collectionId:'code_accounts'}],select:{fields:[{fieldPath:'uid'},{fieldPath:'loginId'},{fieldPath:'codeName'}]},orderBy:[{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:1000};
         if(startAt)structuredQuery.startAt={values:[{referenceValue:startAt}],before:false};
         const result=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery})});
         const documents=result.filter(row=>row.document).map(row=>row.document);
-        for(const doc of documents){if(doc.name>lastName){const data=decodeFields(doc.fields||{});if(data.uid&&data.loginId)rows.push({uid:String(data.uid),codeName:String(data.loginId)});}}
+        for(const doc of documents){if(doc.name>lastName){const data=decodeFields(doc.fields||{});if(data.uid&&data.loginId)rows.push({uid:String(data.uid),loginId:String(data.loginId),codeName:String(data.codeName||'')});}}
         if(documents.length<1000)break;
         lastName=documents.at(-1).name;startAt=lastName;
       }while(true);
-      return new Map(rows.map(row=>[row.uid,row.codeName]));
+      return new Map(rows.map(row=>[row.uid,row]));
     });
   }
   function learningTime(value){const ms=typeof value==='number'?value:Date.parse(value||'');return Number.isFinite(ms)&&ms>0?ms:null;}
@@ -101,7 +101,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       if(more){const last=documents[5];nextPageToken=encode({phase:'recent',at:decodeFields(last.fields).lastLearningAt,name:last.name});}
       else {const waiting=await unrecorded(),room=6-rows.length;rows.push(...waiting.slice(0,room).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null})));if(waiting.length>room)nextPageToken=encode({phase:'unrecorded',offset:room});}
     }else{const waiting=await unrecorded();rows=waiting.slice(c.offset,c.offset+6).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null}));if(waiting.length>c.offset+6)nextPageToken=encode({phase:'unrecorded',offset:c.offset+6});}
-    const codeNames=await codeDirectory();const users=await Promise.all(rows.map(async row=>{const p=await summary(row.uid),nickname=normalizeNickname(p.nickname);return {...row,codeName:codeNames.get(row.uid)||'—',nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),petName:normalizeNickname(p.petName)||'ペット名未設定',coins:Math.max(0,Math.floor(Number(p.coins)||0))};}));
+    const codeNames=await codeDirectory();const users=await Promise.all(rows.map(async row=>{const p=await summary(row.uid),nickname=normalizeNickname(p.nickname),identity=codeNames.get(row.uid)||{};return {...row,codeName:identity.codeName||'',loginId:identity.loginId||'',nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),petName:normalizeNickname(p.petName)||'ペット名未設定',coins:Math.max(0,Math.floor(Number(p.coins)||0))};}));
     return {users,nextPageToken,pageSize:6,fetchedAt:now()};
   });}
   async function search(query){
@@ -112,11 +112,11 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
     const nickByUid=new Map(nicknames.filter(row=>authByUid.has(row.uid)).map(row=>[row.uid,row.nickname]));
     const matchUids=new Set();
     for(const [uid,nickname] of nickByUid)if(nickname.toLocaleLowerCase('ja-JP').includes(needle))matchUids.add(uid);
-    for(const [uid,codeName] of codeNames)if(authByUid.has(uid)&&codeName.toLocaleLowerCase('ja-JP').includes(needle))matchUids.add(uid);
-    const matches=[...matchUids].map(uid=>({uid,nickname:nickByUid.get(uid)||'',codeName:codeNames.get(uid)||'—'}));
+    for(const [uid,account] of codeNames)if(authByUid.has(uid)&&[account.codeName,account.loginId].some(value=>value.toLocaleLowerCase('ja-JP').includes(needle)))matchUids.add(uid);
+    const matches=[...matchUids].map(uid=>{const account=codeNames.get(uid)||{};return {uid,nickname:nickByUid.get(uid)||'',codeName:account.codeName||'',loginId:account.loginId||''};});
     matches.sort((a,b)=>{
-      const ak=a.nickname.toLocaleLowerCase('ja-JP'),bk=b.nickname.toLocaleLowerCase('ja-JP'),ac=a.codeName.toLocaleLowerCase('ja-JP'),bc=b.codeName.toLocaleLowerCase('ja-JP');
-      const aq=Math.min(ak.includes(needle)?(ak===needle?0:ak.startsWith(needle)?1:2):9,ac.includes(needle)?(ac===needle?0:ac.startsWith(needle)?1:2):9),bq=Math.min(bk.includes(needle)?(bk===needle?0:bk.startsWith(needle)?1:2):9,bc.includes(needle)?(bc===needle?0:bc.startsWith(needle)?1:2):9);
+      const rank=value=>{const v=value.toLocaleLowerCase('ja-JP');return v===needle?0:v.startsWith(needle)?1:v.includes(needle)?2:9;};
+      const aq=Math.min(rank(a.nickname),rank(a.codeName),rank(a.loginId)),bq=Math.min(rank(b.nickname),rank(b.codeName),rank(b.loginId));
       if(aq!==bq)return aq-bq;
       const au=authByUid.get(a.uid)||{},bu=authByUid.get(b.uid)||{};
       return a.nickname.localeCompare(b.nickname,'ja-JP');
@@ -124,7 +124,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
     const selected=matches.slice(0,100);
     const users=await Promise.all(selected.map(async row=>{
       const u=authByUid.get(row.uid)||{},p=await summary(row.uid),nickname=normalizeNickname(p.nickname)||row.nickname;
-      return {uid:row.uid,codeName:codeNames.get(row.uid)||'—',nickname,hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),petName:normalizeNickname(p.petName)||'ペット名未設定',createdAt:u.createdAt||null,lastLearningAt:await activity(row.uid),disabled:!!u.disabled};
+      const identity=codeNames.get(row.uid)||{};return {uid:row.uid,codeName:identity.codeName||'',loginId:identity.loginId||'',nickname,hasNickname:validNickname(nickname),coins:Math.max(0,Math.floor(Number(p.coins)||0)),petName:normalizeNickname(p.petName)||'ペット名未設定',createdAt:u.createdAt||null,lastLearningAt:await activity(row.uid),disabled:!!u.disabled};
     }));
     users.sort((a,b)=>(b.lastLearningAt||0)-(a.lastLearningAt||0)||a.nickname.localeCompare(b.nickname,'ja'));
     return {users,query:normalized,total:matches.length,truncated:matches.length>users.length,fetchedAt:now()};
