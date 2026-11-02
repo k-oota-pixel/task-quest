@@ -45,3 +45,5 @@ tMust(" assert.match(prompt,/ALL SIX/);assert.match(prompt,/scope/);",
 " assert.match(prompt,/ALL SIX/);assert.match(prompt,/scope/);assert.match(prompt,/purposeful reading mission/i);",
 'planned prompt mission assertion');
 writeFileSync(testPath,t,'utf8');
+
+// Workflow trigger marker: v2
