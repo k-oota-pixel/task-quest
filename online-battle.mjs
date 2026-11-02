@@ -1,0 +1,161 @@
+const ROOM_IDS=Object.freeze(['1','2','3','4','5']);
+const fail=(message,status=400)=>Object.assign(new Error(message),{status});
+const field=(v)=>v&&typeof v==='object'?v:{};
+const number=(v,fallback=0)=>Number.isFinite(Number(v))?Number(v):fallback;
+const encode=value=>{
+ if(value===null||value===undefined)return {nullValue:null};
+ if(typeof value==='string')return {stringValue:value};
+ if(typeof value==='boolean')return {booleanValue:value};
+ if(Number.isSafeInteger(value))return {integerValue:String(value)};
+ if(typeof value==='number'&&Number.isFinite(value))return {doubleValue:value};
+ if(Array.isArray(value))return {arrayValue:{values:value.map(encode)}};
+ if(typeof value==='object')return {mapValue:{fields:Object.fromEntries(Object.entries(value).map(([k,v])=>[k,encode(v)]))}};
+ return {nullValue:null};
+};
+const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([k,v])=>[k,encode(v)]));
+const walletPath=uid=>'users/'+encodeURIComponent(uid)+'/apps/english-playroom';
+const roomPath=id=>'onlineBattleRooms/room'+id;
+const baseName=(projectId,path)=>'projects/'+projectId+'/databases/(default)/documents/'+path;
+function ageBonuses(days,adult){
+ const out={hp:adult?2:0,attack:adult?1:0,defense:adult?1:0,mp:adult?2:0};
+ if(!adult)return out;
+ const milestones=[[5,2,1,1,2],[10,3,2,2,3],[15,2,1,1,2],[20,3,2,2,3],[25,2,1,1,2],[30,3,2,2,3],[35,2,1,1,2]];
+ for(const [day,hp,attack,defense,mp] of milestones){if(days<day)break;out.hp+=hp;out.attack+=attack;out.defense+=defense;out.mp+=mp;}
+ return out;
+}
+function petStats(data){
+ const base=field(data.petBaseStats),allocation=field(data.petStrength);
+ const hp0=Math.max(10,Math.min(15,Math.floor(number(base.hp,10))));
+ const attack0=Math.max(1,Math.min(6,Math.floor(number(base.attack,1))));
+ const defense0=Math.max(1,Math.min(6,Math.floor(number(base.defense,1))));
+ const mp0=Math.max(6,Math.min(11,Math.floor(number(base.mp,6))));
+ const adult=data.petHatched===true&&data.petAdult!==false,age=ageBonuses(Math.max(0,Math.floor(number(data.petLifeDays))),adult);
+ return {
+  hp:hp0+Math.min(1000,Math.max(0,Math.floor(number(allocation.hp))))*2+age.hp,
+  attack:attack0+Math.min(1000,Math.max(0,Math.floor(number(allocation.attack))))+age.attack,
+  defense:defense0+Math.min(1000,Math.max(0,Math.floor(number(allocation.defense))))+age.defense,
+  mp:mp0+Math.min(1000,Math.max(0,Math.floor(number(allocation.mp))))+age.mp
+ };
+}
+function profile(data,uid){
+ const nickname=typeof data.nickname==='string'&&data.nickname.trim()?data.nickname.trim().slice(0,24):'なまえ未設定';
+ const petName=typeof data.petName==='string'&&data.petName.trim()?data.petName.trim().slice(0,24):(data.petHatched?'ペット':'ふしぎなたまご');
+ return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats:petStats(data),hp:0,ready:false,rematchReady:false,lastActionAt:0};
+}
+function emptyRoom(id){return {roomId:id,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,updatedAt:Date.now()};}
+function safeRoom(value,id){
+ const room={...emptyRoom(id),...value};
+ room.players=Array.isArray(room.players)?room.players.slice(0,2):[];
+ room.seq=Math.max(0,Math.floor(number(room.seq)));
+ return room;
+}
+function publicRoom(value,id){
+ const room=safeRoom(value,id);
+ return {...room,players:room.players.map(p=>({...p,uid:p.uid,petShop:p.petShop||{}}))};
+}
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now}){
+ const error=failExternal||fail;
+ async function getDoc(token,path){
+  const response=await request(base+'/documents/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
+  if(response.status===404)return null;
+  let data={};try{data=await response.json();}catch{}
+  if(!response.ok)throw error('対戦データを読み込めませんでした。',502);
+  return {fields:data.fields||{},updateTime:data.updateTime||'',value:decodeFields(data.fields||{})};
+ }
+ async function userWallet(token,uid){return getDoc(token,walletPath(uid));}
+ async function commit(token,writes){
+  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
+  let data={};try{data=await response.json();}catch{}
+  if(!response.ok){const e=error('対戦状態が更新されました。もう一度お試しください。',response.status===409||response.status===412?409:502);e.retryable=response.status===409||response.status===412||data.error?.status==='ABORTED';throw e;}
+  return data;
+ }
+ function roomWrite(id,room,snapshot){
+  const path=roomPath(id),body={name:baseName(projectId,path),fields:encodeFields(room)};
+  return {update:body,updateMask:{fieldPaths:Object.keys(room)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
+ }
+ function walletWrite(uid,wallet,coins){
+  const path=walletPath(uid);
+  return {update:{name:baseName(projectId,path),fields:{coins:{integerValue:String(coins)}}},updateMask:{fieldPaths:['coins']},currentDocument:wallet?.updateTime?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}]};
+ }
+ async function snapshot(id,token){
+  const doc=await getDoc(token,roomPath(id));
+  return publicRoom(doc?.value||emptyRoom(id),id);
+ }
+ async function rooms(token){return Promise.all(ROOM_IDS.map(id=>snapshot(id,token)));}
+ async function act(id,uid,token,operation,body){
+  for(let attempt=0;attempt<4;attempt++){
+   const stored=await getDoc(token,roomPath(id)),room=safeRoom(stored?.value||emptyRoom(id),id);
+   const players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),writes=[];
+   if(operation==='join'){
+    if(index>=0)return {room:publicRoom(room,id)};
+    if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
+    const wallet=await userWallet(token,uid),data=wallet?.value||{};
+    const player=profile(data,uid);player.hp=player.stats.hp;players.push(player);
+    room.players=players;room.status='waiting';room.updatedAt=now();room.seq++;
+    writes.push(roomWrite(id,room,stored));
+   }else if(operation==='leave'){
+    if(index<0)return {room:publicRoom(room,id)};
+    if(room.status==='playing')throw error('対戦中は退室できません。',409);
+    room.players=players.filter(p=>p.uid!==uid).map(p=>({...p,ready:false,rematchReady:false}));
+    room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.seq++;room.updatedAt=now();
+    writes.push(roomWrite(id,room,stored));
+   }else{
+    if(index<0)throw error('先にルームへ入室してください。',403);
+    if(operation==='ready'){
+     if(room.status!=='waiting'||players.length!==2)throw error('相手が入室するまでお待ちください。',409);
+     players[index]={...players[index],ready:true};room.players=players;
+     if(players.every(p=>p.ready)){
+      const wallets=await Promise.all(players.map(p=>userWallet(token,p.uid)));
+      const balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
+      if(balances.some(value=>value<1))throw error('対戦開始には２人とも１コイン必要です。',400);
+      players.forEach(p=>{p.hp=p.stats.hp;p.lastActionAt=0;p.rematchReady=false;});
+      room.players=players;room.status='playing';room.winnerUid='';room.lastEvent={type:'start',at:now()};
+      wallets.forEach((wallet,i)=>writes.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
+     }
+    }else if(operation==='attack'){
+     if(room.status!=='playing')throw error('対戦中ではありません。',409);
+     const attacker=players[index],targetIndex=index===0?1:0,defender=players[targetIndex],at=now();
+     if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
+     const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
+     defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);
+     attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
+     if(defender.hp<=0){
+      room.status='finished';room.winnerUid=uid;
+      const winnerWallet=await userWallet(token,uid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));
+      writes.push(walletWrite(uid,winnerWallet,coins+2));
+     }
+    }else if(operation==='continue'){
+     if(room.status!=='finished')throw error('対戦結果が確定していません。',409);
+     players[index]={...players[index],rematchReady:true};room.players=players;
+     if(players.every(p=>p.rematchReady)){
+      const wallets=await Promise.all(players.map(p=>userWallet(token,p.uid)));
+      const balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
+      if(balances.some(value=>value<1))throw error('再戦には２人とも１コイン必要です。',400);
+      wallets.forEach((wallet,i)=>writes.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
+      players.forEach(p=>{p.hp=p.stats.hp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;});
+      room.players=players;room.status='playing';room.winnerUid='';room.lastEvent={type:'start',at:now()};
+     }
+    }else throw error('操作が正しくありません。',400);
+    room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
+   }
+   try{await commit(token,writes);return {room:publicRoom(room,id)};}
+   catch(e){if(e.retryable&&attempt<3)continue;throw e;}
+  }
+  throw error('対戦状態の更新が競合しました。もう一度お試しください。',409);
+ }
+ async function handle(req,res,path){
+  try{
+   const user=await verifyUser(req),token=await accessToken();
+   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(token)});
+   const match=path.match(/^\/api\/online-battle\/room\/([1-5])(?:\/(join|ready|attack|continue|leave))?$/);
+   if(!match)throw error('対戦ルームが見つかりません。',404);
+   const id=match[1],operation=match[2];
+   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,token)});
+   if(req.method!=='POST'||!operation)throw error('この操作は利用できません。',405);
+   const body=await readJson(req,1024);
+   const result=await act(id,user.uid,token,operation,body);
+   send(res,200,{ok:true,...result});
+  }catch(e){send(res,e.status||500,{error:e.message||'オンライン対戦でエラーが発生しました。'});}
+ }
+ return {handle};
+}

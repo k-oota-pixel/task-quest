@@ -17,6 +17,7 @@ import {createAdminData} from './admin-data.mjs';
 import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
+import {createOnlineBattle} from './online-battle.mjs';
 import {createTodayNewsGenerator} from './today-news.mjs';
 import {createContactMessage} from './contact-message.mjs';
 import http from 'node:http';
@@ -297,6 +298,7 @@ const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KE
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
 const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds});
+const onlineBattle=createOnlineBattle({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,fail,decodeFields});
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
@@ -304,6 +306,7 @@ export const server=http.createServer(async(req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
   if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
+  if(path.startsWith('/api/online-battle'))return onlineBattle.handle(req,res,path);
   if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest"].includes(path)){
     try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
   }
