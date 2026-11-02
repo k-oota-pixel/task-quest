@@ -1,13 +1,13 @@
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
 
 export const TOWER_SEASON='2026-11-maou';
-const RANKING_SCHEMA=3;
+const RANKING_SCHEMA=4;
 const MODES={tower:'wordTowerBest',dungeon:'eikenDungeonBest'};
 const TOP_RANK=3;
 const floorOf=n=>Number.isSafeInteger(n)&&n>0&&n<=100000?n:0;
 function petNameOf(value){const name=typeof value==='string'?value.normalize('NFKC').trim().replace(/\s+/g,' '):'';return name&&[...name].length<=12&&!/[\u0000-\u001f\u007f]/.test(name)?name:'名前未設定のペット';}
 function rankTopThree(entries){
- const rows=[...entries].sort((a,b)=>b.floor-a.floor||a.uid.localeCompare(b.uid));let previous=null,rank=0;
+ const rows=[...entries].sort((a,b)=>b.floor-a.floor||Number(b.cleared===true)-Number(a.cleared===true)||a.uid.localeCompare(b.uid));let previous=null,rank=0;
  return rows.map((row,index)=>{if(row.floor!==previous){rank=index+1;previous=row.floor;}return {...row,rank};}).filter(row=>row.rank<=TOP_RANK);
 }
 function sanitizeLeaders(list){
