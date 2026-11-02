@@ -1,4 +1,5 @@
-const ROOM_IDS=Object.freeze(['1','2','3','4','5']);
+const ROOM_IDS=Object.freeze(Array.from({length:12},(_,index)=>String(index+1)));
+const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const n=Number(id);const block=Math.floor((n-1)/3);return [id,{grade:['4級','3級','準2級','2級'][block]||'2級',noItems:n%3===0}]})));
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const field=(v)=>v&&typeof v==='object'?v:{};
 const number=(v,fallback=0)=>Number.isFinite(Number(v))?Number(v):fallback;
@@ -42,7 +43,7 @@ function profile(data,uid){
  const petName=typeof data.petName==='string'&&data.petName.trim()?data.petName.trim().slice(0,24):(data.petHatched?'ペット':'ふしぎなたまご');
  return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats:petStats(data),hp:0,ready:false,rematchReady:false,lastActionAt:0};
 }
-function emptyRoom(id){return {roomId:id,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,updatedAt:Date.now()};}
+function emptyRoom(id){const rules=ROOM_RULES[id]||{grade:'4級',noItems:false};return {roomId:id,grade:rules.grade,noItems:rules.noItems,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2):[];
@@ -147,7 +148,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   try{
    const user=await verifyUser(req),token=await accessToken();
    if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(token)});
-   const match=path.match(/^\/api\/online-battle\/room\/([1-5])(?:\/(join|ready|attack|continue|leave))?$/);
+   const match=path.match(/^\/api\/online-battle\/room\/(1[0-2]|[1-9])(?:\/(join|ready|attack|continue|leave))?$/);
    if(!match)throw error('対戦ルームが見つかりません。',404);
    const id=match[1],operation=match[2];
    if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,token)});
