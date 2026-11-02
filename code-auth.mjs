@@ -88,17 +88,20 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     }
     if(route==='/api/admin/code-name-import'){
      if(!Array.isArray(body.codes)||body.codes.length<1||body.codes.length>200||body.codes.some(value=>!/^[A-Z0-9]{6}$/.test(normalizeCode(value))))throw fail('登録コードデータが不正です。',400);
-     const writes=[],seen=new Set();let unlinked=0,unchanged=0;
-     for(const raw of new Set(body.codes)){
-      const code=normalizeCode(raw),stored=await read('registration_codes',digest(code));
-      if(!stored?.value.uid){unlinked++;continue;}
-      const account=await state(stored.value.uid);
-      if(!account){unlinked++;continue;}
-      if(account.value.codeName){unchanged++;continue;}
-      if(seen.has(account.value.uid)){unchanged++;continue;}
-      seen.add(account.value.uid);
-      writes.push(write('code_accounts',digest(account.value.loginId),{...account.value,codeName:code},account));
-     }
+     const codes=[...new Set(body.codes.map(normalizeCode))],docName=(collection,id)=>prefix+collection+'/'+id;
+     const fetchDocs=async names=>{
+      if(!names.length)return new Map();
+      const rows=await request(base+'/documents:batchGet',{method:'POST',body:JSON.stringify({documents:names})});
+      return new Map(rows.filter(row=>row.found).map(row=>[row.found.name,{value:decodeFields(row.found.fields||{}),updateTime:row.found.updateTime}]));
+     };
+     const codeDocs=await fetchDocs(codes.map(code=>docName('registration_codes',digest(code))));
+     const codeByUid=new Map();let unlinked=0,unchanged=0;
+     for(const code of codes){const doc=codeDocs.get(docName('registration_codes',digest(code)));if(!doc?.value.uid){unlinked++;continue;}codeByUid.set(String(doc.value.uid),code);}
+     const uidDocs=await fetchDocs([...codeByUid.keys()].map(uid=>docName('account_uids',uid)));
+     const uidToAccountKey=new Map();
+     for(const uid of codeByUid.keys()){const index=uidDocs.get(docName('account_uids',uid));if(index?.value.idKey)uidToAccountKey.set(uid,String(index.value.idKey));else unlinked++;}
+     const accountNames=[...new Set([...uidToAccountKey.values()])].map(idKey=>docName('code_accounts',idKey)),accountDocs=await fetchDocs(accountNames),writes=[],seen=new Set();
+     for(const [uid,code] of codeByUid){const idKey=uidToAccountKey.get(uid);if(!idKey)continue;const name=docName('code_accounts',idKey),account=accountDocs.get(name);if(!account){unlinked++;continue;}if(account.value.codeName){unchanged++;continue;}if(seen.has(name)){unchanged++;continue;}seen.add(name);writes.push(write('code_accounts',idKey,{...account.value,codeName:code},account));}
      if(writes.length)await commit(writes);
      return send(res,200,{restored:writes.length,unchanged,unlinked});
     }
