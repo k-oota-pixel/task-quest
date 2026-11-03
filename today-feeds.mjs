@@ -12,7 +12,7 @@ const CURATED_SOURCES=[
   {kind:'rss',name:'GIGAZINE',publisher:'GIGAZINE',url:'https://gigazine.net/news/rss_2.0/',category:'technology',scope:'japan',sourceType:'newsroom'},
   {kind:'html',name:'Gizmodo Japan',publisher:'Gizmodo Japan',url:'https://www.gizmodo.jp/',category:'technology',scope:'japan',include:/\/article\//i,sourceType:'newsroom'},
   {kind:'html',name:'Toyokeizai Online',publisher:'Toyokeizai',url:'https://toyokeizai.net/articles',category:'business',scope:'japan',include:/\/articles\/-\//i,sourceType:'newsroom'},
-  {kind:'html',name:'Mynavi News',publisher:'Mynavi News',url:'https://news.mynavi.jp/',category:'culture',scope:'japan',include:/\/(?:article|techplus\/article)\//i,sourceType:'newsroom'},
+  {kind:'html',name:'Mynavi News',publisher:'Mynavi News',url:'https://news.mynavi.jp/list/headline/entertainment/entertainment/',category:'culture',scope:'japan',include:/\/article\//i,sourceType:'newsroom'},
   {kind:'html',name:'JAXA Japan',publisher:'JAXA',url:'https://www.jaxa.jp/press/',category:'science',scope:'japan',include:/\/press\//i,sourceType:'institution'},
   {kind:'rss',name:'BBC World',publisher:'BBC',url:'https://feeds.bbci.co.uk/news/world/rss.xml',category:'world',sourceType:'newsroom'},
   {kind:'rss',name:'BBC Sport',publisher:'BBC',url:'https://feeds.bbci.co.uk/sport/rss.xml',category:'sports',sourceType:'newsroom'},
