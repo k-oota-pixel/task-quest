@@ -39,6 +39,20 @@ export function validateTitleEvent(b,fail){
  if(e.appId==='today'&&(!['5級','4級','3級','準2級','2級','準1級'].includes(e.grade)||!/^\d{4}-\d{2}-\d{2}$/.test(e.course||'')))throw fail('記事の記録が不正です。',400);
  return e;
 }
+function retryFirstStatsWrite(prefix,events){
+ const first=(events||[]).filter(event=>event?.appId==='eiken-retry'&&event.first===true&&event.itemId&&event.grade);
+ if(!first.length)return null;
+ const seen=new Set(),itemFields={},fieldPaths=['schemaVersion'],transforms=[];
+ for(const event of first){
+  const key=keyOf(event.itemId);if(seen.has(key))continue;seen.add(key);
+  itemFields[key]=encode({id:event.itemId,grade:event.grade});
+  fieldPaths.push(`items.${key}.id`,`items.${key}.grade`);
+  transforms.push({fieldPath:`items.${key}.attempts`,increment:{integerValue:'1'}});
+  if(event.correct)transforms.push({fieldPath:`items.${key}.correct`,increment:{integerValue:'1'}});
+ }
+ transforms.push({fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'});
+ return {update:{name:prefix+'analytics/retry-question-first-v1',fields:{schemaVersion:encode(1),items:{mapValue:{fields:itemFields}}}},updateMask:{fieldPaths},updateTransforms:transforms};
+}
 const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
 export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
@@ -71,11 +85,12 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
    const unlocked=new Set(creativeTitles(body.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(body.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
    const reward=grammarUnits[body.appId]?grammarRewardWrites({rows,previous:next,appId:body.appId,day,prefix,uid:user.uid,decodeFields}):{writes:[],coins:0};
+   const retryStats=retryFirstStatsWrite(prefix,events);
    if(freshTitles.length&&reward.writes.length)reward.writes[0].updateTransforms.push({fieldPath:'titleCountRevision',increment:{integerValue:'1'}});
    const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[
     {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),counts:encode(usageCounts),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
     {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},
-    ...reward.writes,...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])
+    ...reward.writes,...(retryStats?[retryStats]:[]),...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])
    ]})});
    if(commit.ok){if(limited){if(recentBatches.size>=2000)recentBatches.delete(recentBatches.keys().next().value);recentBatches.set(cacheKey,{until:now+300000});}return send(res,200,{ok:true,freshTitles,awardedCoins:reward.coins});}
    const error=await commit.json?.().catch(()=>({}))||{};

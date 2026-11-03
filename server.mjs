@@ -14,6 +14,7 @@ import {createShopNameChanges} from './shop-name-changes.mjs';
 import {createPetCatchRecords} from './pet-catch-records.mjs';
 import {createWordBreakerRecords} from './word-breaker-records.mjs';
 import {createAdminData} from './admin-data.mjs';
+import {createRetryQuestionStats} from './retry-question-stats.mjs';
 import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
@@ -195,6 +196,7 @@ async function handleDailyCoinLeaderboard(req,res){
 }
 const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,serviceAccount:getServiceAccount,verifyUser:verifyRawUser,verifyAdmin,isAdmin:user=>isAdministrator(user,ADMIN_EMAIL),readJson,send,fail,encodeFields:encodeFirestoreFields,decodeFields});
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname});
+const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:adminData.invalidate});
 const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
@@ -333,6 +335,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/material-open')return handleMaterialOpen(req,res);
   if(path==='/api/material-activity')return handleMaterialActivity(req,res);
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
+  if(path==='/api/admin/retry-question-stats')return handleRetryQuestionStats(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
