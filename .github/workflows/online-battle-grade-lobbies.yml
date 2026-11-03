@@ -1,0 +1,83 @@
+name: Online battle grade lobby rollout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/online-battle-grade-lobbies.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch online battle backend
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p=Path('online-battle.mjs')
+          s=p.read_text(encoding='utf-8')
+
+          def once(old,new):
+              global s
+              if old not in s:
+                  raise SystemExit('expected text not found: '+old[:120])
+              s=s.replace(old,new,1)
+
+          once("const ROOM_IDS=Object.freeze(Array.from({length:12},(_,index)=>String(index+1)));\nconst ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const n=Number(id);const block=Math.floor((n-1)/3);return [id,{grade:['4級','3級','準2級','2級'][block]||'2級',noItems:n%3===0}]})));",
+          "const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);\nconst GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));\nconst ROOM_IDS=Object.freeze(GRADE_CONFIG.flatMap(entry=>Array.from({length:10},(_,index)=>`${entry.key}-${index+1}`)));\nconst ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const [gradeKey,roomNoText]=id.split('-');const config=GRADE_BY_KEY[gradeKey]||GRADE_CONFIG[0];return [id,{gradeKey,grade:config.grade,roomNo:Number(roomNoText)||1,noItems:false}]})));" )
+
+          once("const roomPath=id=>'onlineBattleRooms/room'+id;",
+               "const roomPath=id=>'onlineBattleRooms/room'+id;\nconst lobbyPath=gradeKey=>'onlineBattleLobbies/'+gradeKey;")
+
+          once("function emptyRoom(id){const rules=ROOM_RULES[id]||{grade:'4級',noItems:false};return {roomId:id,grade:rules.grade,noItems:rules.noItems,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchEndedAt:0,updatedAt:Date.now()};}",
+               "function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchEndedAt:0,updatedAt:Date.now()};}")
+
+          marker="function publicRoom(value,id){\n const room=safeRoom(value,id);\n return {...room,players:room.players.map(p=>({...p,uid:p.uid,petShop:p.petShop||{}}))};\n}\n"
+          insert=marker+"function lobbyState(room,id){\n const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1};\n return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status:room.status||'open',playerCount:Array.isArray(room.players)?Math.min(2,room.players.length):0,updatedAt:Math.max(0,Math.floor(number(room.updatedAt,0)))};\n}\nfunction lobbyStateChanged(before,after){return before.status!==after.status||before.playerCount!==after.playerCount;}\n"
+          once(marker,insert)
+
+          once(" async function roomDoc(token,id){return getDocAt(battle.base,token,roomPath(id));}",
+               " async function roomDoc(token,id){return getDocAt(battle.base,token,roomPath(id));}\n async function lobbyDoc(token,gradeKey){return getDocAt(battle.base,token,lobbyPath(gradeKey),'ロビー情報を読み込めませんでした。');}")
+
+          roomwrite=" function roomWrite(id,room,snapshot){\n  const path=roomPath(id),body={name:baseName(battle.projectId,path),fields:encodeFields(room)};\n  return {update:body,updateMask:{fieldPaths:Object.keys(room)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};\n }\n"
+          lobbywrite=roomwrite+" function lobbyWrite(id,room){\n  const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1},key='room'+rules.roomNo,path=lobbyPath(rules.gradeKey),state=lobbyState(room,id);\n  return {update:{name:baseName(battle.projectId,path),fields:{[key]:encode(state),gradeKey:encode(rules.gradeKey),grade:encode(rules.grade),updatedAt:encode(Math.max(0,Math.floor(number(room.updatedAt,Date.now()))))}},updateMask:{fieldPaths:[key,'gradeKey','grade','updatedAt']}};\n }\n"
+          once(roomwrite,lobbywrite)
+
+          once("   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc)]);return publicRoom(cleaned.room,id);}",
+               "   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc),lobbyWrite(id,cleaned.room)]);return publicRoom(cleaned.room,id);}")
+
+          once(" async function rooms(roomToken){return Promise.all(ROOM_IDS.map(id=>snapshot(id,roomToken)));}",
+               " async function lobbySummary(roomToken,gradeKey){\n  const config=GRADE_BY_KEY[gradeKey];if(!config)throw error('級が見つかりません。',404);\n  const doc=await lobbyDoc(roomToken,gradeKey),value=doc?.value||{};\n  const rooms=Array.from({length:10},(_,index)=>{const roomNo=index+1,id=`${gradeKey}-${roomNo}`,saved=field(value['room'+roomNo]);return {roomId:id,roomNo,gradeKey,grade:config.grade,status:typeof saved.status==='string'?saved.status:'open',playerCount:Math.max(0,Math.min(2,Math.floor(number(saved.playerCount,0)))),updatedAt:Math.max(0,Math.floor(number(saved.updatedAt,0)))};});\n  return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};\n }")
+
+          once("    try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored)]);continue;}",
+               "    try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored),lobbyWrite(id,cleaned.room)]);continue;}")
+
+          once("   const room=cleaned.room,players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];",
+               "   const room=cleaned.room,beforeLobby=lobbyState(room,id),players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];")
+
+          once("   let roomCommitted=false;\n   try{",
+               "   if(roomWrites.length&&lobbyStateChanged(beforeLobby,lobbyState(room,id)))roomWrites.push(lobbyWrite(id,room));\n   let roomCommitted=false;\n   try{")
+
+          once("   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(roomToken)});\n   const match=path.match(/^\\/api\\/online-battle\\/room\\/(1[0-2]|[1-9])(?:\\/(join|ready|attack|magic|item|miss|continue|leave))?$/);",
+               "   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:[]});\n   const lobbyMatch=path.match(/^\\/api\\/online-battle\\/lobby\\/(4|3|pre2|2)$/);\n   if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(roomToken,lobbyMatch[1])});\n   const match=path.match(/^\\/api\\/online-battle\\/room\\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\\/(join|ready|attack|magic|item|miss|continue|leave))?$/);")
+
+          p.write_text(s,encoding='utf-8')
+      - name: Validate backend
+        run: |
+          node --check online-battle.mjs
+          node --test online-battle.test.mjs
+      - name: Commit backend rollout
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add online-battle.mjs
+          git diff --cached --check
+          git commit -m "Add grade lobby summaries for online battle"
+          git push
