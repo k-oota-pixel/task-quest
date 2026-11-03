@@ -19,79 +19,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Add retry first-attempt aggregation and admin API
+      - name: Apply retry stats patch
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          stats_module = r'''export function createRetryQuestionStats({base,accessToken,verifyAdmin,decodeFields,send,fail,fetch:request=fetch}){
-  const allowedGrades=new Set(['4級','3級','準2級','2級','準1級']);
-  const allowedLimits=new Set([10,20,30,50,100]);
-  return async(req,res)=>{try{
-    if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
-    await verifyAdmin(req);
-    const url=new URL(req.url,'http://localhost'),grade=String(url.searchParams.get('grade')||'準2級');
-    if(!allowedGrades.has(grade))throw fail('級を確認してください。',400);
-    const requested=Number(url.searchParams.get('limit')||20),limit=allowedLimits.has(requested)?requested:20;
-    const token=await accessToken();
-    const response=await request(base+'/documents/analytics/retry-question-first-v1',{headers:{Authorization:'Bearer '+token}});
-    if(response.status===404)return send(res,200,{grade,limit,total:0,rows:[],updatedAt:''});
-    let raw={};try{raw=await response.json();}catch{}
-    if(!response.ok)throw fail('リトライ難問ランキングを取得できませんでした。',502);
-    const data=decodeFields(raw.fields||{}),items=data.items&&typeof data.items==='object'?data.items:{};
-    const rows=Object.values(items).filter(item=>item&&item.grade===grade&&Number(item.attempts)>0).map(item=>{
-      const attempts=Math.max(0,Math.floor(Number(item.attempts)||0)),correct=Math.max(0,Math.min(attempts,Math.floor(Number(item.correct)||0)));
-      return {id:String(item.id||''),attempts,correct,accuracy:attempts?Math.round(correct/attempts*1000)/10:0};
-    }).filter(row=>row.id).sort((a,b)=>a.accuracy-b.accuracy||b.attempts-a.attempts||a.id.localeCompare(b.id,'ja')).slice(0,limit);
-    return send(res,200,{grade,limit,total:Object.values(items).filter(item=>item&&item.grade===grade&&Number(item.attempts)>0).length,rows,updatedAt:data.updatedAt||raw.updateTime||''});
-  }catch(error){send(res,error.status||500,{error:error.message||'リトライ難問ランキングを取得できませんでした。'});}};
-}
-'''
-          Path('retry-question-stats.mjs').write_text(stats_module,encoding='utf-8')
-
-          p=Path('creative-title-events.mjs'); s=p.read_text(encoding='utf-8')
-          if 'function retryFirstStatsWrite' not in s:
-            marker="const titleCountInvalidation=(prefix,uid)=>"
-            helper=r'''function retryFirstStatsWrite(prefix,events){
- const first=(events||[]).filter(event=>event?.appId==='eiken-retry'&&event.first===true&&event.itemId&&event.grade);
- if(!first.length)return null;
- const seen=new Set(),itemFields={},fieldPaths=['schemaVersion'],transforms=[];
- for(const event of first){
-  const key=keyOf(event.itemId);if(seen.has(key))continue;seen.add(key);
-  itemFields[key]=encode({id:event.itemId,grade:event.grade});
-  fieldPaths.push(`items.${key}.id`,`items.${key}.grade`);
-  transforms.push({fieldPath:`items.${key}.attempts`,increment:{integerValue:'1'}});
-  if(event.correct)transforms.push({fieldPath:`items.${key}.correct`,increment:{integerValue:'1'}});
- }
- transforms.push({fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'});
- return {update:{name:prefix+'analytics/retry-question-first-v1',fields:{schemaVersion:encode(1),items:{mapValue:{fields:itemFields}}}},updateMask:{fieldPaths},updateTransforms:transforms};
-}
-'''
-            assert marker in s
-            s=s.replace(marker,helper+marker,1)
-          if 'const retryStats=retryFirstStatsWrite(prefix,events);' not in s:
-            target="const reward=grammarUnits[body.appId]?grammarRewardWrites({rows,previous:next,appId:body.appId,day,prefix,uid:user.uid,decodeFields}):{writes:[],coins:0};"
-            assert target in s
-            s=s.replace(target,target+"\n   const retryStats=retryFirstStatsWrite(prefix,events);",1)
-          old="...reward.writes,...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])"
-          new="...reward.writes,...(retryStats?[retryStats]:[]),...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])"
-          if new not in s:
-            assert old in s
-            s=s.replace(old,new,1)
-          p.write_text(s,encoding='utf-8')
-
-          p=Path('server.mjs'); s=p.read_text(encoding='utf-8')
-          imp="import {createRetryQuestionStats} from './retry-question-stats.mjs';\n"
-          if imp not in s:
-            anchor="import {createAdminData} from './admin-data.mjs';\n"; assert anchor in s;s=s.replace(anchor,anchor+imp,1)
-          init="const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});\n"
-          if init not in s:
-            anchor="const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname});\n";assert anchor in s;s=s.replace(anchor,anchor+init,1)
-          route="  if(path==='/api/admin/retry-question-stats')return handleRetryQuestionStats(req,res);\n"
-          if route not in s:
-            anchor="  if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);\n";assert anchor in s;s=s.replace(anchor,anchor+route,1)
-          p.write_text(s,encoding='utf-8')
-          PY
+          echo 'CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKc3RhdHNfbW9kdWxlID0gIiIiZXhwb3J0IGZ1bmN0aW9uIGNyZWF0ZVJldHJ5UXVlc3Rpb25TdGF0cyh7YmFzZSxhY2Nlc3NUb2tlbix2ZXJpZnlBZG1pbixkZWNvZGVGaWVsZHMsc2VuZCxmYWlsLGZldGNoOnJlcXVlc3Q9ZmV0Y2h9KXsKICBjb25zdCBhbGxvd2VkR3JhZGVzPW5ldyBTZXQoWyc054qnJywnM+e0pScsJ+a6lu+8kue0pScsJzLntJonXSk7CiAgY29uc3QgYWxsb3dlZExpbWl0cz1uZXcgU2V0KFsxMCwyMCwzMCw1MCwxMDBdKTsKICByZXR1cm4gYXN5bmMocmVxLHJlcyk9Pnt0cnl7CiAgICBpZihyZXEubWV0aG9kIT09J0dFVCcpdGhyb3cgZmFpbCgnR0VU44Gu44G/5a++5b+c44GX44Gm44GE44G+44GZ44CCJyw0MDUpOwogICAgYXdhaXQgdmVyaWZ5QWRtaW4ocmVxKTsKICAgIGNvbnN0IHVybD1uZXcgVVJMKHJlcS51cmwsJ2h0dHA6Ly9sb2NhbGhvc3QnKSxncmFkZT1TdHJpbmcodXJsLnNlYXJjaFBhcmFtcy5nZXQoJ2dyYWRlJyl8fCfmupbvvJLntJonKTsKICAgIGlmKCFhbGxvd2VkR3JhZGVzLmhhcyhncmFkZSkpdGhyb3cgZmFpbCgn57Sa44KS56K66KqN44GX44Gm44GP44Gg44GV44GE44CCJyw0MDApOwogICAgY29uc3QgcmVxdWVzdGVkPU51bWJlcih1cmwuc2VhcmNoUGFyYW1zLmdldCgnbGltaXQnKXx8MjApLGxpbWl0PWFsbG93ZWRMaW1pdHMuaGFzKHJlcXVlc3RlZCk/cmVxdWVzdGVkOjIwOwogICAgY29uc3QgdG9rZW49YXdhaXQgYWNjZXNzVG9rZW4oKTsKICAgIGNvbnN0IHJlc3BvbnNlPWF3YWl0IHJlcXVlc3QoYmFzZSsnL2RvY3VtZW50cy9hbmFseXRpY3MvcmV0cnktcXVlc3Rpb24tZmlyc3QtdjEnLHtoZWFkZXJzOntBdXRob3JpemF0aW9uOidCZWFyZXIgJyt0b2tlbn19KTsKICAgIGlmKHJlc3BvbnNlLnN0YXR1cz09PTQwNClyZXR1cm4gc2VuZChyZXMsMjAwLHtncmFkZSxsaW1pdCx0b3RhbDowLHJvd3M6W10sdXBkYXRlZEF0OicnfSk7CiAgICBsZXQgcmF3PXt9O3RyeXtyYXc9YXdhaXQgcmVzcG9uc2UuanNvbigpO31jYXRjaHt9CiAgICBpZighcmVzcG9uc2Uub2spdGhyb3cgZmFpbCgn44Oq44OI44Op44Kk6Zuj5ZWP44Op44Oz44Kt44Oz44Kw44KS5Y+W5b6X44Gn44GN44G+44Gb44KT44Gn44GX44Gf44CCJyw1MDIpOwogICAgY29uc3QgZGF0YT1kZWNvZGVGaWVsZHMocmF3LmZpZWxkc3x8e30pLGl0ZW1zPWRhdGEuaXRlbXMmJnR5cGVvZiBkYXRhLml0ZW1zPT09J29iamVjdCc/ZGF0YS5pdGVtczp7fTsKICAgIGNvbnN0IGFsbD1PYmplY3QudmFsdWVzKGl0ZW1zKS5maWx0ZXIoaXRlbT0+aXRlbSYmaXRlbS5ncmFkZT09PWdyYWRlJiZOdW1iZXIoaXRlbS5hdHRlbXB0cyk+MCkubWFwKGl0ZW09PnsKICAgICAgY29uc3QgYXR0ZW1wdHM9TWF0aC5tYXgoMCxNYXRoLmZsb29yKE51bWJlcihpdGVtLmF0dGVtcHRzKXx8MCkpLGNvcnJlY3Q9TWF0aC5tYXgoMCxNYXRoLm1pbihhdHRlbXB0cyxNYXRoLmZsb29yKE51bWJlcihpdGVtLmNvcnJlY3QpfHwwKSkpOwogICAgICByZXR1cm4ge2lkOlN0cmluZyhpdGVtLmlkfHwnJyksYXR0ZW1wdHMsY29ycmVjdCxhY2N1cmFjeTphdHRlbXB0cz9NYXRoLnJvdW5kKGNvcnJlY3QvYXR0ZW1wdHMqMTAwMCkvMTA6MH07CiAgICB9KS5maWx0ZXIocm93PT5yb3cuaWQpLnNvcnQoKGEsYik9PmEuYWNjdXJhY3ktYi5hY2N1cmFjeXx8Yi5hdHRlbXB0cy1hLmF0dGVtcHRzfHxhLmlkLmxvY2FsZUNvbXBhcmUoYi5pZCwnamEnKSk7CiAgICByZXR1cm4gc2VuZChyZXMsMjAwLHtncmFkZSxsaW1pdCx0b3RhbDphbGwubGVuZ3RoLHJvd3M6YWxsLnNsaWNlKDAsbGltaXQpLHVwZGF0ZWRBdDpkYXRhLnVwZGF0ZWRBdHx8cmF3LnVwZGF0ZVRpbWV8fCd9KTsKICB9Y2F0Y2goZXJyb3Ipe3NlbmQocmVzLGVycm9yLnN0YXR1c3x8NTAwLHtlcnJvcjplcnJvci5tZXNzYWdlfHwn44Oq44OI44Op44Kk6Zuj5ZWP44Op44Oz44Kt44Oz44Kw44KS5Y+W5b6X44Gn44GN44G+44Gb44KT44Gn44GX44Gf44CCJ30pO319Owp9CiIiIgpQYXRoKCdyZXRyeS1xdWVzdGlvbi1zdGF0cy5tanMnKS53cml0ZV90ZXh0KHN0YXRzX21vZHVsZSxlbmNvZGluZz0ndXRmLTgnKQoKcD1QYXRoKCdjcmVhdGl2ZS10aXRsZS1ldmVudHMubWpzJykKcz1wLnJlYWRfdGV4dChlbmNvZGluZz0ndXRmLTgnKQppZiAnZnVuY3Rpb24gcmV0cnlGaXJzdFN0YXRzV3JpdGUnIG5vdCBpbiBzOgogICAgbWFya2VyPSJjb25zdCB0aXRsZUNvdW50SW52YWxpZGF0aW9uPShwcmVmaXgsdWlkKT0+IgogICAgaGVscGVyPSIiImZ1bmN0aW9uIHJldHJ5Rmlyc3RTdGF0c1dyaXRlKHByZWZpeCxldmVudHMpewogY29uc3QgZmlyc3Q9KGV2ZW50c3x8W10pLmZpbHRlcihldmVudD0+ZXZlbnQ/LmFwcElkPT09J2Vpa2VuLXJldHJ5JyYmZXZlbnQuZmlyc3Q9PT10cnVlJiZldmVudC5pdGVtSWQmJmV2ZW50LmdyYWRlKTsKIGlmKCFmaXJzdC5sZW5ndGgpcmV0dXJuIG51bGw7CiBjb25zdCBzZWVuPW5ldyBTZXQoKSxpdGVtRmllbGRzPXt9LGZpZWxkUGF0aHM9WydzY2hlbWFWZXJzaW9uJ10sdHJhbnNmb3Jtcz1bXTsKIGZvcihjb25zdCBldmVudCBvZiBmaXJzdCl7CiAgY29uc3Qga2V5PWtleU9mKGV2ZW50Lml0ZW1JZCk7aWYoc2Vlbi5oYXMoa2V5KSljb250aW51ZTtzZWVuLmFkZChrZXkpOwogIGl0ZW1GaWVsZHNba2V5XT1lbmNvZGUoe2lkOmV2ZW50Lml0ZW1JZCxncmFkZTpldmVudC5ncmFkZX0pOwogIGZpZWxkUGF0aHMucHVzaChgaXRlbXMuJHtrZXl9LmlkYCxgaXRlbXMuJHtrZXl9LmdyYWRlYCk7CiAgdHJhbnNmb3Jtcy5wdXNoKHtmaWVsZFBhdGg6YGl0ZW1zLiR7a2V5fS5hdHRlbXB0c2AsaW5jcmVtZW50OntpbnRlZ2VyVmFsdWU6JzEnfX0pOwogIGlmKGV2ZW50LmNvcnJlY3QpdHJhbnNmb3Jtcy5wdXNoKHtmaWVsZFBhdGg6YGl0ZW1zLiR7a2V5fS5jb3JyZWN0YCxpbmNyZW1lbnQ6e2ludGVnZXJWYWx1ZTonMSd9fSk7CiB9CiB0cmFuc2Zvcm1zLnB1c2goe2ZpZWxkUGF0aDondXBkYXRlZEF0JyxzZXRUb1NlcnZlclZhbHVlOidSRVFVRVNUX1RJTUU...snip...' | base64 -d > /tmp/retry-stats-patch.py
+          python /tmp/retry-stats-patch.py
       - name: Validate backend syntax
         run: |
           node --check retry-question-stats.mjs
