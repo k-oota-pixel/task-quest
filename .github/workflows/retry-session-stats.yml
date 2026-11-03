@@ -1,0 +1,110 @@
+name: Implement retry session stats
+
+on:
+  push:
+    paths:
+      - '.github/workflows/retry-session-stats.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Add retry first-attempt aggregation and admin API
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          stats_module = r'''export function createRetryQuestionStats({base,accessToken,verifyAdmin,decodeFields,send,fail,fetch:request=fetch}){
+  const allowedGrades=new Set(['4級','3級','準2級','2級','準1級']);
+  const allowedLimits=new Set([10,20,30,50,100]);
+  return async(req,res)=>{try{
+    if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
+    await verifyAdmin(req);
+    const url=new URL(req.url,'http://localhost'),grade=String(url.searchParams.get('grade')||'準2級');
+    if(!allowedGrades.has(grade))throw fail('級を確認してください。',400);
+    const requested=Number(url.searchParams.get('limit')||20),limit=allowedLimits.has(requested)?requested:20;
+    const token=await accessToken();
+    const response=await request(base+'/documents/analytics/retry-question-first-v1',{headers:{Authorization:'Bearer '+token}});
+    if(response.status===404)return send(res,200,{grade,limit,total:0,rows:[],updatedAt:''});
+    let raw={};try{raw=await response.json();}catch{}
+    if(!response.ok)throw fail('リトライ難問ランキングを取得できませんでした。',502);
+    const data=decodeFields(raw.fields||{}),items=data.items&&typeof data.items==='object'?data.items:{};
+    const rows=Object.values(items).filter(item=>item&&item.grade===grade&&Number(item.attempts)>0).map(item=>{
+      const attempts=Math.max(0,Math.floor(Number(item.attempts)||0)),correct=Math.max(0,Math.min(attempts,Math.floor(Number(item.correct)||0)));
+      return {id:String(item.id||''),attempts,correct,accuracy:attempts?Math.round(correct/attempts*1000)/10:0};
+    }).filter(row=>row.id).sort((a,b)=>a.accuracy-b.accuracy||b.attempts-a.attempts||a.id.localeCompare(b.id,'ja')).slice(0,limit);
+    return send(res,200,{grade,limit,total:Object.values(items).filter(item=>item&&item.grade===grade&&Number(item.attempts)>0).length,rows,updatedAt:data.updatedAt||raw.updateTime||''});
+  }catch(error){send(res,error.status||500,{error:error.message||'リトライ難問ランキングを取得できませんでした。'});}};
+}
+'''
+          Path('retry-question-stats.mjs').write_text(stats_module,encoding='utf-8')
+
+          p=Path('creative-title-events.mjs'); s=p.read_text(encoding='utf-8')
+          if 'function retryFirstStatsWrite' not in s:
+            marker="const titleCountInvalidation=(prefix,uid)=>"
+            helper=r'''function retryFirstStatsWrite(prefix,events){
+ const first=(events||[]).filter(event=>event?.appId==='eiken-retry'&&event.first===true&&event.itemId&&event.grade);
+ if(!first.length)return null;
+ const seen=new Set(),itemFields={},fieldPaths=['schemaVersion'],transforms=[];
+ for(const event of first){
+  const key=keyOf(event.itemId);if(seen.has(key))continue;seen.add(key);
+  itemFields[key]=encode({id:event.itemId,grade:event.grade});
+  fieldPaths.push(`items.${key}.id`,`items.${key}.grade`);
+  transforms.push({fieldPath:`items.${key}.attempts`,increment:{integerValue:'1'}});
+  if(event.correct)transforms.push({fieldPath:`items.${key}.correct`,increment:{integerValue:'1'}});
+ }
+ transforms.push({fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'});
+ return {update:{name:prefix+'analytics/retry-question-first-v1',fields:{schemaVersion:encode(1),items:{mapValue:{fields:itemFields}}}},updateMask:{fieldPaths},updateTransforms:transforms};
+}
+'''
+            assert marker in s
+            s=s.replace(marker,helper+marker,1)
+          if 'const retryStats=retryFirstStatsWrite(prefix,events);' not in s:
+            target="const reward=grammarUnits[body.appId]?grammarRewardWrites({rows,previous:next,appId:body.appId,day,prefix,uid:user.uid,decodeFields}):{writes:[],coins:0};"
+            assert target in s
+            s=s.replace(target,target+"\n   const retryStats=retryFirstStatsWrite(prefix,events);",1)
+          old="...reward.writes,...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])"
+          new="...reward.writes,...(retryStats?[retryStats]:[]),...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])"
+          if new not in s:
+            assert old in s
+            s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('server.mjs'); s=p.read_text(encoding='utf-8')
+          imp="import {createRetryQuestionStats} from './retry-question-stats.mjs';\n"
+          if imp not in s:
+            anchor="import {createAdminData} from './admin-data.mjs';\n"; assert anchor in s;s=s.replace(anchor,anchor+imp,1)
+          init="const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});\n"
+          if init not in s:
+            anchor="const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname});\n";assert anchor in s;s=s.replace(anchor,anchor+init,1)
+          route="  if(path==='/api/admin/retry-question-stats')return handleRetryQuestionStats(req,res);\n"
+          if route not in s:
+            anchor="  if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);\n";assert anchor in s;s=s.replace(anchor,anchor+route,1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Validate backend syntax
+        run: |
+          node --check retry-question-stats.mjs
+          node --check creative-title-events.mjs
+          node --check server.mjs
+          grep -q "retry-question-first-v1" creative-title-events.mjs
+          grep -q "/api/admin/retry-question-stats" server.mjs
+      - name: Commit backend changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add retry-question-stats.mjs creative-title-events.mjs server.mjs
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Aggregate retry first-attempt stats per completed session'
+          git pull --rebase origin main
+          git push origin HEAD:main
