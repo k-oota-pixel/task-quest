@@ -47,6 +47,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
   return {value:decodeFields(data.fields),updateTime:data.updateTime};
  }
  const write=(collection,id,value,previous)=>({update:{name:prefix+collection+'/'+id,fields:encodeFields(value)},currentDocument:previous?{updateTime:previous.updateTime}:{exists:false}});
+ const updateExisting=(collection,id,value)=>({update:{name:prefix+collection+'/'+id,fields:encodeFields(value)},currentDocument:{exists:true}});
  const commit=writes=>request(base+'/documents:commit',{method:'POST',body:JSON.stringify({writes})});
  const limits=new Map(),codeFailures=new Map();let active=0;
  function codeAttempt(req,failed=false){const key=digest(String(req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',').at(-1).trim()),now=Date.now();for(const [id,value]of codeFailures)if(now-value.start>900000)codeFailures.delete(id);const value=codeFailures.get(key)||{start:now,count:0};if(value.count>=20)throw fail('登録コードの入力間違いが続いたため、15分ほど待ってからお試しください。',429);if(failed){value.count++;codeFailures.set(key,value);}}
@@ -59,8 +60,20 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
   if(item.count>1000||active>=8)throw fail('試行回数が多いため、時間をおいて再度お試しください。',429);
  }
  async function state(uid){const index=await read('account_uids',uid);return index?read('code_accounts',index.value.idKey):null;}
+ async function admissionState(uid){
+  const index=await read('account_uids',uid);
+  if(!index)return null;
+  const value=index.value||{};
+  if(Object.hasOwn(value,'loginId')&&Object.hasOwn(value,'version')&&Object.hasOwn(value,'resetRequired'))return index;
+  if(!value.idKey)return null;
+  const account=await read('code_accounts',value.idKey);
+  if(!account)return null;
+  const migrated={...value,idKey:value.idKey,loginId:account.value.loginId,version:Number(account.value.version||0),resetRequired:!!account.value.resetRequired};
+  await commit([write('account_uids',uid,migrated,index)]);
+  return {value:migrated,updateTime:index.updateTime};
+ }
  async function admission(user){
-  const account=await state(user.uid);
+  const account=await admissionState(user.uid);
   if(account&&user.provider==='custom'&&Number(user.codeVersion||0)!==Number(account.value.version||0))throw fail('ログインし直してください。',401);
   if(account)return {registered:true,loginId:account.value.loginId,resetRequired:!!account.value.resetRequired};
   if(Number(user.createdAt)>0&&Number(user.createdAt)<Date.parse(LEGACY_BEFORE)&&user.provider!=='anonymous')return {registered:false,resetRequired:false};
@@ -131,8 +144,9 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     const account=await state(code.value.uid);if(!account)throw fail('登録情報が見つかりません。',404);
     if(route==='/api/admin/code-lookup')return send(res,200,{uid:account.value.uid,loginId:account.value.loginId});
     if(route==='/api/admin/code-reset'){
-     const temporaryPassword=randomBytes(9).toString('base64url'),record=await passwordRecord(temporaryPassword);
-     await commit([write('code_accounts',digest(account.value.loginId),{...account.value,...record,resetRequired:true,version:Number(account.value.version||0)+1,temporaryUntil:Date.now()+86400000},account)]);
+     const temporaryPassword=randomBytes(9).toString('base64url'),record=await passwordRecord(temporaryPassword),version=Number(account.value.version||0)+1;
+     const updated={...account.value,...record,resetRequired:true,version,temporaryUntil:Date.now()+86400000};
+     await commit([write('code_accounts',digest(account.value.loginId),updated,account),updateExisting('account_uids',account.value.uid,{idKey:digest(account.value.loginId),loginId:account.value.loginId,version,resetRequired:true})]);
      return send(res,200,{loginId:account.value.loginId,temporaryPassword,expiresHours:24});
     }
     throw fail('ページが見つかりません。',404);
@@ -142,9 +156,9 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     throttle(req);const user=await verifyUser(req),account=await state(user.uid);if(!account)throw fail('コードの紐づけが必要です。',400);
     if(!await passwordMatches(body.currentPassword,account.value))throw fail('現在のパスワードが違います。',403);
     if(body.currentPassword===body.password)throw fail('現在のパスワードとは異なるものにしてください。',400);
-    const record=await passwordRecord(body.password);
-    await commit([write('code_accounts',digest(account.value.loginId),{...account.value,...record,resetRequired:false,temporaryUntil:0},account)]);
-    return send(res,200,{token:customToken(serviceAccount(),user.uid,false,Number(account.value.version||0))});
+    const record=await passwordRecord(body.password),version=Number(account.value.version||0),updated={...account.value,...record,resetRequired:false,temporaryUntil:0};
+    await commit([write('code_accounts',digest(account.value.loginId),updated,account),updateExisting('account_uids',user.uid,{idKey:digest(account.value.loginId),loginId:account.value.loginId,version,resetRequired:false})]);
+    return send(res,200,{token:customToken(serviceAccount(),user.uid,false,version)});
    }
    throttle(req);
    const identity=digest(normalizeId(body.loginId)),attemptKey='id:'+identity,attempt=limits.get(attemptKey),now=Date.now();
@@ -169,7 +183,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     let uid='code_'+randomBytes(20).toString('hex');
     if(route.endsWith('/link')){const user=await verifyUser(req);await admission(user);uid=user.uid;if(await state(uid))throw fail('このアカウントは紐づけ済みです。',409);}
     const record=await passwordRecord(body.password);
-    const writes=[write('registration_codes',codeKey,{...unused.value,used:true,uid},stored),write('code_accounts',idKey,{uid,loginId,codeName:code,...record,resetRequired:false,createdAt:new Date().toISOString()}),write('account_uids',uid,{idKey})];
+    const writes=[write('registration_codes',codeKey,{...unused.value,used:true,uid},stored),write('code_accounts',idKey,{uid,loginId,codeName:code,...record,resetRequired:false,createdAt:new Date().toISOString()}),write('account_uids',uid,{idKey,loginId,version:0,resetRequired:false})];
     await commit(writes);
     return send(res,200,{token:customToken(serviceAccount(),uid)});
    }finally{active--;}
