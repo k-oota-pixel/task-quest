@@ -1,31 +1,25 @@
 const CURATED_SOURCES=[
-  {kind:'rss',name:'NHK News Japan — Society',url:'https://www.nhk.or.jp/rss/news/cat1.xml',category:'world',scope:'japan',sourceType:'newsroom'},
-  {kind:'rss',name:'Hokkaido Electric Power',url:'https://www.hepco.co.jp/info/rss/press_rss.xml',category:'business',scope:'japan',sourceType:'company',regional:true},
-  {kind:'html',name:'JR Hokkaido Newsroom',url:'https://www.jrhokkaido.co.jp/CM/Info/press/presstop.html',category:'life',scope:'japan',include:/press/i,sourceType:'company',regional:true},
-  {kind:'rss',name:'Digital Agency Japan',url:'https://www.digital.go.jp/rss/news.xml',category:'technology',scope:'japan'},
-  {kind:'rss',name:'Cabinet Office Japan',url:'https://www.cao.go.jp/rss/news.rdf',category:'world',scope:'japan'},
-  {kind:'rss',name:'MHLW Japan',url:'https://www.mhlw.go.jp/stf/news.rdf',category:'health',scope:'japan'},
-  {kind:'rss',name:'Consumer Affairs Agency Japan',url:'https://www.caa.go.jp/news.rss',category:'life',scope:'japan'},
-  {kind:'html',name:'METI Japan',url:'https://www.meti.go.jp/press/',category:'business',scope:'japan',include:/\/press\/20\d\d\//i},
-  {kind:'html',name:'JAXA Japan',url:'https://www.jaxa.jp/press/',category:'science',scope:'japan',include:/\/press\//i},
-  {kind:'html',name:'Ministry of Environment Japan',url:'https://www.env.go.jp/press/',category:'environment',scope:'japan',include:/\/press\//i},
-  {kind:'html',name:'MEXT Japan',url:'https://www.mext.go.jp/b_menu/houdou/',category:'education',scope:'japan',include:/\/b_menu\/houdou\//i},
-  {kind:'html',name:'Japan Sports Agency',url:'https://www.mext.go.jp/sports/b_menu/houdou/',category:'sports',scope:'japan',include:/\/sports\/b_menu\/houdou\//i},
-  {kind:'html',name:'Agency for Cultural Affairs Japan',url:'https://www.bunka.go.jp/koho_hodo_oshirase/hodohappyo/',category:'culture',scope:'japan',include:/\/koho_hodo_oshirase\/hodohappyo\//i},
-  {kind:'rss',name:'BBC World',url:'https://feeds.bbci.co.uk/news/world/rss.xml',category:'world'},
-  {kind:'rss',name:'BBC Sport',url:'https://feeds.bbci.co.uk/sport/rss.xml',category:'sports'},
-  {kind:'rss',name:'The Guardian World',url:'https://www.theguardian.com/world/rss',category:'world'},
-  {kind:'rss',name:'NASA News',url:'https://www.nasa.gov/news-release/feed/',category:'science'},
-  {kind:'rss',name:'MIT News',url:'https://news.mit.edu/rss/feed',category:'technology'},
-  {kind:'rss',name:'UN News',url:'https://news.un.org/feed/subscribe/en/news/all/rss.xml',category:'world'},
-  {kind:'rss',name:'NOAA',url:'https://www.noaa.gov/rss.xml',category:'environment'},
-  {kind:'rss',name:'NASA JPL',url:'https://www.jpl.nasa.gov/feeds/news/',category:'science'},
-  {kind:'rss',name:'NASA CNEOS',url:'https://cneos.jpl.nasa.gov/feed/news.xml',category:'science'},
-  {kind:'rss',name:'FDA MedWatch',url:'https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml',category:'health'},
-  {kind:'rss',name:'UNESCO-UNEVOC',url:'https://connect.unevoc.unesco.org/unevoc_news.xml',category:'education'},
-  {kind:'rss',name:'European Central Bank',url:'https://www.ecb.europa.eu/rss/press.html',category:'business'},
-  {kind:'html',name:'IOC',url:'https://www.olympics.com/ioc/news',category:'sports',include:/\/ioc\//i},
-  {kind:'html',name:'Apple Newsroom',url:'https://www.apple.com/newsroom/',category:'technology',include:/\/newsroom\//i}
+  {kind:'rss',name:'NHK News Japan — Society',publisher:'NHK',url:'https://www.nhk.or.jp/rss/news/cat1.xml',category:'world',scope:'japan',sourceType:'newsroom'},
+  {kind:'html',name:'UHB Hokkaido News',publisher:'UHB',url:'https://www.uhb.jp/news/',category:'life',scope:'japan',include:/\/news\/single\.html/i,sourceType:'newsroom',regional:true},
+  {kind:'html',name:'HTB Hokkaido News',publisher:'HTB',url:'https://www.htb.co.jp/news/',category:'life',scope:'japan',include:/\/news\/archives_\d+\.html/i,sourceType:'newsroom',regional:true},
+  {kind:'html',name:'STV Hokkaido News',publisher:'STV',url:'https://www.stv.jp/news/index.html',category:'life',scope:'japan',include:/\/news\/stvnews\/kiji\//i,sourceType:'newsroom',regional:true},
+  {kind:'html',name:'HBC Hokkaido News',publisher:'HBC',url:'https://newsdig.tbs.co.jp/list/news/hbc/latest',category:'life',scope:'japan',include:/\/articles\/-\//i,sourceType:'newsroom',regional:true},
+  {kind:'rss',name:'Hokkaido Electric Power',publisher:'Hokkaido Electric Power',url:'https://www.hepco.co.jp/info/rss/press_rss.xml',category:'business',scope:'japan',sourceType:'company',regional:true},
+  {kind:'html',name:'JR Hokkaido Newsroom',publisher:'JR Hokkaido',url:'https://www.jrhokkaido.co.jp/CM/Info/press/presstop.html',category:'life',scope:'japan',include:/press/i,sourceType:'company',regional:true},
+  {kind:'rss',name:'ITmedia NEWS',publisher:'ITmedia',url:'https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml',category:'technology',scope:'japan',sourceType:'newsroom'},
+  {kind:'rss',name:'ITmedia AI+',publisher:'ITmedia',url:'https://rss.itmedia.co.jp/rss/2.0/aiplus.xml',category:'technology',scope:'japan',sourceType:'newsroom'},
+  {kind:'html',name:'Impress Watch',publisher:'Impress Watch',url:'https://www.watch.impress.co.jp/',category:'technology',scope:'japan',include:/\/docs\//i,sourceType:'newsroom'},
+  {kind:'rss',name:'GIGAZINE',publisher:'GIGAZINE',url:'https://gigazine.net/news/rss_2.0/',category:'technology',scope:'japan',sourceType:'newsroom'},
+  {kind:'html',name:'Gizmodo Japan',publisher:'Gizmodo Japan',url:'https://www.gizmodo.jp/',category:'technology',scope:'japan',include:/\/article\//i,sourceType:'newsroom'},
+  {kind:'html',name:'Toyokeizai Online',publisher:'Toyokeizai',url:'https://toyokeizai.net/articles',category:'business',scope:'japan',include:/\/articles\/-\//i,sourceType:'newsroom'},
+  {kind:'html',name:'Mynavi News',publisher:'Mynavi News',url:'https://news.mynavi.jp/',category:'culture',scope:'japan',include:/\/(?:article|techplus\/article)\//i,sourceType:'newsroom'},
+  {kind:'html',name:'JAXA Japan',publisher:'JAXA',url:'https://www.jaxa.jp/press/',category:'science',scope:'japan',include:/\/press\//i,sourceType:'institution'},
+  {kind:'rss',name:'BBC World',publisher:'BBC',url:'https://feeds.bbci.co.uk/news/world/rss.xml',category:'world',sourceType:'newsroom'},
+  {kind:'rss',name:'BBC Sport',publisher:'BBC',url:'https://feeds.bbci.co.uk/sport/rss.xml',category:'sports',sourceType:'newsroom'},
+  {kind:'rss',name:'The Guardian World',publisher:'The Guardian',url:'https://www.theguardian.com/world/rss',category:'world',sourceType:'newsroom'},
+  {kind:'rss',name:'MIT News',publisher:'MIT News',url:'https://news.mit.edu/rss/feed',category:'technology',sourceType:'newsroom'},
+  {kind:'rss',name:'NASA News',publisher:'NASA',url:'https://www.nasa.gov/news-release/feed/',category:'science',sourceType:'institution'},
+  {kind:'html',name:'Apple Newsroom',publisher:'Apple',url:'https://www.apple.com/newsroom/',category:'technology',include:/\/newsroom\//i,sourceType:'company'}
 ].map(source=>({...source,scope:source.scope||'world'}));
 
 const GENERIC_LINK=/^(home|news|newsroom|read more|learn more|view all|load more|next|previous|press releases?|latest news|more)$/i;
@@ -88,6 +82,7 @@ function linkFromBlock(block,base){
   const guid=block.match(/<guid\b[^>]*>([\s\S]*?)<\/guid>/i)?.[1];
   return normalizeUrl(stripHtml(textLink||attrLink||guid||'',2000),base);
 }
+function publisherKey(item){return String(item?.publisherHint||item?.publisher||item?.sourceName||item?.source||'').trim().toLowerCase();}
 
 export function parseFeed(xml,source){
   const blocks=[...String(xml||'').matchAll(/<(item|entry)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map(match=>match[2]);
@@ -98,7 +93,7 @@ export function parseFeed(xml,source){
     if(!title||!url||!isArticleUrl(url))continue;
     const publishedAt=dateIso(tagText(block,['pubDate','published','updated','dc:date','date']))||localizedDateIso(block);
     const summary=tagText(block,['description','summary','content:encoded','content']);
-    items.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',sourceTypeHint:source.sourceType||'institution',regionalHint:source.regional===true,title,url,publishedAt,summary:clean(summary,1800)});
+    items.push({sourceName:source.name,publisherHint:source.publisher||source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',sourceTypeHint:source.sourceType||'institution',regionalHint:source.regional===true,title,url,publishedAt,summary:clean(summary,1800)});
   }
   return items;
 }
@@ -112,8 +107,8 @@ export function parseHtmlIndex(html,source){
     try{const baseHost=new URL(source.url).hostname.replace(/^www\./,'');const host=new URL(url).hostname.replace(/^www\./,'');if(!(host===baseHost||host.endsWith(`.${baseHost}`)))continue;}catch{continue;}
     if(source.include&&!source.include.test(new URL(url).pathname))continue;
     const index=Number(match.index)||0;
-    const publishedAt=localizedDateIso(raw.slice(Math.max(0,index-6000),index));
-    seen.add(url);out.push({sourceName:source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',sourceTypeHint:source.sourceType||'institution',regionalHint:source.regional===true,title,url,publishedAt,summary:''});
+    const publishedAt=localizedDateIso(match[0])||localizedDateIso(raw.slice(Math.max(0,index-6000),index));
+    seen.add(url);out.push({sourceName:source.name,publisherHint:source.publisher||source.name,sourcePage:source.url,categoryHint:source.category,scopeHint:source.scope||'world',sourceTypeHint:source.sourceType||'institution',regionalHint:source.regional===true,title,url,publishedAt,summary:''});
     if(out.length>=18)break;
   }
   return out;
@@ -160,28 +155,34 @@ async function enrich(candidate,fetchImpl){
 function dedupe(items){
   const seen=new Set(),out=[];for(const item of items){const key=item.url.replace(/\/$/,'');if(seen.has(key))continue;seen.add(key);out.push(item);}return out;
 }
-function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||item.scope||'world',sourceType:item.sourceTypeHint||'institution',regional:item.regionalHint===true}])).values()];}
+function sourceList(candidates){return [...new Map(candidates.map(item=>[item.url,{name:item.sourceName,publisher:item.publisherHint||item.sourceName,url:item.url,categoryHint:item.categoryHint,scope:item.scopeHint||item.scope||'world',sourceType:item.sourceTypeHint||'institution',regional:item.regionalHint===true}])).values()];}
 function countBy(items,key){const counts=new Map();for(const item of items){const value=key(item);counts.set(value,(counts.get(value)||0)+1);}return [...counts].map(([name,count])=>`${name}=${count}`).join(', ');}
-function takeDiverse(pool,wanted,selected,usedUrls){
+function takeDiverse(pool,wanted,selected,usedUrls,publisherCounts){
   const categoryCounts=new Map();
   for(let round=0;round<5&&selected.length<MAX_CANDIDATES;round++){
     for(const item of pool){
       if(selected.length>=MAX_CANDIDATES||wanted<=0)break;
-      if(usedUrls.has(item.url)||(categoryCounts.get(item.categoryHint)||0)!==round)continue;
-      selected.push(item);usedUrls.add(item.url);categoryCounts.set(item.categoryHint,round+1);wanted--;
+      const publisher=publisherKey(item);
+      if(usedUrls.has(item.url)||(publisherCounts.get(publisher)||0)>=2||(categoryCounts.get(item.categoryHint)||0)!==round)continue;
+      selected.push(item);usedUrls.add(item.url);publisherCounts.set(publisher,(publisherCounts.get(publisher)||0)+1);categoryCounts.set(item.categoryHint,round+1);wanted--;
     }
   }
   return wanted;
 }
 function selectEnrichmentCandidates(items){
-  const selected=[],usedUrls=new Set();
+  const selected=[],usedUrls=new Set(),publisherCounts=new Map();
   const japan=items.filter(item=>(item.scopeHint||'world')==='japan');
   const world=items.filter(item=>(item.scopeHint||'world')==='world');
   let japanRemaining=Math.min(18,japan.length);
-  japanRemaining=takeDiverse(japan,japanRemaining,selected,usedUrls);
+  japanRemaining=takeDiverse(japan,japanRemaining,selected,usedUrls,publisherCounts);
   let worldWanted=Math.min(10,MAX_CANDIDATES-selected.length);
-  worldWanted=takeDiverse(world,worldWanted,selected,usedUrls);
-  for(const item of items){if(selected.length>=MAX_CANDIDATES)break;if(usedUrls.has(item.url))continue;selected.push(item);usedUrls.add(item.url);}
+  worldWanted=takeDiverse(world,worldWanted,selected,usedUrls,publisherCounts);
+  for(const item of items){
+    if(selected.length>=MAX_CANDIDATES)break;
+    const publisher=publisherKey(item);
+    if(usedUrls.has(item.url)||(publisherCounts.get(publisher)||0)>=2)continue;
+    selected.push(item);usedUrls.add(item.url);publisherCounts.set(publisher,(publisherCounts.get(publisher)||0)+1);
+  }
   return selected;
 }
 
@@ -192,38 +193,36 @@ export function selectRegionalStories(candidates,{total=6,japanRatio=0.85}={}){
   let japanTarget=Math.round(count*ratio);
   if(count>1&&ratio>0&&ratio<1)japanTarget=Math.max(1,Math.min(count-1,japanTarget));
   const worldTarget=count-japanTarget;
-  const selected=[],usedUrls=new Set(),usedCategories=new Set();
+  const selected=[],usedUrls=new Set(),usedCategories=new Set(),usedPublishers=new Set();
   const scopedCount=scope=>selected.filter(item=>(item.scope||item.scopeHint||'world')===scope).length;
+  const eligible=item=>!usedUrls.has(item.url)&&!usedPublishers.has(publisherKey(item));
   const take=(scope,wanted)=>{
-    const pool=items.filter(item=>(item.scope||item.scopeHint||'world')===scope&&!usedUrls.has(item.url));
+    const pool=items.filter(item=>(item.scope||item.scopeHint||'world')===scope&&eligible(item));
     for(const preferNew of [true,false]){
       for(const item of pool){
         if(scopedCount(scope)>=wanted)break;
-        if(usedUrls.has(item.url))continue;
+        if(!eligible(item))continue;
         if(preferNew&&usedCategories.has(item.categoryHint))continue;
-        selected.push(item);usedUrls.add(item.url);usedCategories.add(item.categoryHint);
+        selected.push(item);usedUrls.add(item.url);usedPublishers.add(publisherKey(item));usedCategories.add(item.categoryHint);
       }
     }
   };
-  // Keep Japan stories connected to local communities and employers, not only agencies.
+  // Always try to include one Hokkaido newsroom story, but do not force a company press release.
   const takePreferred=(scope,predicate)=>{
-    const pool=items.filter(item=>(item.scope||item.scopeHint||'world')===scope&&!usedUrls.has(item.url)&&predicate(item));
+    const pool=items.filter(item=>(item.scope||item.scopeHint||'world')===scope&&eligible(item)&&predicate(item));
     const item=pool.find(candidate=>!usedCategories.has(candidate.categoryHint))||pool[0];
-    if(item){selected.push(item);usedUrls.add(item.url);usedCategories.add(item.categoryHint);}
+    if(item){selected.push(item);usedUrls.add(item.url);usedPublishers.add(publisherKey(item));usedCategories.add(item.categoryHint);}
   };
-  if(japanTarget>=2){
-    takePreferred('japan',item=>item.sourceTypeHint==='company');
-    takePreferred('japan',item=>item.regionalHint===true);
-  }
+  if(japanTarget>=2)takePreferred('japan',item=>item.regionalHint===true&&item.sourceTypeHint==='newsroom');
   take('japan',japanTarget);
   take('world',worldTarget);
   if(selected.length<count){
     for(const preferNew of [true,false]){
       for(const item of items){
         if(selected.length>=count)break;
-        if(usedUrls.has(item.url))continue;
+        if(!eligible(item))continue;
         if(preferNew&&usedCategories.has(item.categoryHint))continue;
-        selected.push(item);usedUrls.add(item.url);usedCategories.add(item.categoryHint);
+        selected.push(item);usedUrls.add(item.url);usedPublishers.add(publisherKey(item));usedCategories.add(item.categoryHint);
       }
     }
   }
@@ -235,27 +234,29 @@ export async function discoverNewsFromFeeds({fetchImpl=fetch,now=new Date(),japa
   console.log(`TODAY fallback index candidates: ${groups.map((items,index)=>`${CURATED_SOURCES[index].name}=${items.length}`).join(', ')}`);
   const all=dedupe(groups.flat()).filter(item=>isArticleUrl(item.url)&&(!item.publishedAt||isRecentArticle(item.publishedAt,now))).sort((a,b)=>candidateScore(b,now)-candidateScore(a,now));
   console.log(`TODAY fallback recent candidates: ${countBy(all,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
-  if(all.length<8)throw new Error(`公式フィードの候補が不足しています (${all.length})`);
+  if(all.length<8)throw new Error(`ニュース候補が不足しています (${all.length})`);
   const selected=selectEnrichmentCandidates(all);
   console.log(`TODAY fallback enrichment set: ${countBy(selected,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
   const enriched=[];
   for(let i=0;i<selected.length;i+=6){const batch=await Promise.all(selected.slice(i,i+6).map(item=>enrich(item,fetchImpl)));enriched.push(...batch);}
   const usable=enriched.filter(item=>item.excerpt&&isRecentArticle(item.publishedAt,now));
   console.log(`TODAY fallback usable: ${countBy(usable,item=>`${item.sourceName}/${item.categoryHint}/${item.scopeHint||'world'}`)}`);
-  if(usable.length<8)throw new Error(`公式フィードの本文候補が不足しています (${usable.length})`);
+  if(usable.length<8)throw new Error(`ニュース本文候補が不足しています (${usable.length})`);
   const allCompact=usable.slice(0,MAX_CANDIDATES).map(item=>({
-    source:item.sourceName,sourceName:item.sourceName,sourceTypeHint:item.sourceTypeHint||'institution',regionalHint:item.regionalHint===true,categoryHint:item.categoryHint,scope:item.scopeHint||'world',title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)
+    source:item.sourceName,sourceName:item.sourceName,publisherHint:item.publisherHint||item.sourceName,sourceTypeHint:item.sourceTypeHint||'institution',regionalHint:item.regionalHint===true,categoryHint:item.categoryHint,scope:item.scopeHint||'world',title:item.title,url:item.url,publishedAt:item.publishedAt||'',summary:clean(item.summary,1400),excerpt:clean(item.excerpt,MAX_EXCERPT)
   }));
   const requiredStories=selectRegionalStories(allCompact,{total:6,japanRatio});
-  if(requiredStories.length<6)throw new Error('公式フィードから6記事を確保できませんでした');
+  if(requiredStories.length<6)throw new Error('ニュースから6記事を確保できませんでした');
   const seenCategories=new Set(requiredStories.map(item=>item.categoryHint));
-  if(seenCategories.size<5)throw new Error(`公式フィードの分野が不足しています (${[...seenCategories].join(', ')})`);
+  if(seenCategories.size<5)throw new Error(`ニュースの分野が不足しています (${[...seenCategories].join(', ')})`);
+  const seenPublishers=new Set(requiredStories.map(publisherKey));
+  if(seenPublishers.size!==requiredStories.length)throw new Error('同一媒体の記事が重複しています');
   const requiredUrls=new Set(requiredStories.map(item=>item.url));
   const alternates=allCompact.filter(item=>!requiredUrls.has(item.url));
   const compact=[...requiredStories,...alternates];
   return {
     mode:'curated-feeds',
-    research:JSON.stringify({mode:'curated official sources',collectedAt:now.toISOString(),instruction:'Use only facts explicitly present in each candidate summary/excerpt. IMPORTANT: create exactly one TODAY article for EACH item in requiredStories, in the same order. Do not replace, merge, or duplicate these stories. Preserve each item scope (japan or world) and use categoryHint as that story primary category. The URL is the canonical source. Keep company and regional sources represented when available; explain concrete relevance to students.',requiredStories,alternates},null,2),
+    research:JSON.stringify({mode:'curated student-news sources',collectedAt:now.toISOString(),instruction:'Use only facts explicitly present in each candidate summary/excerpt. IMPORTANT: create exactly one TODAY article for EACH item in requiredStories, in the same order. Do not replace, merge, or duplicate these stories. Preserve each item scope (japan or world), use categoryHint as that story primary category, and never use more than one story from the same publisher in the six required stories. The URL is the canonical source. Prefer stories connected to students, daily life, technology, careers, local communities and current events.',requiredStories,alternates},null,2),
     sources:sourceList(compact),
     queries:[],
     candidateCount:compact.length
