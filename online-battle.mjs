@@ -37,10 +37,11 @@ const roomPath=id=>'onlineBattleRooms/room'+id;
 const baseName=(projectId,path)=>'projects/'+projectId+'/databases/(default)/documents/'+path;
 
 function readBattleServiceAccount(){
- let raw=process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_JSON||'';
- if(!raw&&process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64){
+ let raw='';
+ if(process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64){
   try{raw=Buffer.from(process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64,'base64').toString('utf8');}catch{}
  }
+ if(!raw)raw=process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_JSON||'';
  if(!raw)return null;
  try{
   const account=JSON.parse(raw);
@@ -59,9 +60,12 @@ function createServiceAccountAccessToken(account,request,error){
   const unsigned=`${header}.${claims}`;
   const signer=createSign('RSA-SHA256');signer.update(unsigned);signer.end();
   const assertion=`${unsigned}.${signer.sign(account.private_key).toString('base64url')}`;
-  const response=await request('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:AbortSignal.timeout(12000),body:new URLSearchParams({grant_type:'urn:ietf:params:oauth2:grant-type:jwt-bearer',assertion})});
+  const response=await request('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:AbortSignal.timeout(12000),body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
   let data={};try{data=await response.json();}catch{}
-  if(!response.ok||!data.access_token)throw error('オンライン対戦用Firebaseの認証に失敗しました。',503);
+  if(!response.ok||!data.access_token){
+   console.error('Online battle Firebase OAuth failed',{httpStatus:response.status,error:String(data?.error||''),description:String(data?.error_description||'').slice(0,200)});
+   throw error('オンライン対戦用Firebaseの認証に失敗しました。',503);
+  }
   cached=data.access_token;cachedUntil=Date.now()+Number(data.expires_in||3600)*1000;
   return cached;
  };
