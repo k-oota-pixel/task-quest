@@ -81,6 +81,18 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       return new Map(rows.map(row=>[row.uid,row]));
     });
   }
+  async function codeAccountsFor(uids){
+    const ids=[...new Set(uids.map(value=>String(value||'')).filter(Boolean))];
+    if(!ids.length)return new Map();
+    if(ids.length>6)throw fail('一覧の登録情報は6人以内で取得してください。',400);
+    const key='code-page:'+ids.slice().sort().join(',');
+    return cached(key,async()=>{
+      const structuredQuery={from:[{collectionId:'code_accounts'}],select:{fields:[{fieldPath:'uid'},{fieldPath:'loginId'},{fieldPath:'codeName'}]},where:{fieldFilter:{field:{fieldPath:'uid'},op:'IN',value:{arrayValue:{values:ids.map(uid=>({stringValue:uid}))}}}},limit:ids.length};
+      const result=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery})});
+      const rows=result.filter(row=>row.document).map(row=>decodeFields(row.document.fields||{})).filter(data=>data.uid&&data.loginId).map(data=>({uid:String(data.uid),loginId:String(data.loginId),codeName:String(data.codeName||'')}));
+      return new Map(rows.map(row=>[row.uid,row]));
+    });
+  }
   function learningTime(value){const ms=typeof value==='number'?value:Date.parse(value||'');return Number.isFinite(ms)&&ms>0?ms:null;}
   function cursor(value){if(!value)return {phase:'recent'};try{const c=JSON.parse(Buffer.from(value,'base64url').toString());if(c.phase==='recent'&&typeof c.at==='string'&&typeof c.name==='string'&&c.name.startsWith('projects/'+projectId+'/databases/(default)/documents/learning_activity/'))return c;if(c.phase==='unrecorded'&&Number.isSafeInteger(c.offset)&&c.offset>=0)return c;}catch{}throw fail('ページ情報が不正です。',400);}
   const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -101,7 +113,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       if(more){const last=documents[5];nextPageToken=encode({phase:'recent',at:decodeFields(last.fields).lastLearningAt,name:last.name});}
       else {const waiting=await unrecorded(),room=6-rows.length;rows.push(...waiting.slice(0,room).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null})));if(waiting.length>room)nextPageToken=encode({phase:'unrecorded',offset:room});}
     }else{const waiting=await unrecorded();rows=waiting.slice(c.offset,c.offset+6).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null}));if(waiting.length>c.offset+6)nextPageToken=encode({phase:'unrecorded',offset:c.offset+6});}
-    const codeNames=await codeDirectory();const users=await Promise.all(rows.map(async row=>{const p=await summary(row.uid),nickname=normalizeNickname(p.nickname),identity=codeNames.get(row.uid)||{};return {...row,codeName:identity.codeName||'',loginId:identity.loginId||'',nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),petName:normalizeNickname(p.petName)||'ペット名未設定',coins:Math.max(0,Math.floor(Number(p.coins)||0))};}));
+    const codeNames=await codeAccountsFor(rows.map(row=>row.uid));const users=await Promise.all(rows.map(async row=>{const p=await summary(row.uid),nickname=normalizeNickname(p.nickname),identity=codeNames.get(row.uid)||{};return {...row,codeName:identity.codeName||'',loginId:identity.loginId||'',nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),petName:normalizeNickname(p.petName)||'ペット名未設定',coins:Math.max(0,Math.floor(Number(p.coins)||0))};}));
     return {users,nextPageToken,pageSize:6,fetchedAt:now()};
   });}
   async function search(query){
@@ -194,7 +206,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
         }
         send(res,200,{messages,nextPageToken:result.nextPageToken||null});return;
       }
-      if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.9'});return;}
+      if(url.pathname==='/api/admin/session'){send(res,200,{admin:true,apiVersion:'1.5.10'});return;}
       if(url.pathname==='/api/admin/retry-screen-logs'){
         const ids=[...new Set((url.searchParams.get('uids')||'').split(',').filter(Boolean))];
         if(!ids.length||ids.length>6||ids.some(id=>id.length>128||!/^[-A-Za-z0-9_]+$/.test(id)))throw fail('対象は6人以内で指定してください。',400);
@@ -225,10 +237,9 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       if(key==='summary:'+uid&&e.value)e.value.coins=coins;
     }
   }
-  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');cache.delete('activity:'+uid);cache.delete('unrecorded');for(const [key,e]of cache)if(key.startsWith('page:'))cache.delete(key);}
+  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');cache.delete('activity:'+uid);cache.delete('unrecorded');for(const [key,e]of cache)if(key.startsWith('page:')||key.startsWith('code-page:'))cache.delete(key);}
   async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
   function invalidateLearning(uid){cache.delete('activity:'+uid);cache.delete('summary:'+uid);cache.delete('unrecorded');for(const key of cache.keys())if(key.startsWith('page:'))cache.delete(key);}
   async function adminIds(){const email=String(process.env.ADMIN_EMAIL||'').trim().toLowerCase();if(!email)return [];return (await authDirectory()).filter(u=>String(u.email||'').trim().toLowerCase()===email).map(u=>u.localId).filter(Boolean);}
   return {handle,updateCoins,invalidate,invalidateLearning,activeIds,adminIds};
 }
-
