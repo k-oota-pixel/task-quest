@@ -1,7 +1,9 @@
 import {createSign} from 'node:crypto';
 
-const ROOM_IDS=Object.freeze(Array.from({length:12},(_,index)=>String(index+1)));
-const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const n=Number(id);const block=Math.floor((n-1)/3);return [id,{grade:['4級','3級','準2級','2級'][block]||'2級',noItems:n%3===0}]})));
+const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
+const GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));
+const ROOM_IDS=Object.freeze(GRADE_CONFIG.flatMap(entry=>Array.from({length:10},(_,index)=>`${entry.key}-${index+1}`)));
+const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const [gradeKey,roomNoText]=id.split('-');const config=GRADE_BY_KEY[gradeKey]||GRADE_CONFIG[0];return [id,{gradeKey,grade:config.grade,roomNo:Number(roomNoText)||1,noItems:false}]})));
 export const ONLINE_BATTLE_JOIN_TTL_MS=60*60*1000;
 export const ONLINE_BATTLE_RESULT_TTL_MS=2*60*1000;
 const MAGIC_SPELLS=Object.freeze([
@@ -34,6 +36,7 @@ const encode=value=>{
 const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([k,v])=>[k,encode(v)]));
 const walletPath=uid=>'users/'+encodeURIComponent(uid)+'/apps/english-playroom';
 const roomPath=id=>'onlineBattleRooms/room'+id;
+const lobbyPath=gradeKey=>'onlineBattleLobbies/'+gradeKey;
 const baseName=(projectId,path)=>'projects/'+projectId+'/databases/(default)/documents/'+path;
 
 function readBattleServiceAccount(){
@@ -129,7 +132,7 @@ function profile(data,uid){
  const stats=petStats(data);
  return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0};
 }
-function emptyRoom(id){const rules=ROOM_RULES[id]||{grade:'4級',noItems:false};return {roomId:id,grade:rules.grade,noItems:rules.noItems,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchEndedAt:0,updatedAt:Date.now()};}
+function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchEndedAt:0,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2).map(player=>{
@@ -181,6 +184,11 @@ function publicRoom(value,id){
  const room=safeRoom(value,id);
  return {...room,players:room.players.map(p=>({...p,uid:p.uid,petShop:p.petShop||{}}))};
 }
+function lobbyState(room,id){
+ const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1};
+ return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status:room.status||'open',playerCount:Array.isArray(room.players)?Math.min(2,room.players.length):0,updatedAt:Math.max(0,Math.floor(number(room.updatedAt,0)))};
+}
+function lobbyStateChanged(before,after){return before.status!==after.status||before.playerCount!==after.playerCount;}
 
 export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now}){
  const error=failExternal||fail;
@@ -194,6 +202,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  }
  async function userWallet(token,uid){return getDocAt(base,token,walletPath(uid),'ユーザー情報を読み込めませんでした。');}
  async function roomDoc(token,id){return getDocAt(battle.base,token,roomPath(id));}
+ async function lobbyDoc(token,gradeKey){return getDocAt(battle.base,token,lobbyPath(gradeKey),'ロビー情報を読み込めませんでした。');}
  async function commitAt(baseUrl,token,writes,message='対戦状態が更新されました。もう一度お試しください。'){
   if(!writes.length)return {};
   const response=await request(baseUrl+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
@@ -204,6 +213,10 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  function roomWrite(id,room,snapshot){
   const path=roomPath(id),body={name:baseName(battle.projectId,path),fields:encodeFields(room)};
   return {update:body,updateMask:{fieldPaths:Object.keys(room)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
+ }
+ function lobbyWrite(id,room){
+  const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1},key='room'+rules.roomNo,path=lobbyPath(rules.gradeKey),state=lobbyState(room,id);
+  return {update:{name:baseName(battle.projectId,path),fields:{[key]:encode(state),gradeKey:encode(rules.gradeKey),grade:encode(rules.grade),updatedAt:encode(Math.max(0,Math.floor(number(room.updatedAt,Date.now()))))}},updateMask:{fieldPaths:[key,'gradeKey','grade','updatedAt']}};
  }
  function walletWrite(uid,wallet,coins){
   const path=walletPath(uid);
@@ -217,12 +230,17 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   for(let attempt=0;attempt<3;attempt++){
    const doc=await roomDoc(roomToken,id),cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
    if(!cleaned.changed)return publicRoom(cleaned.room,id);
-   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc)]);return publicRoom(cleaned.room,id);}
+   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc),lobbyWrite(id,cleaned.room)]);return publicRoom(cleaned.room,id);}
    catch(e){if(e.retryable&&attempt<2)continue;throw e;}
   }
   throw error('対戦ルームを更新できませんでした。',409);
  }
- async function rooms(roomToken){return Promise.all(ROOM_IDS.map(id=>snapshot(id,roomToken)));}
+ async function lobbySummary(roomToken,gradeKey){
+  const config=GRADE_BY_KEY[gradeKey];if(!config)throw error('級が見つかりません。',404);
+  const doc=await lobbyDoc(roomToken,gradeKey),value=doc?.value||{};
+  const rooms=Array.from({length:10},(_,index)=>{const roomNo=index+1,id=`${gradeKey}-${roomNo}`,saved=field(value['room'+roomNo]);return {roomId:id,roomNo,gradeKey,grade:config.grade,status:typeof saved.status==='string'?saved.status:'open',playerCount:Math.max(0,Math.min(2,Math.floor(number(saved.playerCount,0)))),updatedAt:Math.max(0,Math.floor(number(saved.updatedAt,0)))};});
+  return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};
+ }
  async function awardWinner(walletToken,walletWrites,uid){
   const winnerWallet=await userWallet(walletToken,uid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));
   walletWrites.push(walletWrite(uid,winnerWallet,coins+2));
@@ -231,10 +249,10 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   for(let attempt=0;attempt<4;attempt++){
    const stored=await roomDoc(roomToken,id),cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
    if(cleaned.changed){
-    try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored)]);continue;}
+    try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored),lobbyWrite(id,cleaned.room)]);continue;}
     catch(e){if(e.retryable&&attempt<3)continue;throw e;}
    }
-   const room=cleaned.room,players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];
+   const room=cleaned.room,beforeLobby=lobbyState(room,id),players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];
    if(operation==='join'){
     if(index>=0)return {room:publicRoom(room,id)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
@@ -328,6 +346,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     }else throw error('操作が正しくありません。',400);
     room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
    }
+   if(roomWrites.length&&lobbyStateChanged(beforeLobby,lobbyState(room,id)))roomWrites.push(lobbyWrite(id,room));
    let roomCommitted=false;
    try{
     await commitAt(battle.base,roomToken,roomWrites);
@@ -344,8 +363,10 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  async function handle(req,res,path){
   try{
    const user=await verifyUser(req),roomToken=await battle.accessToken();
-   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(roomToken)});
-   const match=path.match(/^\/api\/online-battle\/room\/(1[0-2]|[1-9])(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
+   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:[]});
+   const lobbyMatch=path.match(/^\/api\/online-battle\/lobby\/(4|3|pre2|2)$/);
+   if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(roomToken,lobbyMatch[1])});
+   const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
    if(!match)throw error('対戦ルームが見つかりません。',404);
    const id=match[1],operation=match[2];
    if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,roomToken)});
