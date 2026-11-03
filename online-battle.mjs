@@ -1,3 +1,5 @@
+import {createSign} from 'node:crypto';
+
 const ROOM_IDS=Object.freeze(Array.from({length:12},(_,index)=>String(index+1)));
 const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const n=Number(id);const block=Math.floor((n-1)/3);return [id,{grade:['4級','3級','準2級','2級'][block]||'2級',noItems:n%3===0}]})));
 export const ONLINE_BATTLE_JOIN_TTL_MS=60*60*1000;
@@ -33,6 +35,49 @@ const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([k,v])=>
 const walletPath=uid=>'users/'+encodeURIComponent(uid)+'/apps/english-playroom';
 const roomPath=id=>'onlineBattleRooms/room'+id;
 const baseName=(projectId,path)=>'projects/'+projectId+'/databases/(default)/documents/'+path;
+
+function readBattleServiceAccount(){
+ let raw=process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_JSON||'';
+ if(!raw&&process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64){
+  try{raw=Buffer.from(process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64,'base64').toString('utf8');}catch{}
+ }
+ if(!raw)return null;
+ try{
+  const account=JSON.parse(raw);
+  if(account?.client_email&&account?.private_key)return account;
+ }catch{}
+ return null;
+}
+function b64urlJson(value){return Buffer.from(JSON.stringify(value)).toString('base64url');}
+function createServiceAccountAccessToken(account,request,error){
+ let cached='',cachedUntil=0;
+ return async()=>{
+  if(cached&&Date.now()<cachedUntil-60000)return cached;
+  const now=Math.floor(Date.now()/1000);
+  const header=b64urlJson({alg:'RS256',typ:'JWT'});
+  const claims=b64urlJson({iss:account.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600});
+  const unsigned=`${header}.${claims}`;
+  const signer=createSign('RSA-SHA256');signer.update(unsigned);signer.end();
+  const assertion=`${unsigned}.${signer.sign(account.private_key).toString('base64url')}`;
+  const response=await request('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:AbortSignal.timeout(12000),body:new URLSearchParams({grant_type:'urn:ietf:params:oauth2:grant-type:jwt-bearer',assertion})});
+  let data={};try{data=await response.json();}catch{}
+  if(!response.ok||!data.access_token)throw error('オンライン対戦用Firebaseの認証に失敗しました。',503);
+  cached=data.access_token;cachedUntil=Date.now()+Number(data.expires_in||3600)*1000;
+  return cached;
+ };
+}
+function battleDatabase({base,projectId,accessToken,request,error}){
+ const account=readBattleServiceAccount();
+ const configuredProjectId=String(process.env.BATTLE_FIREBASE_PROJECT_ID||account?.project_id||'').trim();
+ if(!account||!configuredProjectId)return {base,projectId,accessToken,separated:false};
+ return {
+  base:`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(configuredProjectId)}/databases/(default)`,
+  projectId:configuredProjectId,
+  accessToken:createServiceAccountAccessToken(account,request,error),
+  separated:true
+ };
+}
+
 function ageBonuses(days,adult){
  const out={hp:adult?2:0,attack:adult?1:0,defense:adult?1:0,mp:adult?2:0};
  if(!adult)return out;
@@ -132,24 +177,28 @@ function publicRoom(value,id){
  const room=safeRoom(value,id);
  return {...room,players:room.players.map(p=>({...p,uid:p.uid,petShop:p.petShop||{}}))};
 }
+
 export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now}){
  const error=failExternal||fail;
- async function getDoc(token,path){
-  const response=await request(base+'/documents/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
+ const battle=battleDatabase({base,projectId,accessToken,request,error});
+ async function getDocAt(baseUrl,token,path,message='対戦データを読み込めませんでした。'){
+  const response=await request(baseUrl+'/documents/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
   if(response.status===404)return null;
   let data={};try{data=await response.json();}catch{}
-  if(!response.ok)throw error('対戦データを読み込めませんでした。',502);
+  if(!response.ok)throw error(message,502);
   return {fields:data.fields||{},updateTime:data.updateTime||'',value:decodeFields(data.fields||{})};
  }
- async function userWallet(token,uid){return getDoc(token,walletPath(uid));}
- async function commit(token,writes){
-  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
+ async function userWallet(token,uid){return getDocAt(base,token,walletPath(uid),'ユーザー情報を読み込めませんでした。');}
+ async function roomDoc(token,id){return getDocAt(battle.base,token,roomPath(id));}
+ async function commitAt(baseUrl,token,writes,message='対戦状態が更新されました。もう一度お試しください。'){
+  if(!writes.length)return {};
+  const response=await request(baseUrl+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
   let data={};try{data=await response.json();}catch{}
-  if(!response.ok){const e=error('対戦状態が更新されました。もう一度お試しください。',response.status===409||response.status===412?409:502);e.retryable=response.status===409||response.status===412||data.error?.status==='ABORTED';throw e;}
+  if(!response.ok){const e=error(message,response.status===409||response.status===412?409:502);e.retryable=response.status===409||response.status===412||data.error?.status==='ABORTED';throw e;}
   return data;
  }
  function roomWrite(id,room,snapshot){
-  const path=roomPath(id),body={name:baseName(projectId,path),fields:encodeFields(room)};
+  const path=roomPath(id),body={name:baseName(battle.projectId,path),fields:encodeFields(room)};
   return {update:body,updateMask:{fieldPaths:Object.keys(room)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
  }
  function walletWrite(uid,wallet,coins){
@@ -160,46 +209,46 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   const path=walletPath(uid);
   return {update:{name:baseName(projectId,path),fields:{petDungeonItems:encode(inventory)}},updateMask:{fieldPaths:['petDungeonItems']},currentDocument:wallet?.updateTime?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'petUpdatedAt',setToServerValue:'REQUEST_TIME'}]};
  }
- async function snapshot(id,token){
+ async function snapshot(id,roomToken){
   for(let attempt=0;attempt<3;attempt++){
-   const doc=await getDoc(token,roomPath(id)),cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
+   const doc=await roomDoc(roomToken,id),cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
    if(!cleaned.changed)return publicRoom(cleaned.room,id);
-   try{await commit(token,[roomWrite(id,cleaned.room,doc)]);return publicRoom(cleaned.room,id);}
+   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc)]);return publicRoom(cleaned.room,id);}
    catch(e){if(e.retryable&&attempt<2)continue;throw e;}
   }
   throw error('対戦ルームを更新できませんでした。',409);
  }
- async function rooms(token){return Promise.all(ROOM_IDS.map(id=>snapshot(id,token)));}
- async function awardWinner(token,writes,uid){
-  const winnerWallet=await userWallet(token,uid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));
-  writes.push(walletWrite(uid,winnerWallet,coins+2));
+ async function rooms(roomToken){return Promise.all(ROOM_IDS.map(id=>snapshot(id,roomToken)));}
+ async function awardWinner(walletToken,walletWrites,uid){
+  const winnerWallet=await userWallet(walletToken,uid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));
+  walletWrites.push(walletWrite(uid,winnerWallet,coins+2));
  }
- async function act(id,uid,token,operation,body){
+ async function act(id,uid,roomToken,walletToken,operation,body){
   for(let attempt=0;attempt<4;attempt++){
-   const stored=await getDoc(token,roomPath(id)),cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
+   const stored=await roomDoc(roomToken,id),cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
    if(cleaned.changed){
-    try{await commit(token,[roomWrite(id,cleaned.room,stored)]);continue;}
+    try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored)]);continue;}
     catch(e){if(e.retryable&&attempt<3)continue;throw e;}
    }
-   const room=cleaned.room,players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),writes=[];
+   const room=cleaned.room,players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];
    if(operation==='join'){
     if(index>=0)return {room:publicRoom(room,id)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
-    const wallet=await userWallet(token,uid),data=wallet?.value||{},player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
-    room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;writes.push(roomWrite(id,room,stored));
+    const wallet=await userWallet(walletToken,uid),data=wallet?.value||{},player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
+    room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;roomWrites.push(roomWrite(id,room,stored));
    }else if(operation==='leave'){
     if(index<0)return {room:publicRoom(room,id)};
     if(room.status==='playing'){
      const opponent=players.find(p=>p.uid!==uid),at=now();
      if(opponent){
       room.players=[{...opponent,ready:false,rematchReady:false}];room.status='finished';room.winnerUid=opponent.uid;room.lastEvent={type:'forfeit',from:uid,to:opponent.uid,at};room.matchEndedAt=at;room.seq++;room.updatedAt=at;
-      await awardWinner(token,writes,opponent.uid);writes.push(roomWrite(id,room,stored));
+      await awardWinner(walletToken,walletWrites,opponent.uid);roomWrites.push(roomWrite(id,room,stored));
      }else{
-      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=at;writes.push(roomWrite(id,room,stored));
+      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=at;roomWrites.push(roomWrite(id,room,stored));
      }
     }else{
      room.players=players.filter(p=>p.uid!==uid).map(p=>({...p,ready:false,rematchReady:false}));
-     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
+     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
     }
    }else{
     if(index<0)throw error('先にルームへ入室してください。',403);
@@ -207,24 +256,24 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='waiting'||players.length!==2)throw error('相手が入室するまでお待ちください。',409);
      players[index]={...players[index],ready:true};room.players=players;
      if(players.every(p=>p.ready)){
-      const wallets=await Promise.all(players.map(p=>userWallet(token,p.uid))),balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
+      const wallets=await Promise.all(players.map(p=>userWallet(walletToken,p.uid))),balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
       if(balances.some(value=>value<1))throw error('対戦開始には２人とも１コイン必要です。',400);
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;});
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.lastEvent={type:'start',at:now()};
-      wallets.forEach((wallet,i)=>writes.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
+      wallets.forEach((wallet,i)=>walletWrites.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
      }
     }else if(operation==='miss'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],at=now();
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
      attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-1);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage:1,at};
-     if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;await awardWinner(token,writes,room.winnerUid);}
+     if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;await awardWinner(walletToken,walletWrites,room.winnerUid);}
     }else if(operation==='magic'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      if(room.noItems)throw error('このルームは魔法・アイテムなしです。',400);
      const spell=MAGIC_SPELLS.find(entry=>entry.id===String(body?.spellId||''));
      if(!spell)throw error('使用する魔法を選んでください。',400);
-     const wallet=await userWallet(token,uid),level=petLevel(wallet?.value||{}),attacker=players[index],at=now();
+     const wallet=await userWallet(walletToken,uid),level=petLevel(wallet?.value||{}),attacker=players[index],at=now();
      if(level<spell.level)throw error('この魔法はまだ習得していません。',400);
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
      if(Math.floor(number(attacker.mp))<spell.mpCost)throw error('MPが足りません。',400);
@@ -237,7 +286,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      }else{
       const targetIndex=index===0?1:0,defender=players[targetIndex],damage=Math.max(0,rolled);
       defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);room.lastEvent={type:'magic',kind:'attack',from:uid,to:defender.uid,spellId:spell.id,name:spell.name,damage,mpCost:spell.mpCost,at};
-      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(token,writes,uid);}
+      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(walletToken,walletWrites,uid);}
      }
     }else if(operation==='item'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -248,9 +297,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってからアイテムを使ってください。',429);
      if(item.kind==='hp'&&attacker.hp>=attacker.stats.hp)throw error('HPは満タンです。',400);
      if(item.kind==='mp'&&attacker.mp>=attacker.stats.mp)throw error('MPは満タンです。',400);
-     const wallet=await userWallet(token,uid),inventory=normalizeInventory(wallet?.value?.petDungeonItems);
+     const wallet=await userWallet(walletToken,uid),inventory=normalizeInventory(wallet?.value?.petDungeonItems);
      if((inventory[item.id]||0)<1)throw error(item.name+'を持っていません。',400);
-     inventory[item.id]-=1;writes.push(inventoryWrite(uid,wallet,inventory));attacker.lastActionAt=at;room.seq++;
+     inventory[item.id]-=1;walletWrites.push(inventoryWrite(uid,wallet,inventory));attacker.lastActionAt=at;room.seq++;
      let amount=0;
      if(item.kind==='hp'){const before=attacker.hp;attacker.hp=Math.min(attacker.stats.hp,attacker.hp+item.amount);amount=attacker.hp-before;}
      else{const before=attacker.mp;attacker.mp=Math.min(attacker.stats.mp,attacker.mp+item.amount);amount=attacker.mp-before;}
@@ -261,37 +310,45 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
      const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
-     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(token,writes,uid);}
+     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(walletToken,walletWrites,uid);}
     }else if(operation==='continue'){
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
-      const wallets=await Promise.all(players.map(p=>userWallet(token,p.uid))),balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
+      const wallets=await Promise.all(players.map(p=>userWallet(walletToken,p.uid))),balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
       if(balances.some(value=>value<1))throw error('再戦には２人とも１コイン必要です。',400);
-      wallets.forEach((wallet,i)=>writes.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
+      wallets.forEach((wallet,i)=>walletWrites.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;});
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
-    room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
+    room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
    }
-   try{await commit(token,writes);return {room:publicRoom(room,id)};}
-   catch(e){if(e.retryable&&attempt<3)continue;throw e;}
+   let roomCommitted=false;
+   try{
+    await commitAt(battle.base,roomToken,roomWrites);
+    roomCommitted=true;
+    if(walletWrites.length)await commitAt(base,walletToken,walletWrites,'コイン・アイテム情報を更新できませんでした。もう一度お試しください。');
+    return {room:publicRoom(room,id)};
+   }catch(e){
+    if(!roomCommitted&&e.retryable&&attempt<3)continue;
+    throw e;
+   }
   }
   throw error('対戦状態の更新が競合しました。もう一度お試しください。',409);
  }
  async function handle(req,res,path){
   try{
-   const user=await verifyUser(req),token=await accessToken();
-   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(token)});
+   const user=await verifyUser(req),roomToken=await battle.accessToken();
+   if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:await rooms(roomToken)});
    const match=path.match(/^\/api\/online-battle\/room\/(1[0-2]|[1-9])(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
    if(!match)throw error('対戦ルームが見つかりません。',404);
    const id=match[1],operation=match[2];
-   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,token)});
+   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,roomToken)});
    if(req.method!=='POST'||!operation)throw error('この操作は利用できません。',405);
-   const body=await readJson(req,1024),result=await act(id,user.uid,token,operation,body);
+   const walletToken=await accessToken(),body=await readJson(req,1024),result=await act(id,user.uid,roomToken,walletToken,operation,body);
    send(res,200,{ok:true,...result});
   }catch(e){send(res,e.status||500,{error:e.message||'オンライン対戦でエラーが発生しました。'});}
  }
- return {handle,ROOM_IDS};
+ return {handle,ROOM_IDS,battleDatabaseSeparated:battle.separated,battleProjectId:battle.projectId};
 }
