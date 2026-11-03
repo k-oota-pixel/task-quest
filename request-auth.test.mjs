@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRequestVerifier,isAdministrator} from './request-auth.mjs';
+import {createRequestVerifier,isAdministrator,ONLINE_BATTLE_ADMISSION_TTL_MS} from './request-auth.mjs';
 const fail=(message,status)=>Object.assign(Error(message),{status});
 
 test('concurrent and repeated checks in one request share authentication and admission',async()=>{
@@ -17,6 +17,30 @@ test('a new request immediately sees account resets and changed registration sta
 test('separate users and separate requests cannot reuse another result',async()=>{
  let reads=0;const verify=createRequestVerifier({verifyRawUser:async req=>({uid:req.uid}),admission:async()=>{reads+=2;return {};},fail});
  assert.equal((await verify({uid:'one'})).uid,'one');assert.equal((await verify({uid:'two'})).uid,'two');assert.equal((await verify({uid:'one'})).uid,'one');assert.equal(reads,6);
+});
+test('online battle reuses only the Firestore admission result for one hour',async()=>{
+ let authentications=0,reads=0,clock=1_000_000;
+ const verify=createRequestVerifier({
+  verifyRawUser:async req=>{authentications++;return {uid:'student',provider:'custom',codeVersion:req.codeVersion||7};},
+  admission:async()=>{reads++;return {resetRequired:false};},
+  fail,
+  now:()=>clock
+ });
+ await verify({url:'/api/online-battle/rooms'});
+ await verify({url:'/api/online-battle/room/1'});
+ assert.equal(authentications,2);
+ assert.equal(reads,1);
+ clock+=ONLINE_BATTLE_ADMISSION_TTL_MS;
+ await verify({url:'/api/online-battle/room/1'});
+ assert.equal(authentications,3);
+ assert.equal(reads,2);
+});
+test('online battle cache is isolated by account version',async()=>{
+ let reads=0;
+ const verify=createRequestVerifier({verifyRawUser:async req=>({uid:'student',provider:'custom',codeVersion:req.codeVersion}),admission:async()=>{reads++;return {};},fail});
+ await verify({url:'/api/online-battle/rooms',codeVersion:1});
+ await verify({url:'/api/online-battle/rooms',codeVersion:2});
+ assert.equal(reads,2);
 });
 test('failed authentication or admission remains denied, and is not repeated inside the request',async()=>{
  let checks=0,reads=0;
