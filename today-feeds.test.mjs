@@ -1,26 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds,isArticleUrl,isRecentArticle,selectRegionalStories} from './today-feeds.mjs';
+import {parseFeed,parseHtmlIndex,discoverNewsFromFeeds,isArticleUrl,isRecentArticle,selectRegionalStories,CURATED_SOURCES} from './today-feeds.mjs';
 
 test('parseFeed supports RSS items and Atom links while normalizing HTTP sources to HTTPS',()=>{
   const rss=`<rss><channel><item><title>NOAA studies a new ocean event</title><link>http://example.gov/ocean</link><pubDate>Thu, 30 Oct 2026 10:00:00 GMT</pubDate><description><![CDATA[Scientists reported a measured change in the ocean.]]></description></item></channel></rss>`;
-  const items=parseFeed(rss,{name:'NOAA',url:'https://example.gov/rss.xml',category:'environment'});
-  assert.equal(items.length,1);assert.equal(items[0].url,'https://example.gov/ocean');assert.equal(items[0].categoryHint,'environment');assert.equal(items[0].scopeHint,'world');assert.match(items[0].summary,/Scientists reported/);
+  const items=parseFeed(rss,{name:'NOAA',publisher:'NOAA',url:'https://example.gov/rss.xml',category:'environment'});
+  assert.equal(items.length,1);assert.equal(items[0].url,'https://example.gov/ocean');assert.equal(items[0].categoryHint,'environment');assert.equal(items[0].scopeHint,'world');assert.equal(items[0].publisherHint,'NOAA');assert.match(items[0].summary,/Scientists reported/);
   const atom=`<feed><entry><title>New education program opens</title><link href="/news/education"/><updated>2026-10-30T12:00:00Z</updated><summary>Students can join a new program.</summary></entry></feed>`;
-  const atomItems=parseFeed(atom,{name:'Education',url:'https://example.edu/feed',category:'education',scope:'japan'});
+  const atomItems=parseFeed(atom,{name:'Education',publisher:'Education',url:'https://example.edu/feed',category:'education',scope:'japan'});
   assert.equal(atomItems[0].url,'https://example.edu/news/education');assert.equal(atomItems[0].scopeHint,'japan');
 });
 
-test('parseHtmlIndex keeps useful same-site newsroom links',()=>{
-  const html=`<a href="/ioc/news/story-one">A new youth sports program begins in Senegal</a><a href="/home">Home</a><a href="https://evil.example/story">An unrelated external story should not be kept</a>`;
-  const items=parseHtmlIndex(html,{name:'IOC',url:'https://www.olympics.com/ioc/news',category:'sports',include:/\/ioc\//i});
-  assert.equal(items.length,1);assert.equal(items[0].categoryHint,'sports');assert.equal(items[0].scopeHint,'world');assert.match(items[0].url,/olympics\.com\/ioc\/news\/story-one/);
+test('parseHtmlIndex keeps useful same-site newsroom links and dates inside the link text',()=>{
+  const html=`<a href="/news/story-one">A new youth sports program begins in Hokkaido 2026年10月30日</a><a href="/home">Home</a><a href="https://evil.example/story">An unrelated external story should not be kept</a>`;
+  const items=parseHtmlIndex(html,{name:'Local News',publisher:'Local News',url:'https://local.example/news/',category:'sports',include:/\/news\//i,scope:'japan'});
+  assert.equal(items.length,1);assert.equal(items[0].categoryHint,'sports');assert.equal(items[0].scopeHint,'japan');assert.equal(items[0].publishedAt,'2026-10-30T00:00:00.000Z');assert.match(items[0].url,/local\.example\/news\/story-one/);
+});
+
+test('curated source list favors Japanese private and Hokkaido newsrooms and excludes Japanese ministries',()=>{
+  const names=CURATED_SOURCES.map(source=>source.name);
+  for(const required of ['UHB Hokkaido News','HTB Hokkaido News','STV Hokkaido News','HBC Hokkaido News','ITmedia NEWS','ITmedia AI+','Impress Watch','GIGAZINE','Gizmodo Japan','Toyokeizai Online','Mynavi News'])assert.ok(names.includes(required),required);
+  for(const removed of ['Digital Agency Japan','Cabinet Office Japan','MHLW Japan','Consumer Affairs Agency Japan','METI Japan','Ministry of Environment Japan','MEXT Japan','Japan Sports Agency','Agency for Cultural Affairs Japan','NASA JPL','NASA CNEOS','UN News','NOAA','FDA MedWatch','UNESCO-UNEVOC','European Central Bank','IOC'])assert.equal(names.includes(removed),false,removed);
+  assert.ok(CURATED_SOURCES.filter(source=>source.scope==='japan').length>=14);
 });
 
 test('Japan-first feed planner selects five Japan stories and one WORLD story when available',()=>{
   const candidates=[
-    ...Array.from({length:6},(_,i)=>({url:`https://jp.example/${i}`,scope:'japan',categoryHint:['science','technology','health','sports','culture','education'][i]})),
-    ...Array.from({length:3},(_,i)=>({url:`https://world.example/${i}`,scope:'world',categoryHint:['world','business','environment'][i]}))
+    ...Array.from({length:6},(_,i)=>({url:`https://jp.example/${i}`,sourceName:`JP ${i}`,publisherHint:`JP ${i}`,scope:'japan',categoryHint:['science','technology','health','sports','culture','education'][i]})),
+    ...Array.from({length:3},(_,i)=>({url:`https://world.example/${i}`,sourceName:`World ${i}`,publisherHint:`World ${i}`,scope:'world',categoryHint:['world','business','environment'][i]}))
   ];
   const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
   assert.equal(selected.length,6);
@@ -29,11 +36,31 @@ test('Japan-first feed planner selects five Japan stories and one WORLD story wh
   assert.ok(new Set(selected.map(item=>item.categoryHint)).size>=5);
 });
 
+test('feed planner never selects two stories from the same publisher',()=>{
+  const candidates=[
+    {url:'https://itmedia.example/1',sourceName:'ITmedia NEWS',publisherHint:'ITmedia',scope:'japan',categoryHint:'technology'},
+    {url:'https://itmedia.example/2',sourceName:'ITmedia AI+',publisherHint:'ITmedia',scope:'japan',categoryHint:'science'},
+    {url:'https://uhb.example/1',sourceName:'UHB',publisherHint:'UHB',scope:'japan',categoryHint:'life',regionalHint:true,sourceTypeHint:'newsroom'},
+    {url:'https://nhk.example/1',sourceName:'NHK',publisherHint:'NHK',scope:'japan',categoryHint:'world'},
+    {url:'https://jaxa.example/1',sourceName:'JAXA',publisherHint:'JAXA',scope:'japan',categoryHint:'science'},
+    {url:'https://toyokeizai.example/1',sourceName:'Toyokeizai',publisherHint:'Toyokeizai',scope:'japan',categoryHint:'business'},
+    {url:'https://mynavi.example/1',sourceName:'Mynavi',publisherHint:'Mynavi',scope:'japan',categoryHint:'culture'},
+    {url:'https://bbc.example/1',sourceName:'BBC World',publisherHint:'BBC',scope:'world',categoryHint:'world'},
+    {url:'https://bbc.example/2',sourceName:'BBC Sport',publisherHint:'BBC',scope:'world',categoryHint:'sports'},
+    {url:'https://guardian.example/1',sourceName:'Guardian',publisherHint:'Guardian',scope:'world',categoryHint:'environment'}
+  ];
+  const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
+  assert.equal(selected.length,6);
+  assert.equal(new Set(selected.map(item=>item.publisherHint)).size,6);
+  assert.ok(selected.filter(item=>item.publisherHint==='ITmedia').length<=1);
+  assert.ok(selected.filter(item=>item.publisherHint==='BBC').length<=1);
+});
+
 test('Japan-first feed planner fills shortages instead of stopping generation',()=>{
   const candidates=[
-    {url:'https://jp.example/1',scope:'japan',categoryHint:'science'},
-    {url:'https://jp.example/2',scope:'japan',categoryHint:'technology'},
-    ...Array.from({length:6},(_,i)=>({url:`https://world.example/${i}`,scope:'world',categoryHint:['world','health','sports','culture','business','environment'][i]}))
+    {url:'https://jp.example/1',sourceName:'JP1',publisherHint:'JP1',scope:'japan',categoryHint:'science'},
+    {url:'https://jp.example/2',sourceName:'JP2',publisherHint:'JP2',scope:'japan',categoryHint:'technology'},
+    ...Array.from({length:6},(_,i)=>({url:`https://world.example/${i}`,sourceName:`World ${i}`,publisherHint:`World ${i}`,scope:'world',categoryHint:['world','health','sports','culture','business','environment'][i]}))
   ];
   const selected=selectRegionalStories(candidates,{total:6,japanRatio:0.85});
   assert.equal(selected.length,6);
@@ -42,29 +69,41 @@ test('Japan-first feed planner fills shortages instead of stopping generation',(
 });
 
 test('discoverNewsFromFeeds builds a diverse compact packet despite individual source failures',async()=>{
-  const feedBody=(category,index)=>`<rss><channel>${Array.from({length:3},(_,i)=>`<item><title>${category} verified update ${index}-${i} for students</title><link>https://source${index}.example/story-${i}</link><pubDate>Thu, 30 Oct 2026 10:0${i}:00 GMT</pubDate><description>Verified facts about ${category} event ${i} from an official source.</description></item>`).join('')}</channel></rss>`;
-  const indexHtml=`<a href="/ioc/news/sports-one">Olympic leaders announce a new youth sports initiative</a><a href="/ioc/news/sports-two">Athletes join a new international education program</a>`;
-  const appleHtml=`<a href="/newsroom/2026/10/apple-technology-one/">Apple announces a new technology accessibility feature</a><a href="/newsroom/2026/10/apple-technology-two/">Developers receive new tools for creative applications</a>`;
-  const sourceBodies=new Map([
-    ['https://www.noaa.gov/rss.xml',feedBody('environment',1)],
-    ['https://www.jpl.nasa.gov/feeds/news/',feedBody('science',2)],
-    ['https://cneos.jpl.nasa.gov/feed/news.xml',feedBody('science',3)],
-    ['https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/medwatch/rss.xml',feedBody('health',4)],
-    ['https://connect.unevoc.unesco.org/unevoc_news.xml',feedBody('education',5)],
-    ['https://www.ecb.europa.eu/rss/press.html',feedBody('business',6)],
-    ['https://www.olympics.com/ioc/news',indexHtml],
-    ['https://www.apple.com/newsroom/',appleHtml]
-  ]);
+  const now=new Date('2026-10-31T00:00:00Z');
+  const rssFor=(source,index)=>`<rss><channel>${Array.from({length:2},(_,i)=>`<item><title>${source.name} verified ${source.category} update ${index}-${i}</title><link>https://article${index}.example/story-${i}</link><pubDate>Fri, 30 Oct 2026 10:0${i}:00 GMT</pubDate><description>Verified facts about a current ${source.category} event for students, including the people involved, the date and the main result.</description></item>`).join('')}</channel></rss>`;
+  const htmlIndex=(source,index)=>{
+    const paths={
+      'UHB Hokkaido News':['/news/single.html?id=100','/news/single.html?id=101'],
+      'HTB Hokkaido News':['/news/archives_100.html','/news/archives_101.html'],
+      'STV Hokkaido News':['/news/stvnews/kiji/story100.html','/news/stvnews/kiji/story101.html'],
+      'HBC Hokkaido News':['/articles/-/100','/articles/-/101'],
+      'Impress Watch':['/docs/news/100.html','/docs/news/101.html'],
+      'Gizmodo Japan':['/article/story-100/','/article/story-101/'],
+      'Toyokeizai Online':['/articles/-/100','/articles/-/101'],
+      'Mynavi News':['/article/20261030-story/','/techplus/article/story-101/'],
+      'JAXA Japan':['/press/2026/10/100_j.html','/press/2026/10/101_j.html'],
+      'JR Hokkaido Newsroom':['/CM/Info/press/pdf/100.pdf','/CM/Info/press/100.html'],
+      'Apple Newsroom':['/newsroom/2026/10/story-100/','/newsroom/2026/10/story-101/']
+    }[source.name]||[];
+    return paths.map((path,i)=>`<a href="${path}">${source.name} verified ${source.category} story for students number ${i} 2026年10月30日</a>`).join('');
+  };
+  const indexBodies=new Map(CURATED_SOURCES.map((source,index)=>[source.url,source.kind==='rss'?rssFor(source,index):htmlIndex(source,index)]));
   const fetchImpl=async url=>{
-    const key=String(url);const body=sourceBodies.get(key)||`<html><main><article><time datetime="2026-10-30T10:00:00Z"></time><p>This official article explains a verified event with enough factual context for an educational news rewrite. It includes dates, participants, and the main result.</p></article></main></html>`;
+    const key=String(url);
+    if(indexBodies.has(key)){
+      const body=indexBodies.get(key);
+      return {ok:true,status:200,headers:{get:name=>name==='content-type'?(key.includes('rss')||key.endsWith('.xml')?'application/xml':'text/html; charset=utf-8'):String(body.length)},arrayBuffer:async()=>Buffer.from(body)};
+    }
+    const body=`<html><head><meta property="article:published_time" content="2026-10-30T10:00:00Z"></head><main><article><p>This article explains a verified current event with enough factual context for an educational news rewrite. It includes the date, people involved, what happened, why it matters, and the main result for readers.</p></article></main></html>`;
     return {ok:true,status:200,headers:{get:name=>name==='content-type'?'text/html; charset=utf-8':String(body.length)},arrayBuffer:async()=>Buffer.from(body)};
   };
-  const result=await discoverNewsFromFeeds({fetchImpl,now:new Date('2026-10-31T00:00:00Z')});
-  assert.equal(result.mode,'curated-feeds');assert.ok(result.candidateCount>=8);assert.ok(result.sources.length>=8);assert.ok(result.sources.every(source=>source.url.startsWith('https://')));assert.match(result.research,/official sources/);assert.match(result.research,/environment/);assert.match(result.research,/business/);
+  const result=await discoverNewsFromFeeds({fetchImpl,now});
+  assert.equal(result.mode,'curated-feeds');assert.ok(result.candidateCount>=8);assert.ok(result.sources.length>=8);assert.ok(result.sources.every(source=>source.url.startsWith('https://')));assert.match(result.research,/student-news sources/);assert.match(result.research,/same publisher/);
+  const packet=JSON.parse(result.research);assert.equal(packet.requiredStories.length,6);assert.equal(new Set(packet.requiredStories.map(item=>item.publisherHint)).size,6);assert.ok(new Set(packet.requiredStories.map(item=>item.categoryHint)).size>=5);
 });
 
 test('source selection rejects assets, old materials, unknown dates and future dates',()=>{
- assert.equal(isArticleUrl('https://cneos.jpl.nasa.gov/news/news.js'),false);
+ assert.equal(isArticleUrl('https://example.org/news/news.js'),false);
  assert.equal(isArticleUrl('https://example.org/old-book.pdf'),false);
  assert.equal(isArticleUrl('https://example.org/story.html'),true);
  const now=new Date('2026-10-31T00:00:00Z');
