@@ -1,5 +1,7 @@
 const ROOM_IDS=Object.freeze(Array.from({length:12},(_,index)=>String(index+1)));
 const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const n=Number(id);const block=Math.floor((n-1)/3);return [id,{grade:['4級','3級','準2級','2級'][block]||'2級',noItems:n%3===0}]})));
+export const ONLINE_BATTLE_JOIN_TTL_MS=60*60*1000;
+export const ONLINE_BATTLE_RESULT_TTL_MS=2*60*1000;
 const MAGIC_SPELLS=Object.freeze([
  {id:'mimuros',name:'ミムロス',level:5,kind:'heal',base:10,mpCost:5},
  {id:'mirogoro',name:'ミロゴロ',level:15,kind:'attack',base:15,mpCost:5},
@@ -76,17 +78,55 @@ function profile(data,uid){
  const nickname=typeof data.nickname==='string'&&data.nickname.trim()?data.nickname.trim().slice(0,24):'なまえ未設定';
  const petName=typeof data.petName==='string'&&data.petName.trim()?data.petName.trim().slice(0,24):(data.petHatched?'ペット':'ふしぎなたまご');
  const stats=petStats(data);
- return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0};
+ return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0};
 }
-function emptyRoom(id){const rules=ROOM_RULES[id]||{grade:'4級',noItems:false};return {roomId:id,grade:rules.grade,noItems:rules.noItems,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,updatedAt:Date.now()};}
+function emptyRoom(id){const rules=ROOM_RULES[id]||{grade:'4級',noItems:false};return {roomId:id,grade:rules.grade,noItems:rules.noItems,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchEndedAt:0,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2).map(player=>{
   const stats=field(player.stats),maxHp=Math.max(1,Math.floor(number(stats.hp,10))),maxMp=Math.max(0,Math.floor(number(stats.mp,6)));
-  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1)))};
+  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0)))};
  }):[];
  room.seq=Math.max(0,Math.floor(number(room.seq)));
+ room.matchEndedAt=Math.max(0,Math.floor(number(room.matchEndedAt,0)));
  return room;
+}
+function resetExpiredRoom(room,id,at){
+ const fresh=emptyRoom(id);
+ fresh.seq=Math.max(0,Math.floor(number(room?.seq)))+1;
+ fresh.updatedAt=at;
+ fresh.matchEndedAt=0;
+ return fresh;
+}
+export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
+ const room=safeRoom(value,id),current=Math.max(0,Math.floor(number(at,Date.now())));
+ let changed=false,reason='';
+ if(room.status==='finished'){
+  const endedAt=room.matchEndedAt||Math.max(0,Math.floor(number(room.updatedAt,0)));
+  if(!room.matchEndedAt&&endedAt){room.matchEndedAt=endedAt;changed=true;}
+  if(endedAt&&current-endedAt>=ONLINE_BATTLE_RESULT_TTL_MS)return {room:resetExpiredRoom(room,id,current),changed:true,reason:'result-expired'};
+ }
+ if(room.players.length){
+  const fallbackJoinAt=Math.max(0,Math.floor(number(room.updatedAt,current)))||current;
+  room.players=room.players.map(player=>{
+   if(player.joinedAt>0)return player;
+   changed=true;
+   return {...player,joinedAt:fallbackJoinAt};
+  });
+  const activePlayers=room.players.filter(player=>current-player.joinedAt<ONLINE_BATTLE_JOIN_TTL_MS);
+  if(activePlayers.length!==room.players.length){
+   room.players=activePlayers.map(player=>({...player,ready:false,rematchReady:false,lastActionAt:0}));
+   room.status=room.players.length?'waiting':'open';
+   room.winnerUid='';
+   room.lastEvent=null;
+   room.matchEndedAt=0;
+   room.seq=Math.max(0,Math.floor(number(room.seq)))+1;
+   room.updatedAt=current;
+   changed=true;
+   reason='join-expired';
+  }
+ }
+ return {room,changed,reason};
 }
 function publicRoom(value,id){
  const room=safeRoom(value,id);
@@ -121,8 +161,13 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   return {update:{name:baseName(projectId,path),fields:{petDungeonItems:encode(inventory)}},updateMask:{fieldPaths:['petDungeonItems']},currentDocument:wallet?.updateTime?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'petUpdatedAt',setToServerValue:'REQUEST_TIME'}]};
  }
  async function snapshot(id,token){
-  const doc=await getDoc(token,roomPath(id));
-  return publicRoom(doc?.value||emptyRoom(id),id);
+  for(let attempt=0;attempt<3;attempt++){
+   const doc=await getDoc(token,roomPath(id)),cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
+   if(!cleaned.changed)return publicRoom(cleaned.room,id);
+   try{await commit(token,[roomWrite(id,cleaned.room,doc)]);return publicRoom(cleaned.room,id);}
+   catch(e){if(e.retryable&&attempt<2)continue;throw e;}
+  }
+  throw error('対戦ルームを更新できませんでした。',409);
  }
  async function rooms(token){return Promise.all(ROOM_IDS.map(id=>snapshot(id,token)));}
  async function awardWinner(token,writes,uid){
@@ -131,26 +176,30 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  }
  async function act(id,uid,token,operation,body){
   for(let attempt=0;attempt<4;attempt++){
-   const stored=await getDoc(token,roomPath(id)),room=safeRoom(stored?.value||emptyRoom(id),id);
-   const players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),writes=[];
+   const stored=await getDoc(token,roomPath(id)),cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
+   if(cleaned.changed){
+    try{await commit(token,[roomWrite(id,cleaned.room,stored)]);continue;}
+    catch(e){if(e.retryable&&attempt<3)continue;throw e;}
+   }
+   const room=cleaned.room,players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),writes=[];
    if(operation==='join'){
     if(index>=0)return {room:publicRoom(room,id)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
-    const wallet=await userWallet(token,uid),data=wallet?.value||{},player=profile(data,uid);player.hp=player.stats.hp;player.mp=player.stats.mp;players.push(player);
-    room.players=players;room.status='waiting';room.updatedAt=now();room.seq++;writes.push(roomWrite(id,room,stored));
+    const wallet=await userWallet(token,uid),data=wallet?.value||{},player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
+    room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;writes.push(roomWrite(id,room,stored));
    }else if(operation==='leave'){
     if(index<0)return {room:publicRoom(room,id)};
     if(room.status==='playing'){
      const opponent=players.find(p=>p.uid!==uid),at=now();
      if(opponent){
-      room.players=[{...opponent,ready:false,rematchReady:false}];room.status='finished';room.winnerUid=opponent.uid;room.lastEvent={type:'forfeit',from:uid,to:opponent.uid,at};room.seq++;room.updatedAt=at;
+      room.players=[{...opponent,ready:false,rematchReady:false}];room.status='finished';room.winnerUid=opponent.uid;room.lastEvent={type:'forfeit',from:uid,to:opponent.uid,at};room.matchEndedAt=at;room.seq++;room.updatedAt=at;
       await awardWinner(token,writes,opponent.uid);writes.push(roomWrite(id,room,stored));
      }else{
-      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.seq++;room.updatedAt=at;writes.push(roomWrite(id,room,stored));
+      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=at;writes.push(roomWrite(id,room,stored));
      }
     }else{
      room.players=players.filter(p=>p.uid!==uid).map(p=>({...p,ready:false,rematchReady:false}));
-     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
+     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
     }
    }else{
     if(index<0)throw error('先にルームへ入室してください。',403);
@@ -161,7 +210,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
       const wallets=await Promise.all(players.map(p=>userWallet(token,p.uid))),balances=wallets.map(w=>Math.max(0,Math.floor(number(w?.value?.coins))));
       if(balances.some(value=>value<1))throw error('対戦開始には２人とも１コイン必要です。',400);
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;});
-      room.players=players;room.status='playing';room.winnerUid='';room.lastEvent={type:'start',at:now()};
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.lastEvent={type:'start',at:now()};
       wallets.forEach((wallet,i)=>writes.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
      }
     }else if(operation==='miss'){
@@ -169,7 +218,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      const attacker=players[index],at=now();
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
      attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-1);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage:1,at};
-     if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;await awardWinner(token,writes,room.winnerUid);}
+     if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;await awardWinner(token,writes,room.winnerUid);}
     }else if(operation==='magic'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      if(room.noItems)throw error('このルームは魔法・アイテムなしです。',400);
@@ -188,7 +237,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      }else{
       const targetIndex=index===0?1:0,defender=players[targetIndex],damage=Math.max(0,rolled);
       defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);room.lastEvent={type:'magic',kind:'attack',from:uid,to:defender.uid,spellId:spell.id,name:spell.name,damage,mpCost:spell.mpCost,at};
-      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;await awardWinner(token,writes,uid);}
+      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(token,writes,uid);}
      }
     }else if(operation==='item'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -212,7 +261,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
      const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
-     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;await awardWinner(token,writes,uid);}
+     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(token,writes,uid);}
     }else if(operation==='continue'){
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
@@ -221,7 +270,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
       if(balances.some(value=>value<1))throw error('再戦には２人とも１コイン必要です。',400);
       wallets.forEach((wallet,i)=>writes.push(walletWrite(players[i].uid,wallet,balances[i]-1)));
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;});
-      room.players=players;room.status='playing';room.winnerUid='';room.lastEvent={type:'start',at:now()};
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
     room.seq++;room.updatedAt=now();writes.push(roomWrite(id,room,stored));
