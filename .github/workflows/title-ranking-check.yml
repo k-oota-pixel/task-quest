@@ -1,0 +1,32 @@
+name: Title collection and ranking checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'title-model.mjs'
+      - 'learning-titles.mjs'
+      - 'title-count-rankings.mjs'
+      - 'title-count-rankings.test.mjs'
+      - 'learning-titles.test.mjs'
+      - 'title-summary.test.mjs'
+      - '.github/workflows/title-ranking-check.yml'
+  pull_request:
+    paths:
+      - 'title-model.mjs'
+      - 'learning-titles.mjs'
+      - 'title-count-rankings.mjs'
+      - 'title-count-rankings.test.mjs'
+      - 'learning-titles.test.mjs'
+      - 'title-summary.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test title-count-rankings.test.mjs learning-titles.test.mjs
