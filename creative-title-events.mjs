@@ -2,6 +2,7 @@ import grammarUnits from './grammar-reward-units.json' with {type:'json'};
 import {applyTitleEvent,keyOf} from './creative-title-progress.mjs';
 import {creativeTitles,creativeCatalog} from './title-model.mjs';
 import {challengePeriods} from './challenge-model.mjs';
+import {dailyMaterialTransforms} from './material-rankings.mjs';
 const encode=v=>v===null?{nullValue:null}:typeof v==='boolean'?{booleanValue:v}:typeof v==='number'?{integerValue:String(Math.floor(v))}:typeof v==='string'?{stringValue:v}:Array.isArray(v)?{arrayValue:{values:v.map(encode)}}:{mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,x])=>[k,encode(x)]))}};
 const PET_FISHING_IDS=new Set(['salmon','eel','crab','shrimp','squid','octopus','oyster','jellyfish','shark','dolphin','whale','crysturtle','magmander','runegolem','abyssdragon','dark_mage','royal_guard','demon_king']);
 export function validateTitleEvent(b,fail){
@@ -54,7 +55,17 @@ function retryFirstStatsWrite(prefix,events){
  return {update:{name:prefix+'analytics/retry-question-first-v1',fields:{schemaVersion:encode(1),items:{mapValue:{fields:itemFields}}}},updateMask:{fieldPaths},updateTransforms:transforms};
 }
 const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
-export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
+const DIRECT_RANKING_APPS=new Set(['basic-grammar','grammar','today','pet-fishing','word-tower','eiken-dungeon','case-talk']);
+function directDailyCounts(appId,events){
+ if(!DIRECT_RANKING_APPS.has(appId))return new Map();
+ const eligible=events.filter(e=>appId==='basic-grammar'||appId==='grammar'?e.kind==='question':appId==='today'?e.kind==='read':appId==='case-talk'?e.kind==='answer':e.kind==='run');
+ return eligible.length?new Map([[appId,new Set(eligible.map(e=>e.sessionId||e.eventId)).size]]):new Map();
+}
+function directDailyWrite(prefix,uid,appId,events,day){
+ const counts=directDailyCounts(appId,events),transforms=dailyMaterialTransforms(counts,day);
+ return transforms.length?[{update:{name:prefix+'learning_activity/'+uid,fields:{uid:{stringValue:uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms}]:[];
+}
+export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged=()=>{},fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  const recentBatches=new Map(),requestWindows=new Map(),inFlight=new Set();
  async function applyBatch(user,body,res){
@@ -90,9 +101,9 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[
     {update:{name:prefix+receipt,fields:{day:encode(day),batchId:encode(body.batchId),eventCount:encode(events.length),counts:encode(usageCounts),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},
     {update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},
-    ...reward.writes,...(retryStats?[retryStats]:[]),...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])
+    ...reward.writes,...(retryStats?[retryStats]:[]),...directDailyWrite(prefix,user.uid,body.appId,events,day),...((freshTitles.length&&!reward.writes.length)||body.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])
    ]})});
-   if(commit.ok){if(limited){if(recentBatches.size>=2000)recentBatches.delete(recentBatches.keys().next().value);recentBatches.set(cacheKey,{until:now+300000});}return send(res,200,{ok:true,freshTitles,awardedCoins:reward.coins});}
+   if(commit.ok){if(limited){if(recentBatches.size>=2000)recentBatches.delete(recentBatches.keys().next().value);recentBatches.set(cacheKey,{until:now+300000});}if(directDailyCounts(body.appId,events).size)onDailyCountsChanged([body.appId],day);return send(res,200,{ok:true,freshTitles,awardedCoins:reward.coins});}
    const error=await commit.json?.().catch(()=>({}))||{};
    if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
   }
@@ -112,8 +123,8 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{}),next=applyTitleEvent(previous,e,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
    const unlocked=new Set(creativeTitles(e.appId,previous).filter(title=>title.unlocked).map(title=>title.id)),freshTitles=creativeTitles(e.appId,next).filter(title=>title.unlocked&&!unlocked.has(title.id));
-   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},...(freshTitles.length||e.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
-   if(commit.ok)return send(res,200,{ok:true,freshTitles});const error=await commit.json?.().catch(()=>({}))||{};if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
+   const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},...directDailyWrite(prefix,user.uid,e.appId,[e],day),...(freshTitles.length||e.appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
+   if(commit.ok){if(directDailyCounts(e.appId,[e]).size)onDailyCountsChanged([e.appId],day);return send(res,200,{ok:true,freshTitles});}const error=await commit.json?.().catch(()=>({}))||{};if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
   }
   throw fail('称号の保存が混み合っています。',409);
  }catch(error){send(res,error.status||500,{error:error.message||'称号を保存できませんでした。'});}};
