@@ -1,6 +1,6 @@
 import './title-summary.test.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
-import {titleState,activityTitles,TITLE_CONTENTS,creativeTitles} from './title-model.mjs';
+import {titleState,activityTitles,TITLE_CONTENTS,creativeTitles,creativeCatalog,validTitleName} from './title-model.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import catalog from './retry-title-catalog.json' with {type:'json'};
@@ -37,4 +37,15 @@ test('full title read returns and mirrors unlocked title count',async()=>{
 test('milestone notification uses the atomic increment result rather than a later racing read',async()=>{
  let calls=0,milestone=10;const api=createLearningActivity({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId:'eiken-retry'}),invalidate(){},fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt)=>{calls++;const writes=JSON.parse(opt.body).writes;const activity=writes.find(w=>w.update.name.endsWith('/learning_activity/u'));assert.equal(activity.updateTransforms[2].increment.integerValue,'1');return {ok:true,json:async()=>({writeResults:writes.map(w=>({transformResults:w===activity?[{},{},{integerValue:String(milestone)}]:[]}))})};}});
  const r={};await api({method:'POST',headers:{'content-type':'application/json'}},r);assert.equal(calls,1);assert.equal(r.body.freshTitles[0].id,'eiken-retry:10');for(const n of [1,50,100]){milestone=n;const unlocked={};await api({method:'POST',headers:{'content-type':'application/json'}},unlocked);assert.equal(unlocked.body.freshTitles[0].id,'eiken-retry:'+n);}
+});
+
+test('master titles remain locked until all titles in their content group are unlocked',()=>{
+ const before=titleState(),locked=before.titles.find(t=>t.id==='master:ateru');
+ assert.equal(locked.unlocked,false);assert.equal(locked.done,0);assert.equal(locked.need,15);
+ const metrics=Object.fromEntries(creativeCatalog.ateru.map(t=>[t.metric,100000]));
+ const earned=titleState({progress:{ateru:{metrics}},selection:{selectedId:'master:ateru'}});
+ const title=earned.titles.find(t=>t.id==='master:ateru');
+ assert.equal(title.unlocked,true);assert.equal(title.done,15);assert.equal(title.category,'master');
+ assert.equal(earned.selectedTitle,'真理を見抜く者');assert.equal(validTitleName(title.id),'真理を見抜く者');
+ assert.equal(earned.titles.filter(t=>t.id==='master:ateru').length,1);
 });
