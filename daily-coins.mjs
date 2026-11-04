@@ -78,7 +78,7 @@ async function commitCandidate({access,today,candidate,stored,readSummary,writeS
     const board=boardFor(current.value,today),leaders=mergeCandidate(board.leaders,candidate),next={...board,leaders};
     if(sameLeaders(board.leaders,leaders))return {stored:current,leaders:board.leaders,changed:false};
     try{
-      const written=await writeSummary(access,next,current.updateTime||'');
+      const written=await writeSummary(access,next,current.updateTime||'',current.value);
       return {stored:written,leaders,changed:true};
     }catch(error){
       if(!error?.retryable||attempt===2)throw error;
