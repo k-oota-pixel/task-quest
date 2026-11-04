@@ -58,6 +58,26 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
   const k=keyOf(app,day),revision=versions.get(k)||0,current=challengePeriods(now()).day;
   return rankingStore.getSection(k,{load:async()=>({...await readBoard(app,day),revision,runtimeId}),valid:value=>value?.day===day&&value?.appId===app&&(day<current||value.runtimeId===runtimeId&&value.revision===revision)});
  }
+ async function getWinner(app,day){
+  const cached=await rankingStore.getSection(keyOf(app,day));
+  if(cached?.day===day&&Array.isArray(cached.leaders))return cached.leaders[0]?.uid||'';
+  const key='materialWinner_'+day+'_'+app;
+  const value=await rankingStore.getSection(key,{load:async()=>{
+   const token=await accessToken(),fieldPath='dailyCounts.`'+day+'`.`'+app+'`';
+   const structuredQuery={from:[{collectionId:'learning_activity'}],orderBy:[{field:{fieldPath},direction:'DESCENDING'}],limit:5};
+   const response=await request(base+'/documents:runQuery',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery}),signal:AbortSignal.timeout(20000)});
+   if(!response.ok)throw fail('週間順位を取得できませんでした。',502);
+   const body=await response.json(),excluded=new Set(await excludedIds()),entries=[];
+   for(const item of Array.isArray(body)?body:[]){
+    const doc=item?.document,uid=uidFromDoc(doc?.name);
+    if(!uid||excluded.has(uid))continue;
+    const fields=decodeFields(doc.fields||{}),count=integer(fields?.dailyCounts?.[day]?.[app]);
+    if(count)entries.push({uid,count});
+   }
+   return {day,appId:app,uid:rankMaterialRows(entries)[0]?.uid||''};
+  },valid:value=>value?.day===day&&value?.appId===app});
+  return value?.uid||'';
+ }
  function changed(appIds,day){
   if(!validDay(day))return;
   for(const app of appIds)if(APPS.has(app)){const key=keyOf(app,day);versions.set(key,(versions.get(key)||0)+1);}
@@ -88,9 +108,9 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
   // Keep reads bounded. Historical leaderboards are immutable once a day closes.
   for(let offset=0;offset<jobs.length;offset+=8){
    const batch=jobs.slice(offset,offset+8);
-   const results=await Promise.all(batch.map(async job=>({job,board:await getBoard(job.app,job.day)})));
-   for(const {job,board} of results){
-    if(board.leaders[0]?.uid)add(board.leaders[0].uid,job.app);
+   const results=await Promise.all(batch.map(async job=>({job,winner:await getWinner(job.app,job.day)})));
+   for(const {job,winner} of results){
+    if(winner)add(winner,job.app);
    }
   }
   for(const day of days){
