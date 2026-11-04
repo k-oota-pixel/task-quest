@@ -12,7 +12,7 @@ test('append a per-day counter to the existing activity transform, not an extra 
 test('daily material rankings cache and current-day invalidation; closed days are final',async()=>{
  const store=new Map(),events=[],time=Date.parse('2026-11-06T10:00:00+09:00');
  const rankingStore={
-  async getSection(k,{load,valid}){const v=store.get(k);if(v&&valid(v))return structuredClone(v);const next=await load();store.set(k,next);return structuredClone(next);},
+  async getSection(k,{load,valid}={}){const v=store.get(k);if(v&&(!valid||valid(v)))return structuredClone(v);if(!load)return null;const next=await load();store.set(k,next);return structuredClone(next);},
   async setSection(k,v){store.set(k,structuredClone(v));}
  };
  const prefix='projects/p/databases/(default)/documents/';
