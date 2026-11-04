@@ -27,7 +27,7 @@ export function rankMaterialRows(rows=[]){
 function jstDayBefore(day,days){return new Date(Date.parse(day+'T00:00:00Z')-days*86400000).toISOString().slice(0,10);}
 export function createMaterialRankings({base,projectId,accessToken,decodeFields,verifyUser,send,fail,excludedIds=async()=>[],fetch:request=globalThis.fetch,now=Date.now,rankingStore=runtimePublicRankingCache()}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
- const versions=new Map();let weekdaySnapshot=null;
+ const versions=new Map();let weekdaySnapshot=null,weekdayPending=null;
  const keyOf=(app,day)=>'material_'+day+'_'+app;
  async function readBoard(app,day){
   const token=await accessToken(),fieldPath='dailyCounts.`'+day+'`.`'+app+'`';
@@ -80,6 +80,8 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
  async function weeklySnapshot(){
   const period=challengePeriods(now()),cached=weekdaySnapshot;
   if(cached?.day===period.day&&cached?.week===period.week)return cached;
+  if(weekdayPending?.day===period.day&&weekdayPending.week===period.week)return weekdayPending.promise;
+  const promise=(async()=>{
   const days=Array.from({length:7},(_,i)=>jstDayBefore(period.week,-i)).filter(day=>day<period.day);
   const jobs=days.flatMap(day=>[...APPS].map(app=>({app,day})));
   const totals={};
@@ -98,6 +100,9 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
   }
   weekdaySnapshot={week:period.week,day:period.day,totals,completeDays:days};
   return weekdaySnapshot;
+  })().finally(()=>{if(weekdayPending?.promise===promise)weekdayPending=null;});
+  weekdayPending={day:period.day,week:period.week,promise};
+  return promise;
  }
  async function userWeekly(uid){
   const summary=await weeklySnapshot();
