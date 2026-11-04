@@ -5,6 +5,7 @@ import {createAdventureRankings} from './adventure-rankings.mjs';
 import {creativeCatalog} from './title-model.mjs';
 import {createTitleEvents} from './creative-title-events.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
+import {createMaterialRankings} from './material-rankings.mjs';
 import {createTitleCountRankings} from './title-count-rankings.mjs';
 import {createMaterialUsage,createMaterialOpen,createMaterialActivity} from './material-usage.mjs';
 import {createLearningChallenges} from './learning-challenges.mjs';
@@ -156,11 +157,13 @@ async function readDailyCoinSummary(accessToken){
   if(!response.ok)throw fail('本日のランキングを取得できませんでした。',response.status===429?429:502);
   return {value:decodeFields(data.fields||{}),updateTime:data.updateTime||''};
 }
-async function writeDailyCoinSummary(accessToken,value,updateTime=''){
+async function writeDailyCoinSummary(accessToken,value,updateTime='',previous=null){
   const name='projects/'+FIREBASE_PROJECT_ID+'/databases/(default)/documents/leaderboards/daily-coins';
   const write={update:{name,fields:encodeFirestoreFields(value)},updateMask:{fieldPaths:['schemaVersion','today','leaders']},
     currentDocument:updateTime?{updateTime}:{exists:false}};
-  const response=await fetch(FIRESTORE_BASE+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({writes:[write]})});
+  const previousDay=typeof previous?.today==='string'&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(previous.today)&&previous.today<value.today?previous.today:'';
+  const archive=previousDay?{update:{name:'projects/'+FIREBASE_PROJECT_ID+'/databases/(default)/documents/leaderboards/coin-day-'+previousDay,fields:encodeFirestoreFields({schemaVersion:1,today:previousDay,leaders:Array.isArray(previous.leaders)?previous.leaders:[]})},updateMask:{fieldPaths:['schemaVersion','today','leaders']}}:null;
+  const response=await fetch(FIRESTORE_BASE+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({writes:archive?[write,archive]:[write]})});
   let data={};try{data=await response.json();}catch{}
   if(!response.ok){
     const firestoreStatus=String(data?.error?.status||'');
@@ -202,10 +205,11 @@ const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,proje
 const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
 const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
-const handleTitleEvents=createTitleEvents({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson});
+const materialRankings=createMaterialRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,excludedIds:adminData.adminIds});
+const handleTitleEvents=createTitleEvents({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
 const titleCountRankings=createTitleCountRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
-const learningTitles=createLearningTitles({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish});
-const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning});
+const learningTitles=createLearningTitles({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish,weeklyProgress:materialRankings.userWeekly});
+const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning,onDailyCountsChanged:materialRankings.changed});
 const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache,decorate:learningTitles.decorate});}});
 const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 const adventureRankings=createAdventureRankings({base:FIRESTORE_BASE,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,accessToken:getGoogleAccessToken,decodeFields,send,fail,decorate:learningTitles.decorate});
@@ -329,6 +333,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/learning/challenges')return handleLearningChallenges(req,res);
   if(path==='/api/learning/title-event')return handleTitleEvents(req,res);
   if(path==='/api/learning/titles')return learningTitles.handle(req,res);
+  if(path==='/api/learning/material-rankings')return materialRankings.handle(req,res);
   if(path==='/api/learning/title-rankings')return titleCountRankings.handle(req,res);
   if(path==='/api/learning/activity')return handleLearningActivity(req,res);
   if(path==='/api/learning/dashboard')return handleLearningDashboard(req,res);
