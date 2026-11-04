@@ -31,7 +31,7 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
  const keyOf=(app,day)=>'material_'+day+'_'+app;
  async function readBoard(app,day){
   const token=await accessToken(),fieldPath='dailyCounts.`'+day+'`.`'+app+'`';
-  const structuredQuery={from:[{collectionId:'learning_activity'}],orderBy:[{field:{fieldPath},direction:'DESCENDING'},{field:{fieldPath:'__name__'},direction:'ASCENDING'}],limit:5};
+  const structuredQuery={from:[{collectionId:'learning_activity'}],orderBy:[{field:{fieldPath},direction:'DESCENDING'}],limit:5};
   const response=await request(base+'/documents:runQuery',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery}),signal:AbortSignal.timeout(20000)});
   if(!response.ok)throw fail('教材ランキングを取得できませんでした。',502);
   const body=await response.json(),entries=[],excluded=new Set(await excludedIds());
