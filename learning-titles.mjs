@@ -24,18 +24,18 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  async function mirrorWalletSummary(uid,token,summary,previous={}){
   try{await patchWalletSummary(uid,token,summary,previous);}catch(error){console.warn('Title wallet summary sync deferred',error?.message||error);}
  }
- async function read(uid){
+ async function read(uid,{includeWeekly=false}={}){
   const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...TITLE_CONTENTS.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
   const rows=await response.json(),values=paths.map(p=>decodeFields(rows.find(r=>r.found?.name===prefix+p)?.found?.fields||{}));
   const wallet=values.at(-1),selection=values[2];
   let weekly={progress:{}};
-  try{weekly=await weeklyProgress(uid);}catch(error){console.warn('Weekly title progress unavailable',error?.message||error);}
+  if(includeWeekly){try{weekly=await weeklyProgress(uid);}catch(error){console.warn('Weekly title progress unavailable',error?.message||error);}}
   const earned=new Set(Array.isArray(selection.weeklyEarnedIds)?selection.weeklyEarnedIds.filter(x=>typeof x==='string'&&x.startsWith('weekly:')):[]);
   const additions=Object.entries(weekly.progress||{}).filter(([app,days])=>Number(days)>=WEEKLY_DAYS_TARGET&&(app==='coins'||TITLE_CONTENTS.some(item=>item.id===app)))
    .map(([app])=>'weekly:'+app).filter(id=>!earned.has(id));
-  if(additions.length){
+  if(includeWeekly&&additions.length){
    const ids=[...earned,...additions];
    const response=await request(base+'/documents/user_titles/'+encodeURIComponent(uid)+'?updateMask.fieldPaths=weeklyEarnedIds',{
     method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
@@ -127,6 +127,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const user=await verifyUser(req),view=new URL(req.url,'http://localhost').searchParams.get('view');
   if(req.method==='GET'&&view==='selection')return send(res,200,await readSelection(user.uid));
   if(req.method==='GET'&&view==='retry')return send(res,200,{titles:await readRetryTitles(user.uid,{invalidate:true})});
+  if(req.method==='GET'&&view==='weekly')return send(res,200,await read(user.uid,{includeWeekly:true}));
   if(req.method==='POST'){
    const body=await readJson(req,1024),selectedId=body.selectedId;if(typeof selectedId!=='string')throw fail('称号を選んでください。',400);
    const selectedTitle=await readSelectedTitle(user.uid,selectedId),token=await accessToken(),response=await request(base+'/documents/user_titles/'+encodeURIComponent(user.uid),{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(selectedId),selectedTitle:encode(selectedTitle)}})});
