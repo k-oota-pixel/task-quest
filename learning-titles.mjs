@@ -1,8 +1,8 @@
-import {titleState,TITLE_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET} from './title-model.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 const encodeInt=value=>({integerValue:String(Math.max(0,Math.floor(Number(value)||0)))});
 const unlockedCount=titles=>new Set((titles||[]).filter(t=>t?.unlocked&&typeof t.id==='string').map(t=>t.id)).size;
-export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged=async()=>{},fetch:request=fetch}){
+export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged=async()=>{},weeklyProgress=async()=>({progress:{}}),fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  // Revision tokens preserve invalidations arriving while a full count is being read.
  const revisionOf=wallet=>Math.max(0,Math.floor(Number(wallet.titleCountRevision)||0));
@@ -29,8 +29,24 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
   const rows=await response.json(),values=paths.map(p=>decodeFields(rows.find(r=>r.found?.name===prefix+p)?.found?.fields||{}));
-  const wallet=values.at(-1),state=titleState({activity:values[0],retry:values[1],selection:values[2],progress:Object.fromEntries(TITLE_CONTENTS.map((x,i)=>[x.id,values[i+3]])),wallet});
+  const wallet=values.at(-1),selection=values[2];
+  let weekly={progress:{}};
+  try{weekly=await weeklyProgress(uid);}catch(error){console.warn('Weekly title progress unavailable',error?.message||error);}
+  const earned=new Set(Array.isArray(selection.weeklyEarnedIds)?selection.weeklyEarnedIds.filter(x=>typeof x==='string'&&x.startsWith('weekly:')):[]);
+  const additions=Object.entries(weekly.progress||{}).filter(([app,days])=>Number(days)>=WEEKLY_DAYS_TARGET&&(app==='coins'||TITLE_CONTENTS.some(item=>item.id===app)))
+   .map(([app])=>'weekly:'+app).filter(id=>!earned.has(id));
+  if(additions.length){
+   const ids=[...earned,...additions];
+   const response=await request(base+'/documents/user_titles/'+encodeURIComponent(uid)+'?updateMask.fieldPaths=weeklyEarnedIds',{
+    method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({fields:{weeklyEarnedIds:{arrayValue:{values:ids.map(value=>({stringValue:value}))}}}})
+   });
+   if(response.ok){selection.weeklyEarnedIds=ids;}else console.warn('Weekly title award sync deferred',response.status);
+  }
+  const state=titleState({activity:values[0],retry:values[1],selection,progress:Object.fromEntries(TITLE_CONTENTS.map((x,i)=>[x.id,values[i+3]])),wallet,weeklyEarnedIds:selection.weeklyEarnedIds,weeklyProgress:weekly.progress||{}});
   state.unlockedTitleCount=unlockedCount(state.titles);
+  state.weeklyPeriod=weekly.week||'';
+  state.weeklyProgress=weekly.progress||{};
   // Transfer the notebook's previously equipped title once, without overwriting
   // a selection made concurrently in another tab.
   if(values[2].selectedId===undefined&&state.selectedId){
@@ -69,7 +85,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  }
  async function readSelectedTitle(uid,selectedId){
   if(selectedId==='')return '';
-  if(selectedId.startsWith('master:')){
+  if(selectedId.startsWith('master:')||selectedId.startsWith('weekly:')){
    // Master titles are derived from all previously earned titles, not client claims.
    const appId=selectedId.slice(7);
    if(!TITLE_CONTENTS.some(item=>item.id===appId))throw fail('称号を選んでください。',400);
