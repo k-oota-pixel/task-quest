@@ -4,7 +4,7 @@ const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},
 const GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));
 const ROOM_IDS=Object.freeze(GRADE_CONFIG.flatMap(entry=>Array.from({length:10},(_,index)=>`${entry.key}-${index+1}`)));
 const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const [gradeKey,roomNoText]=id.split('-');const config=GRADE_BY_KEY[gradeKey]||GRADE_CONFIG[0];return [id,{gradeKey,grade:config.grade,roomNo:Number(roomNoText)||1,noItems:false}]})));
-export const ONLINE_BATTLE_JOIN_TTL_MS=60*60*1000;
+export const ONLINE_BATTLE_JOIN_TTL_MS=15*60*1000;
 export const ONLINE_BATTLE_RESULT_TTL_MS=2*60*1000;
 const MAGIC_SPELLS=Object.freeze([
  {id:'mimuros',name:'ミムロス',level:5,kind:'heal',base:10,mpCost:5},
@@ -186,9 +186,37 @@ function publicRoom(value,id){
 }
 function lobbyState(room,id){
  const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1};
- return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status:room.status||'open',playerCount:Array.isArray(room.players)?Math.min(2,room.players.length):0,updatedAt:Math.max(0,Math.floor(number(room.updatedAt,0)))};
+ const players=Array.isArray(room.players)?room.players.slice(0,2):[];
+ const playerExpiresAt=players.map(player=>Math.max(0,Math.floor(number(player.joinedAt,0)))+ONLINE_BATTLE_JOIN_TTL_MS);
+ const endedAt=room.status==='finished'?(room.matchEndedAt||room.updatedAt):0;
+ const matchExpiresAt=endedAt>0?Math.floor(number(endedAt))+ONLINE_BATTLE_RESULT_TTL_MS:0;
+ return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status:room.status||'open',playerCount:players.length,playerExpiresAt,matchExpiresAt,updatedAt:Math.max(0,Math.floor(number(room.updatedAt,0)))};
 }
 function lobbyStateChanged(before,after){return before.status!==after.status||before.playerCount!==after.playerCount;}
+
+// The lobby document alone is enough to project expired rooms: no N+1 room reads/writes.
+export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
+ const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1};
+ const saved=field(value),current=Math.max(0,Math.floor(number(at,Date.now())));
+ const updatedAt=Math.max(0,Math.floor(number(saved.updatedAt,0)));
+ const originalCount=Math.max(0,Math.min(2,Math.floor(number(saved.playerCount,0))));
+ let count=originalCount,status=typeof saved.status==='string'?saved.status:'open';
+ const expiresAt=Math.max(0,Math.floor(number(saved.matchExpiresAt,0)));
+ if(status==='finished'&&((expiresAt&&current>=expiresAt)||(!expiresAt&&updatedAt&&current>=updatedAt+ONLINE_BATTLE_RESULT_TTL_MS))){
+  status='open';count=0;
+ }else if(count>0){
+  const playerExpiresAt=Array.isArray(saved.playerExpiresAt)?saved.playerExpiresAt:[];
+  if(playerExpiresAt.length===count&&playerExpiresAt.every(value=>number(value)>0)){
+   count=playerExpiresAt.filter(value=>current<number(value)).length;
+  }else if(updatedAt&&current>=updatedAt+ONLINE_BATTLE_JOIN_TTL_MS){
+   // Pre-migration lobby summaries have no per-player deadlines.
+   count=0;
+  }
+  if(count<originalCount)status=count?'waiting':'open';
+ }
+ if(count===0)status='open';
+ return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status,playerCount:count,updatedAt};
+}
 
 export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now}){
  const error=failExternal||fail;
@@ -238,7 +266,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  async function lobbySummary(roomToken,gradeKey){
   const config=GRADE_BY_KEY[gradeKey];if(!config)throw error('級が見つかりません。',404);
   const doc=await lobbyDoc(roomToken,gradeKey),value=doc?.value||{};
-  const rooms=Array.from({length:10},(_,index)=>{const roomNo=index+1,id=`${gradeKey}-${roomNo}`,saved=field(value['room'+roomNo]);return {roomId:id,roomNo,gradeKey,grade:config.grade,status:typeof saved.status==='string'?saved.status:'open',playerCount:Math.max(0,Math.min(2,Math.floor(number(saved.playerCount,0)))),updatedAt:Math.max(0,Math.floor(number(saved.updatedAt,0)))};});
+  const current=now();
+  const rooms=Array.from({length:10},(_,index)=>projectOnlineBattleLobbyRoom(value['room'+(index+1)],`${gradeKey}-${index+1}`,current));
   return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};
  }
  async function awardWinner(walletToken,walletWrites,uid){
