@@ -2,7 +2,6 @@ import {challengePeriods} from './challenge-model.mjs';
 import {TITLE_CONTENTS} from './title-model.mjs';
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
 const APPS=new Set(TITLE_CONTENTS.map(x=>x.id));
-const LIFETIME=5*60*1000;
 const integer=v=>Math.max(0,Math.min(1000000,Math.floor(Number(v)||0)));
 const validDay=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
 const safeName=s=>String(s||'').normalize('NFKC').trim().slice(0,24)||'ふしぎなたまご';
@@ -27,7 +26,7 @@ export function rankMaterialRows(rows=[]){
 function jstDayBefore(day,days){return new Date(Date.parse(day+'T00:00:00Z')-days*86400000).toISOString().slice(0,10);}
 export function createMaterialRankings({base,projectId,accessToken,decodeFields,verifyUser,send,fail,excludedIds=async()=>[],fetch:request=globalThis.fetch,now=Date.now,rankingStore=runtimePublicRankingCache()}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
- const versions=new Map();let weekdaySnapshot=null,weekdayPending=null;
+ const versions=new Map(),runtimeId=String(now())+'-'+Math.random().toString(36).slice(2);let weekdaySnapshot=null,weekdayPending=null;
  const keyOf=(app,day)=>'material_'+day+'_'+app;
  async function readBoard(app,day){
   const token=await accessToken(),fieldPath='dailyCounts.`'+day+'`.`'+app+'`';
@@ -57,7 +56,7 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
  async function getBoard(app,day=challengePeriods(now()).day){
   if(!APPS.has(app)||!validDay(day))throw fail('教材が不正です。',400);
   const k=keyOf(app,day),revision=versions.get(k)||0,current=challengePeriods(now()).day;
-  return rankingStore.getSection(k,{load:async()=>({...await readBoard(app,day),revision}),valid:value=>value?.day===day&&value?.appId===app&&(day<current||value.revision===revision&&now()-value.updatedAt<LIFETIME)});
+  return rankingStore.getSection(k,{load:async()=>({...await readBoard(app,day),revision,runtimeId}),valid:value=>value?.day===day&&value?.appId===app&&(day<current||value.runtimeId===runtimeId&&value.revision===revision)});
  }
  function changed(appIds,day){
   if(!validDay(day))return;
