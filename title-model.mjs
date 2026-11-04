@@ -11,6 +11,19 @@ const wordTowerEndgameTitles=[
 ];
 export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog,'pet-fishing':petFishingCatalog};
 const HIDDEN_TITLE_PREFIXES=['creative:pet-instructions:'];
+export const WEEKLY_DAYS_TARGET=4;
+const WEEKLY_SPECIAL_NAMES=Object.freeze({coins:'黄金の四冠王',ateru:'語彙を統べし者','basic-grammar':'語順の支配者','grammar':'文法の覇者','task-quest':'言霊の覇者','eiken-retry':'不屈の修練者'});
+export function weeklyTitleName(appId){
+ if(appId==='coins')return WEEKLY_SPECIAL_NAMES.coins;
+ const content=TITLE_CONTENTS.find(item=>item.id===appId);
+ return content?(WEEKLY_SPECIAL_NAMES[appId]||content.label+'・週間覇者'):'';
+}
+export function weeklyTitles({earnedIds=[],progress={}}={}){
+ const earned=new Set(Array.isArray(earnedIds)?earnedIds:[]);
+ return [{id:'weekly:coins',appId:'coins',label:'獲得コイン',name:weeklyTitleName('coins'),condition:'1週間で4日以上、獲得コインTOP3に入る'},
+  ...TITLE_CONTENTS.map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
+   .map(item=>{const done=Math.max(0,Math.min(7,Math.floor(Number(progress[item.appId])||0)));return {...item,need:WEEKLY_DAYS_TARGET,done:earned.has(item.id)?WEEKLY_DAYS_TARGET:done,unlocked:earned.has(item.id),category:'weekly'};});
+}
 const MASTER_NAMES=Object.freeze({
  'ateru':'真理を見抜く者',
  'basic-grammar':'語順を統べし者',
@@ -39,7 +52,7 @@ export function masterTitles(titles=[]){
  return result;
 }
 export function creativeTitles(appId,progress={}){return (creativeCatalog[appId]||[]).map(t=>{const raw=count(progress.metrics?.[t.metric]),unlocked=raw>=t.need,displayNeed=count(t.displayNeed)||t.need;return {...t,appId,label:TITLE_CONTENTS.find(x=>x.id===appId)?.label||appId,need:displayNeed,done:t.displayNeed?(unlocked?displayNeed:0):raw,unlocked};});}
-export function validTitleName(id){if(HIDDEN_TITLE_PREFIXES.some(prefix=>id?.startsWith(prefix)))return '';if(id?.startsWith('master:'))return masterTitleName(id.slice(7));const t=Object.values(creativeCatalog).flat().find(t=>t.id===id);if(t)return t.name;if(id?.startsWith('retry:'))return retryCatalog.titles.find(t=>'retry:'+t.id===id)?.name||'';return activityTitles('eiken-retry',0).find(t=>t.id===id)?.name||'';}
+export function validTitleName(id){if(HIDDEN_TITLE_PREFIXES.some(prefix=>id?.startsWith(prefix)))return '';if(id?.startsWith('master:'))return masterTitleName(id.slice(7));if(id?.startsWith('weekly:'))return weeklyTitleName(id.slice(7));const t=Object.values(creativeCatalog).flat().find(t=>t.id===id);if(t)return t.name;if(id?.startsWith('retry:'))return retryCatalog.titles.find(t=>'retry:'+t.id===id)?.name||'';return activityTitles('eiken-retry',0).find(t=>t.id===id)?.name||'';}
 export const TITLE_CONTENTS=[{id:'basic-grammar',label:'並べ替え問題（基本文法）'},{id:'grammar',label:'並べ替え問題（文法別）'},{id:'today',label:'TODAY'},...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'case-talk',label:'サポート付きケーストーク'},{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'pet-fishing',label:'PET FISHING'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'}];
 const count=value=>Math.max(0,Math.floor(Number(value)||0));
 export function activityTitles(appId,total){
@@ -49,13 +62,14 @@ export function activityTitles(appId,total){
  if(appId!=='eiken-retry')tiers.push([3,'ルーキー'],[5,'探究者'],[25,'熟練者'],[200,'達人'],[300,'レジェンド'],[500,'殿堂入り']);
  return tiers.sort((a,b)=>a[0]-b[0]).map(([need,suffix])=>({id:appId+':'+need,appId,label:content.label,name:content.label+'・'+suffix,need,done:count(total),unlocked:count(total)>=need,condition:`取り組みを${need}回記録する`}));
 }
-export function titleState({activity={},retry={},selection={},progress={},wallet={}}={}){
+export function titleState({activity={},retry={},selection={},progress={},wallet={},weeklyEarnedIds=[],weeklyProgress={}}={}){
  progress={...progress};
  for(const [app,field] of [['word-tower','wordTowerBest'],['eiken-dungeon','eikenDungeonBest']]){const prior=progress[app]||{};progress[app]={...prior,metrics:{...prior.metrics,bestFloor:Math.max(count(prior.metrics?.bestFloor),count(wallet[field]))}};}
  const titles=TITLE_CONTENTS.flatMap(x=>[...activityTitles(x.id,activity.contents?.[x.id]?.titleCount),...creativeTitles(x.id,progress[x.id])]);
  const done={};for(const [id,r] of Object.entries(retry.state?.records||{})){const grade=retryCatalog.questions[id];if(grade&&count(r?.attempts)>0)done[grade]=(done[grade]||0)+1;}
  for(const t of retryCatalog.titles){const need=t.all?retryCatalog.totals[t.grade]:t.at;titles.push({id:'retry:'+t.id,appId:'eiken-retry',label:'リトライノート',name:t.name,need,done:done[t.grade]||0,unlocked:need>0&&(done[t.grade]||0)>=need,condition:`${t.grade}の異なる問題に${need}問回答する`});}
  titles.push(...masterTitles(titles));
+ titles.push(...weeklyTitles({earnedIds:weeklyEarnedIds,progress:weeklyProgress}));
  const old=retry.profile?.equippedTitle,selectedId=typeof selection.selectedId==='string'?selection.selectedId:(old?'retry:'+old:'');
  const selected=titles.find(t=>t.id===selectedId&&t.unlocked)||null;
  return {titles,selectedId:selected?.id||'',selectedTitle:selected?.name||''};
