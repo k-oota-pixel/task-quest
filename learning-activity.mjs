@@ -1,11 +1,12 @@
 import {activityTitles} from './title-model.mjs';
+import {dailyMaterialTransforms} from './material-rankings.mjs';
 import {challengePeriods,isChallengeContent,challengeProgressWrites} from './challenge-model.mjs';
 import {randomUUID} from 'node:crypto';
 const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','talk-quest','pet-catch','reading-training','pet-instructions','pet-chat','adventure-tower','adventure-dungeon','eigo-meter','word-wolf']);
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
 const validId=value=>typeof value==='string'&&/^[\w-]{8,100}$/.test(value);
 const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
-export function createLearningActivity({base,projectId,accessToken,verifyUser,send,fail,readJson,invalidate,fetch:request=fetch}){
+export function createLearningActivity({base,projectId,accessToken,verifyUser,send,fail,readJson,invalidate,onDailyCountsChanged=()=>{},fetch:request=fetch}){
  const verifiedTokens=new Map();
  async function verified(req){
   const key=String(req.headers?.authorization||''),entry=verifiedTokens.get(key);
@@ -26,6 +27,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   const receipt=prefix+`learning_activity/${user.uid}/events/${body.batchId}`;
   const transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
   for(const appId of appIds)transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:String(counts.get(appId))}});
+  transforms.push(...dailyMaterialTransforms(counts,day));
   const challengeIds=appIds.filter(isChallengeContent),challengeWrites=[];
   if(challengeIds.length){
    const makeChallengeWrite=period=>({update:{name:prefix+`challenge_progress/${user.uid}/periods/${period}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:challengeIds.map(id=>({fieldPath:'completed.`'+id+'`',setToServerValue:'REQUEST_TIME'}))});
@@ -43,7 +45,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
    if([409,412].includes(response.status)||['ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status)){send(res,200,{ok:true,duplicate:true,freshTitles:[]});return;}
    throw fail('学習記録を保存できませんでした。',502);
   }
-  invalidate(user.uid);const committed=await response.json?.().catch(()=>({}))||{},results=committed.writeResults?.[1]?.transformResults||[],freshTitles=[];
+  invalidate(user.uid);onDailyCountsChanged(appIds,day);const committed=await response.json?.().catch(()=>({}))||{},results=committed.writeResults?.[1]?.transformResults||[],freshTitles=[];
   appIds.forEach((appId,index)=>{
    const total=Number(results[2+index*2]?.integerValue)||0,previous=Math.max(0,total-counts.get(appId));
    freshTitles.push(...activityTitles(appId,total).filter(title=>title.need>previous&&title.need<=total));
@@ -56,9 +58,9 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   if(Array.isArray(body.events))return await handleBatch(user,body,res);
   const appId=body.appId;if(appId!==undefined&&!CONTENT_IDS.has(appId))throw fail('教材が不正です。',400);
   const token=await accessToken(),day=challengePeriods().day,prefix=`projects/${projectId}/databases/(default)/documents/`,transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
-  if(appId)transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:'1'}});
+  if(appId){transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:'1'}});transforms.push(...dailyMaterialTransforms(new Map([[appId,1]]),day));}
   const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[...(appId?[{update:{name:prefix+`learning_activity/${user.uid}/events/${randomUUID()}`,fields:{day:encode(day),counts:{mapValue:{fields:{[appId]:{integerValue:'1'}}}}}},currentDocument:{exists:false}}]:[]),{update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms},...challengeProgressWrites({uid:user.uid,appId,projectId}),...(appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
   if(!response.ok)throw fail('学習日時を保存できませんでした。',502);
-  invalidate(user.uid);const committed=await response.json?.().catch(()=>({}))||{},activityWriteIndex=appId?1:0;const total=Number(committed.writeResults?.[activityWriteIndex]?.transformResults?.[2]?.integerValue)||0;const freshTitles=appId?activityTitles(appId,total).filter(t=>t.need===total):[];send(res,200,{ok:true,freshTitles});
+  invalidate(user.uid);if(appId)onDailyCountsChanged([appId],day);const committed=await response.json?.().catch(()=>({}))||{},activityWriteIndex=appId?1:0;const total=Number(committed.writeResults?.[activityWriteIndex]?.transformResults?.[2]?.integerValue)||0;const freshTitles=appId?activityTitles(appId,total).filter(t=>t.need===total):[];send(res,200,{ok:true,freshTitles});
  }catch(error){send(res,error.status||500,{error:error.message||'学習日時を保存できませんでした。'});}};
 }
