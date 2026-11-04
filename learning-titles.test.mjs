@@ -49,3 +49,36 @@ test('master titles remain locked until all titles in their content group are un
  assert.equal(earned.selectedTitle,'真理を見抜く者');assert.equal(validTitleName(title.id),'真理を見抜く者');
  assert.equal(earned.titles.filter(t=>t.id==='master:ateru').length,1);
 });
+
+test('weekly titles stay locked without a durable award and unlock for four ranked days',()=>{
+ const locked=titleState({weeklyProgress:{coins:4,ateru:3}});
+ assert.equal(locked.titles.find(t=>t.id==='weekly:coins').unlocked,false);
+ assert.equal(locked.titles.find(t=>t.id==='weekly:coins').done,4);
+ const earned=titleState({weeklyEarnedIds:['weekly:coins'],weeklyProgress:{coins:4,ateru:3},selection:{selectedId:'weekly:coins'}});
+ assert.equal(earned.titles.find(t=>t.id==='weekly:coins').unlocked,true);
+ assert.equal(earned.selectedTitle,'黄金の四冠王');
+ assert.equal(validTitleName('weekly:coins'),'黄金の四冠王');
+});
+test('weekly standings load only when explicitly requested; completed badge persisted once',async()=>{
+ const prefix='projects/p/databases/(default)/documents/';
+ let weeklyCalls=0,awardWrites=0,saved=[];
+ const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,readJson:async()=>({}),fail,send:(res,status,body)=>Object.assign(res,{status,body}),
+  weeklyProgress:async()=>{weeklyCalls++;return {week:'2026-11-02',progress:{coins:4,ateru:4}};},
+  fetch:async(url,opt={})=>{
+   if(url.endsWith(':batchGet'))return {ok:true,json:async()=>[{found:{name:prefix+'user_titles/u',fields:{selectedId:'',weeklyEarnedIds:saved}}},{found:{name:prefix+'users/u/apps/english-playroom',fields:{unlockedTitleCount:0}}}]};
+   if(opt.method==='PATCH'){
+    const fields=JSON.parse(opt.body).fields;
+    if(url.includes('/user_titles/')){awardWrites++;saved=fields.weeklyEarnedIds.arrayValue.values.map(v=>v.stringValue);}
+    return {ok:true};
+   }
+   throw Error('Unexpected URL '+url);
+  }});
+ let res={};await api.handle({method:'GET',url:'/api/learning/titles'},res);
+ assert.equal(res.status,200);assert.equal(weeklyCalls,0);assert.equal(awardWrites,0);
+ res={};await api.handle({method:'GET',url:'/api/learning/titles?view=weekly'},res);
+ assert.equal(res.status,200);assert.equal(weeklyCalls,1);assert.equal(awardWrites,1);
+ assert.deepEqual(saved.sort(),['weekly:ateru','weekly:coins'].sort());
+ assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').unlocked,true);
+ res={};await api.handle({method:'GET',url:'/api/learning/titles?view=weekly'},res);
+ assert.equal(awardWrites,1);
+});
