@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
  cleanupOnlineBattleRoom,
  ONLINE_BATTLE_JOIN_TTL_MS,
- ONLINE_BATTLE_RESULT_TTL_MS
+ ONLINE_BATTLE_RESULT_TTL_MS,
+ projectOnlineBattleLobbyRoom
 } from './online-battle.mjs';
 
 function player(uid,joinedAt){
@@ -105,4 +106,36 @@ test('旧形式の放置参加者はupdatedAtを入室時刻の代替として�
  assert.equal(result.reason,'join-expired');
  assert.equal(result.room.status,'open');
  assert.deepEqual(result.room.players,[]);
+});
+test('ロビーは15分の直前まで待機中、15分で空室表示になる',()=>{
+ const joinedAt=100_000_000;
+ const saved={status:'waiting',playerCount:1,updatedAt:joinedAt,playerExpiresAt:[joinedAt+ONLINE_BATTLE_JOIN_TTL_MS]};
+ assert.equal(ONLINE_BATTLE_JOIN_TTL_MS,15*60*1000);
+ assert.equal(projectOnlineBattleLobbyRoom(saved,'4-1',joinedAt+ONLINE_BATTLE_JOIN_TTL_MS-1).status,'waiting');
+ const expired=projectOnlineBattleLobbyRoom(saved,'4-1',joinedAt+ONLINE_BATTLE_JOIN_TTL_MS);
+ assert.equal(expired.status,'open');
+ assert.equal(expired.playerCount,0);
+});
+test('2人のうち1人だけ期限切れなら残り1人待機中とする',()=>{
+ const joinedAt=100_000_000;
+ const saved={status:'playing',playerCount:2,updatedAt:joinedAt+5*60*1000,playerExpiresAt:[joinedAt+ONLINE_BATTLE_JOIN_TTL_MS,joinedAt+5*60*1000+ONLINE_BATTLE_JOIN_TTL_MS]};
+ const partial=projectOnlineBattleLobbyRoom(saved,'4-2',joinedAt+ONLINE_BATTLE_JOIN_TTL_MS);
+ assert.equal(partial.status,'waiting');
+ assert.equal(partial.playerCount,1);
+ const expired=projectOnlineBattleLobbyRoom(saved,'4-2',joinedAt+5*60*1000+ONLINE_BATTLE_JOIN_TTL_MS);
+ assert.equal(expired.status,'open');
+ assert.equal(expired.playerCount,0);
+});
+test('ロビーの結果発表は2分で空室表示になる',()=>{
+ const endedAt=200_000_000;
+ const saved={status:'finished',playerCount:2,updatedAt:endedAt,playerExpiresAt:[endedAt+ONLINE_BATTLE_JOIN_TTL_MS,endedAt+ONLINE_BATTLE_JOIN_TTL_MS],matchExpiresAt:endedAt+ONLINE_BATTLE_RESULT_TTL_MS};
+ assert.equal(projectOnlineBattleLobbyRoom(saved,'3-1',endedAt+ONLINE_BATTLE_RESULT_TTL_MS-1).status,'finished');
+ const expired=projectOnlineBattleLobbyRoom(saved,'3-1',endedAt+ONLINE_BATTLE_RESULT_TTL_MS);
+ assert.equal(expired.status,'open');
+ assert.equal(expired.playerCount,0);
+});
+test('旧形式のロビー情報も更新時刻から期限切れ判定する',()=>{
+ const updatedAt=300_000_000;
+ assert.equal(projectOnlineBattleLobbyRoom({status:'waiting',playerCount:1,updatedAt},'4-9',updatedAt+ONLINE_BATTLE_JOIN_TTL_MS).status,'open');
+ assert.equal(projectOnlineBattleLobbyRoom({status:'finished',playerCount:2,updatedAt},'4-8',updatedAt+ONLINE_BATTLE_RESULT_TTL_MS).status,'open');
 });
