@@ -2,7 +2,7 @@ import {titleState,TITLE_CONTENTS,validTitleName,creativeTitles,creativeCatalog,
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 const encodeInt=value=>({integerValue:String(Math.max(0,Math.floor(Number(value)||0)))});
 const unlockedCount=titles=>new Set((titles||[]).filter(t=>t?.unlocked&&typeof t.id==='string').map(t=>t.id)).size;
-export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,fetch:request=fetch}){
+export function createLearningTitles({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged=async()=>{},fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  // Revision tokens preserve invalidations arriving while a full count is being read.
  const revisionOf=wallet=>Math.max(0,Math.floor(Number(wallet.titleCountRevision)||0));
@@ -38,6 +38,12 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    if(!migrated.ok&&![409,412].includes(migrated.status))throw fail('以前の称号を引き継げませんでした。再試行してください。',502);
   }
   await patchWalletSummary(uid,token,state,wallet);
+  if(Number(wallet.unlockedTitleCount)!==state.unlockedTitleCount){
+   // Published as a candidate only after the existing summary has been saved.
+   // A leaderboard failure should never prevent the learner from viewing titles.
+   try{await onTitleCountChanged({uid,petName:wallet.petName||'',unlockedTitleCount:state.unlockedTitleCount});}
+   catch(error){console.warn('Title leaderboard update deferred',error?.message||error);}
+  }
   return state;
  }
  async function decorate(leaders){
@@ -63,6 +69,14 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  }
  async function readSelectedTitle(uid,selectedId){
   if(selectedId==='')return '';
+  if(selectedId.startsWith('master:')){
+   // Master titles are derived from all previously earned titles, not client claims.
+   const appId=selectedId.slice(7);
+   if(!TITLE_CONTENTS.some(item=>item.id===appId))throw fail('称号を選んでください。',400);
+   const state=await read(uid),title=state.titles.find(t=>t.id===selectedId&&t.unlocked);
+   if(!title)throw fail('未解放の称号は選択できません。',400);
+   return title.name;
+  }
   const creative=Object.entries(creativeCatalog).find(([,titles])=>titles.some(title=>title.id===selectedId));
   if(creative){
    const [appId]=creative,name=prefix+`title_progress/${uid}/activities/${appId}`,token=await accessToken();
