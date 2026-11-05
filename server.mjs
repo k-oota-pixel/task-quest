@@ -1,3 +1,4 @@
+import {taskModels,callTaskGemini} from './task-gemini.mjs';
 import {createCodeAuth} from './code-auth.mjs';
 import {createRequestVerifier,isAdministrator} from './request-auth.mjs';
 import {createAdminPetNameReset} from './admin-pet-name-reset.mjs';
@@ -34,9 +35,10 @@ if(fs.existsSync(dir+'.env'))for(const line of fs.readFileSync(dir+'.env','utf8'
 const tasks=JSON.parse(fs.readFileSync(dir+'tasks.json','utf8'));
 const key=process.env.GEMINI_API_KEY,model=process.env.GEMINI_MODEL||'gemini-2.5-flash';
 const petKey=process.env.PET_GEMINI_API_KEY||'',backupKey=process.env.TASK_QUEST_BACKUP_GEMINI_API_KEY||petKey,petModel=process.env.PET_GEMINI_MODEL||'gemini-2.5-flash';
+const backupModel=process.env.TASK_QUEST_BACKUP_GEMINI_MODEL||(process.env.TASK_QUEST_BACKUP_GEMINI_API_KEY?'gemini-3.5-flash-lite':petModel);
 const petWindows=new Map();let petDaily=0,petDay='',petActive=0;
 const page=fs.readFileSync(dir+'public/index.html');
-const windows=new Map();let daily=0,day='',active=0;
+const windows=new Map();let daily=0,backupDaily=0,day='',active=0;
 
 const FIREBASE_PROJECT_ID=process.env.FIREBASE_PROJECT_ID||'eiken-retry';
 const FIREBASE_WEB_API_KEY=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ';
@@ -347,7 +349,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
@@ -357,18 +359,25 @@ export const server=http.createServer(async(req,res)=>{
     if(!task||typeof answer!=='string'||!answer.trim()||answer.length>400)return send(res,400,{error:'有効なお題と400文字以内の回答が必要です。'});
     const requestKey=input?.useBackup===true?backupKey:key;
     if(!requestKey)return send(res,503,{error:input?.useBackup===true?'予備のGemini接続はまだ準備中です。先生に確認してください。':'先生へ：GEMINI_API_KEYをサーバーに設定してください。'});
-    const today=new Date().toISOString().slice(0,10);if(day!==today){day=today;daily=0;}
+    const today=new Date().toISOString().slice(0,10);if(day!==today){day=today;daily=0;backupDaily=0;}
     const now=Date.now(),ip=req.socket.remoteAddress;for(const [k,v]of windows)if(now-v.start>=60000)windows.delete(k);
     const w=windows.get(ip)||{start:now,count:0};if(w.count>=60||active>=8)return send(res,429,{error:'判定が混み合っています。少し待って再挑戦してください。'});
-    if(daily>=Number(process.env.DAILY_LIMIT||500))return send(res,429,{error:'本日のアプリの判定上限に達しました。先生に確認してください。'});
-    w.count++;windows.set(ip,w);daily++;active++;
+    if((input?.useBackup===true?backupDaily:daily)>=Number(input?.useBackup===true?(process.env.TASK_QUEST_BACKUP_DAILY_LIMIT||500):(process.env.DAILY_LIMIT||500)))return send(res,429,{error:'本日の'+(input?.useBackup===true?'予備AI':'アプリ')+'の判定上限に達しました。先生に確認してください。'});
+    w.count++;windows.set(ip,w);if(input?.useBackup===true)backupDaily++;else daily++;active++;
     try{
-      const upstream=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':requestKey},signal:AbortSignal.timeout(35000),body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify({situation:task.situation,task:task.task,studentAnswer:answer})}]}],generationConfig:{temperature:0.2,maxOutputTokens:1024,thinkingConfig:{thinkingLevel:'minimal'},responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{clear:{type:'BOOLEAN'},message:{type:'STRING'},example:{type:'STRING'}},required:['clear','message','example']}}})});
-      if(!upstream.ok){console.error('Gemini HTTP status:',upstream.status);const code=upstream.status;return send(res,code===429?429:502,{error:code===429?'Geminiの利用上限に達しました。少し待つか、先生に確認してください。':code===400||code===403?'Geminiのキー・モデル設定を先生が確認してください。':'Geminiに接続できません。時間を置いて再挑戦してください。'});}
-      const data=await upstream.json(),candidate=data.candidates?.[0];if(candidate?.finishReason!=='STOP')throw Error('invalid');
-      const result=JSON.parse(candidate.content?.parts?.filter(p=>!p.thought).map(p=>p.text||'').join('')||'');
-      if(typeof result.clear!=='boolean'||typeof result.message!=='string'||!result.message||typeof result.example!=='string'||result.message.length>1000||result.example.length>1000)throw Error('invalid');
-      send(res,200,{clear:result.clear,message:result.message,example:result.example});
+      const isBackup=input?.useBackup===true;
+      const outcome=await callTaskGemini({apiKey:requestKey,models:taskModels({backup:isBackup,mainModel:model,backupModel}),system,task,answer});
+      if(!outcome.ok){
+        console.error('Task Quest Gemini evaluation failed',{status:outcome.status,reason:outcome.reason,model:outcome.model,backup:isBackup});
+        const code=outcome.status;
+        const errorMessage=code===429?'Geminiの利用上限に達しました。少し待つか、先生に確認してください。'
+          :code===400||code===403?'Geminiのキー・モデル設定を先生が確認してください。'
+          :code===404?'予備AIの指定モデルが利用できません。先生に確認してください。'
+          :code===503||code===504?'AIが一時的に混み合っています。少し待って再挑戦してください。'
+          :'Geminiの判定結果を取得できませんでした。少し待って再挑戦してください。';
+        return send(res,code===429?429:code===503||code===504?503:502,{error:errorMessage});
+      }
+      send(res,200,outcome.result);
     }finally{active--;}
   }catch(e){send(res,e.status||502,{error:e.name==='TimeoutError'?'AI判定がタイムアウトしました。再挑戦してください。':e.message&&e.status?e.message:'判定結果を取得できませんでした。再挑戦してください。'});}
 });

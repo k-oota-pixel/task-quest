@@ -1,0 +1,32 @@
+name: Task Quest AI backup regression checks
+on:
+  push:
+    paths:
+      - 'task-gemini.mjs'
+      - 'task-gemini.test.mjs'
+      - 'server.mjs'
+      - 'index.html'
+      - 'public/index.html'
+      - '.github/workflows/task-gemini-check.yml'
+  pull_request:
+    paths:
+      - 'task-gemini.mjs'
+      - 'task-gemini.test.mjs'
+      - 'server.mjs'
+      - 'index.html'
+      - 'public/index.html'
+      - '.github/workflows/task-gemini-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check server.mjs
+      - run: node --check task-gemini.mjs
+      - run: node --test task-gemini.test.mjs
