@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
  cleanupOnlineBattleRoom,
+ createOnlineBattle,
  ONLINE_BATTLE_JOIN_TTL_MS,
  ONLINE_BATTLE_RESULT_TTL_MS,
  projectOnlineBattleLobbyRoom
@@ -138,4 +139,51 @@ test('旧形式のロビー情報も更新時刻から期限切れ判定する',
  const updatedAt=300_000_000;
  assert.equal(projectOnlineBattleLobbyRoom({status:'waiting',playerCount:1,updatedAt},'4-9',updatedAt+ONLINE_BATTLE_JOIN_TTL_MS).status,'open');
  assert.equal(projectOnlineBattleLobbyRoom({status:'finished',playerCount:2,updatedAt},'4-8',updatedAt+ONLINE_BATTLE_RESULT_TTL_MS).status,'open');
+});
+
+test('入室は1コイン以上必要で、不足時は理由を表示し書き込まない',async()=>{
+ async function attemptJoin(coins){
+  const commits=[];
+  const fetch=async (url,options={})=>{
+   const path=String(url);
+   if(path.includes('/documents/onlineBattleRooms/'))return {status:404,ok:false,json:async()=>({})};
+   if(path.includes('/documents/users/test-user/apps/english-playroom')){
+    return {status:200,ok:true,json:async()=>({fields:{coins:{integerValue:String(coins)}},updateTime:'wallet-1'})};
+   }
+   if(path.endsWith('/documents:commit')){
+    commits.push(JSON.parse(options.body));
+    return {status:200,ok:true,json:async()=>({})};
+   }
+   throw new Error('Unexpected Firestore request: '+path);
+  };
+  const service=createOnlineBattle({
+   base:'https://firestore.googleapis.com/v1/projects/online-battle-test/databases/(default)',
+   projectId:'online-battle-test',
+   accessToken:async()=> 'fake-token',
+   verifyUser:async()=>({uid:'test-user'}),
+   readJson:async()=>({}),
+   send:(res,status,payload)=>{res.status=status;res.body=payload;},
+   decodeFields:fields=>({coins:Number(fields?.coins?.integerValue||0)}),
+   fetch,
+   now:()=>1_000_000
+  });
+  const response={};
+  await service.handle({method:'POST'},response,'/api/online-battle/room/4-1/join');
+  return {response,commits};
+ }
+
+ const insufficient=await attemptJoin(0);
+ assert.equal(insufficient.response.status,400);
+ assert.match(insufficient.response.body.error,/コイン不足/);
+ assert.match(insufficient.response.body.error,/1コイン/);
+ assert.match(insufficient.response.body.error,/現在0コイン/);
+ assert.equal(insufficient.commits.length,0);
+
+ const sufficient=await attemptJoin(1);
+ assert.equal(sufficient.response.status,200);
+ assert.equal(sufficient.response.body.room.players[0].uid,'test-user');
+ assert.equal(sufficient.response.body.room.status,'waiting');
+ assert.equal(sufficient.commits.length,1);
+ assert.equal(sufficient.commits[0].writes.length,2);
+ assert.ok(sufficient.commits[0].writes.every(write=>!write.update.name.includes('/users/')),'入室時にコインを消費しない');
 });
