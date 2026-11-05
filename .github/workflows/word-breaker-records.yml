@@ -2,8 +2,13 @@ name: WORD BREAKER leaderboard
 on:
   push:
     paths:
-      - 'daily-coins.mjs'\n      - 'daily-coins.test.mjs'\n      - 'server.mjs'\n      - 'word-breaker-records.mjs'
+      - 'daily-coins.mjs'
+      - 'daily-coins.test.mjs'
+      - 'server.mjs'
+      - 'word-breaker-records.mjs'
       - 'word-breaker-records.test.mjs'
+      - 'learning-titles.mjs'
+      - 'learning-titles.test.mjs'
       - '.github/workflows/word-breaker-records.yml'
   workflow_dispatch:
 jobs:
@@ -14,4 +19,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node daily-coins.test.mjs\n      - run: node word-breaker-records.test.mjs
+      - run: node daily-coins.test.mjs
+      - run: node word-breaker-records.test.mjs
+      - run: node --test learning-titles.test.mjs
