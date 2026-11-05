@@ -18,10 +18,11 @@ function decode(v){
  if('arrayValue'in v)return (v.arrayValue.values||[]).map(decode);if('mapValue'in v)return Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,x])=>[k,decode(x)]));return null;
 }
 const decodeFields=fields=>Object.fromEntries(Object.entries(fields||{}).map(([k,v])=>[k,decode(v)]));
-let time=100000,summaryDoc=null,summaryUpdate=0,batchReads=0,summaryReads=0,summaryWrites=0;
+let time=100000,summaryDoc=null,summaryUpdate=0,batchReads=0,summaryReads=0,summaryWrites=0,decorationFails=false;
 const base='https://firestore.googleapis.com/v1/projects/test/databases/(default)';
 const api=createWordBreakerRecords({
  base,activeIds:async()=>['a','b','a'],accessToken:async()=>'hidden',decodeFields,
+ decorate:async leaders=>{if(decorationFails)throw Error('Title lookup temporarily unavailable');return leaders.map(leader=>({...leader,title:'称号なし'}));},
  send:(res,status,body)=>Object.assign(res,{status,body}),fail:(message,status)=>Object.assign(Error(message),{status}),now:()=>time,webApiKey:'test-key',
  fetch:async(url,options={})=>{
   const u=String(url);
@@ -29,10 +30,10 @@ const api=createWordBreakerRecords({
   if(u===base+'/documents/users/a/apps/english-playroom')return {ok:true,status:200,json:async()=>({fields:{petName:{stringValue:'もこ'},wordBreakerBests:{mapValue:{fields:{junior1:{mapValue:{fields:{score:{integerValue:'50'}}}}}}}}})};
   if(u.includes('/documents:batchGet')){
    batchReads++;const body=JSON.parse(options.body);assert.equal(body.documents.length,2);assert.deepEqual(body.mask.fieldPaths,['petName','wordBreakerBests']);
-   return {ok:true,status:200,json:async()=>[
+   return {ok:true,status:200,text:async()=>[
     {found:{name:body.documents[0],fields:{petName:{stringValue:'もこ'},wordBreakerBests:{mapValue:{fields:{junior1:{mapValue:{fields:{score:{integerValue:'12'}}}}}}}}}},
     {found:{name:body.documents[1],fields:{petName:{stringValue:'えまめん'},wordBreakerBests:{mapValue:{fields:{junior1:{mapValue:{fields:{score:{integerValue:'20'}}}}}}}}}}
-   ]};
+   ].map(row=>JSON.stringify(row)).join('\n')};
   }
   if(u.startsWith(base+'/documents/leaderboards/word-breaker')){
    if((options.method||'GET')==='PATCH'){
@@ -46,6 +47,7 @@ const api=createWordBreakerRecords({
 const first=await api.snapshot();assert.equal(first.courses.junior1.score,20);assert.equal(batchReads,1);assert.equal(summaryReads,1);assert.equal(summaryWrites,1);
 await api.snapshot();assert.equal(batchReads,1);assert.equal(summaryReads,1);
 time+=60001;const next=await api.snapshot();assert.equal(next.courses.junior1.score,20);assert.equal(batchReads,1);assert.equal(summaryReads,2);assert.equal(summaryWrites,1);
+decorationFails=true;
 const post={};await api.handle({method:'POST',headers:{'content-type':'application/json',authorization:'Bearer token'},body:{course:'junior1'}},post);assert.equal(post.status,200);assert.equal(post.body.record.score,50);assert.equal(summaryWrites,2);
 const get={};await api.handle({method:'GET',headers:{}},get);assert.equal(get.status,200);assert.deepEqual(get.body.courses.junior1,{score:50,petNames:['もこ'],leaderCount:1});assert.equal(summaryReads,2);
 assert.ok(!JSON.stringify(get.body).includes('"uid"'));
