@@ -285,7 +285,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    if(operation==='join'){
     if(index>=0)return {room:publicRoom(room,id)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
-    const wallet=await userWallet(walletToken,uid),data=wallet?.value||{},player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
+    const wallet=await userWallet(walletToken,uid),data=wallet?.value||{},balance=Math.max(0,Math.floor(number(data.coins)));
+     if(balance<1)throw error(`コイン不足のため入室できません。入室には1コイン必要です（現在${balance}コイン）。教材でコインを獲得してからお試しください。`,400);
+     const player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
     room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;roomWrites.push(roomWrite(id,room,stored));
    }else if(operation==='leave'){
     if(index<0)return {room:publicRoom(room,id)};
