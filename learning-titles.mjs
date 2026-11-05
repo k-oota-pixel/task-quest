@@ -67,7 +67,16 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const token=await accessToken(),uids=[...new Set(leaders.map(x=>x.uid).filter(Boolean))];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:uids.map(uid=>prefix+'user_titles/'+uid)})});
   if(!response.ok)throw fail('表示称号を取得できませんでした。',502);
-  const rows=await response.json(),names=new Map(uids.map(uid=>[uid,validTitleName(decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedId)]));
+  // Firestore batchGet may stream newline-delimited JSON instead of a JSON array.
+  let rows;
+  if(typeof response.text==='function'){
+   const raw=await response.text();
+   try{const value=JSON.parse(raw);rows=Array.isArray(value)?value:[value];}
+   catch{rows=raw.split(/\r?\n/).filter(line=>line.trim()).map(line=>JSON.parse(line));}
+  }else{
+   const value=await response.json();rows=Array.isArray(value)?value:[value];
+  }
+  const names=new Map(uids.map(uid=>[uid,validTitleName(decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedId)]));
   return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||'称号なし'}));
  }
  async function readSelection(uid){
