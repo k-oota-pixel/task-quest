@@ -7,7 +7,21 @@ const petNameOf=value=>{
  const name=value.normalize('NFKC').trim().replace(/\s+/g,' ');
  return name&&[...name].length<=12&&!/[\u0000-\u001f\u007f]/.test(name)?name:'名前未設定のペット';
 };
-const emptyCourses=()=>Object.fromEntries(RECORD_COURSES.map(course=>[course,{score:0,leaders:[]}]))
+const emptyCourses=()=>Object.fromEntries(RECORD_COURSES.map(course=>[course,{score:0,leaders:[]}]));
+// A previously persisted public-ranking cache may contain an older or incomplete shape.
+const validPublicSnapshot=value=>Boolean(value&&value.courses&&RECORD_COURSES.every(course=>{
+ const record=value.courses[course];
+ return record&&Number.isSafeInteger(record.score)&&record.score>=0&&Array.isArray(record.petNames)&&record.petNames.every(name=>typeof name==='string');
+}));
+async function batchRows(response){
+ if(typeof response.text!=='function'){
+  const value=await response.json();
+  return Array.isArray(value)?value:[value];
+ }
+ const raw=await response.text();
+ try{const value=JSON.parse(raw);return Array.isArray(value)?value:[value];}
+ catch{return raw.split(/\r?\n/).filter(line=>line.trim()).map(line=>JSON.parse(line));}
+}
 const publicCourses=courses=>Object.fromEntries(RECORD_COURSES.map(course=>{
  const value=courses?.[course]||{},leaders=Array.isArray(value.leaders)?value.leaders:[];
  return [course,{score:scoreOf(value.score),petNames:leaders.map(v=>petNameOf(v?.petName)).slice(0,3),leaderCount:leaders.length}];
@@ -75,7 +89,8 @@ export function createWordBreakerRecords({base,activeIds,accessToken,decodeField
   for(let offset=0;offset<ids.length;offset+=200){
    const names=ids.slice(offset,offset+200).map(uid=>base.replace(/^https:\/\/firestore.googleapis.com\/v1\//,'')+'/documents/users/'+uid+'/apps/english-playroom');
    const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','wordBreakerBests']}})});
-   const rows=await response.json();if(!response.ok||!Array.isArray(rows))throw fail('みんなの記録を取得できませんでした。',response.status===429?429:502);
+   if(!response.ok)throw fail('みんなの記録を取得できませんでした。',response.status===429?429:502);
+   const rows=await batchRows(response);
    const expected=new Set(names);for(const row of rows)if(row.found&&expected.has(row.found.name))players.push({uid:uidFromName(row.found.name),...decodeFields(row.found.fields||{})});
   }
   return {token,courses:internalSummary(players)};
@@ -95,12 +110,20 @@ export function createWordBreakerRecords({base,activeIds,accessToken,decodeField
  async function publicSnapshot(){
   const result=await snapshot();
   if(decorate&&cached){
-   const all=RECORD_COURSES.flatMap(course=>(cached.value.courses[course]?.leaders||[]).slice(0,3)),decorated=await decorate(all);let offset=0;
-   for(const course of RECORD_COURSES){const size=Math.min(3,cached.value.courses[course]?.leaders?.length||0);result.courses[course].leaders=decorated.slice(offset,offset+size);offset+=size;}
+   const all=RECORD_COURSES.flatMap(course=>(cached.value.courses[course]?.leaders||[]).slice(0,3));
+   if(all.length)try{
+    const decorated=await decorate(all);
+    if(!Array.isArray(decorated)||decorated.length!==all.length)throw Error('Incomplete leaderboard titles');
+    let offset=0;
+    for(const course of RECORD_COURSES){const size=Math.min(3,cached.value.courses[course]?.leaders?.length||0);result.courses[course].leaders=decorated.slice(offset,offset+size);offset+=size;}
+   }catch(error){
+    // Title metadata is optional: never hide the scores or pet names on failure.
+    console.warn('WORD BREAKER leaderboard titles unavailable',error?.message||error);
+   }
   }
   return result;
  }
- async function sharedSnapshot(){return publicRankingCache.getSection('wordBreaker',{load:publicSnapshot});}
+ async function sharedSnapshot(){return publicRankingCache.getSection('wordBreaker',{load:publicSnapshot,valid:validPublicSnapshot});}
  async function refreshSharedSnapshot(){const result=await publicSnapshot();await publicRankingCache.setSection('wordBreaker',result);return result;}
  async function publish({uid,course,score,petName}){
   if(!RECORD_COURSES.includes(course)||!uid)return null;score=scoreOf(score);if(!score)return null;
