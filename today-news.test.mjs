@@ -69,6 +69,12 @@ test('TODAY accepts small target misses after repair when all six levels remain 
   assert.deepEqual(collectLevelHardFailures(articles),[]);
 });
 
+test('TODAY final hard limits accept a 179-word Pre-1 near miss but reject a collapsed Pre-1 text',()=>{
+ const acceptable=fakeArticleWithCounts([42,65,100,145,205,179]);
+ assert.deepEqual(collectLevelHardFailures([acceptable]),[]);
+ const tooShort=fakeArticleWithCounts([42,65,100,145,205,174]);
+ assert.ok(collectLevelHardFailures([tooShort]).some(issue=>issue.level==='準1級'&&issue.type==='hard-range'));
+});
 test('TODAY hard validation rejects a collapsed Grade 5 text',()=>{
   const failures=collectLevelHardFailures([fakeArticleWithCounts([10,49,72,105,160,230])]);
   assert.ok(failures.some(issue=>issue.level==='5級'&&issue.type==='hard-range'));
