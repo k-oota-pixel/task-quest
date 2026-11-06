@@ -150,6 +150,43 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       return {uid,apps,activity:activityDoc?decodeFields(activityDoc.found.fields||{}):{},fetchedAt:now()};
     });
   }
+
+  // Messages can share a sender. Fetch sender details once per UID and cache the result.
+  const messageSenderCache=new Map(),MESSAGE_SENDER_TTL=300000;
+  async function messageSenderProfiles(uids){
+    const ids=[...new Set(uids.filter(uid=>typeof uid==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(uid)))];
+    const profiles=new Map(),missing=[];
+    for(const uid of ids){
+      const cached=messageSenderCache.get(uid);
+      if(cached&&cached.until>now())profiles.set(uid,cached.value);
+      else missing.push(uid);
+    }
+    if(!missing.length)return profiles;
+    const prefix='projects/'+projectId+'/databases/(default)/documents/';
+    async function batchRead(names,fields){
+      const docs=new Map();
+      for(let i=0;i<names.length;i+=100){
+        const rows=await json(base+'/documents:batchGet',{method:'POST',body:JSON.stringify({documents:names.slice(i,i+100),mask:{fieldPaths:fields}})});
+        for(const row of rows)if(row.found?.name)docs.set(row.found.name,decodeFields(row.found.fields||{}));
+      }
+      return docs;
+    }
+    const indices=await batchRead(missing.map(uid=>prefix+'account_uids/'+uid),['idKey']);
+    const keys=[...new Set(missing.map(uid=>indices.get(prefix+'account_uids/'+uid)?.idKey).filter(key=>typeof key==='string'&&/^[a-f0-9]{64}$/.test(key)))];
+    const accounts=await batchRead(keys.map(key=>prefix+'code_accounts/'+key),['codeName']);
+    const summaries=await batchRead(missing.map(uid=>prefix+'users/'+uid+'/apps/english-playroom'),['nickname','petName']);
+    for(const uid of missing){
+      const key=indices.get(prefix+'account_uids/'+uid)?.idKey;
+      const account=accounts.get(prefix+'code_accounts/'+key)||{};
+      const summary=summaries.get(prefix+'users/'+uid+'/apps/english-playroom')||{};
+      const value={codeName:String(account.codeName||''),nickname:normalizeNickname(summary.nickname),petName:normalizeNickname(summary.petName)};
+      profiles.set(uid,value);
+      messageSenderCache.delete(uid);
+      messageSenderCache.set(uid,{value,until:now()+MESSAGE_SENDER_TTL});
+    }
+    while(messageSenderCache.size>500)messageSenderCache.delete(messageSenderCache.keys().next().value);
+    return profiles;
+  }
   async function handle(req,res){
     try{
       const url=new URL(req.url,'http://localhost');
@@ -197,6 +234,11 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
           const fields=decodeFields(doc.fields||{});
           return {id:String(doc.name||'').split('/').pop(),uid:String(fields.uid||''),message:String(fields.message||''),page:String(fields.page||''),sentAt:String(fields.sentAt||''),createdAt:String(fields.createdAt||''),emailStatus:String(fields.emailStatus||'unconfigured')};
         });
+        // Enrich even old messages; failure to resolve a profile must not hide the message.
+        let senders=new Map();
+        try{senders=await messageSenderProfiles(messages.map(item=>item.uid));}
+        catch(error){console.warn('Contact sender lookup failed',{reason:error.message});}
+        for(const item of messages)item.sender=senders.get(item.uid)||null;
         if(!token){
           try{
             const access=await accessToken(),notificationUrl=`${base}/documents/users/${encodeURIComponent(admin.uid)}/developerMessageNotifications/current?updateMask.fieldPaths=unreadCount`;
