@@ -1,4 +1,5 @@
 import {createSign} from 'node:crypto';
+import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard,onlineBattleRankingScanComplete} from './online-battle-standings.mjs';
 
 const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
 const GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));
@@ -37,6 +38,8 @@ const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([k,v])=>
 const walletPath=uid=>'users/'+encodeURIComponent(uid)+'/apps/english-playroom';
 const roomPath=id=>'onlineBattleRooms/room'+id;
 const lobbyPath=gradeKey=>'onlineBattleLobbies/'+gradeKey;
+const statsPath=(gradeKey,uid)=>'onlineBattleStats/'+gradeKey+'/players/'+encodeURIComponent(uid);
+const dailyRankingPath=gradeKey=>'onlineBattleRankings/'+gradeKey;
 const baseName=(projectId,path)=>'projects/'+projectId+'/databases/(default)/documents/'+path;
 
 function readBattleServiceAccount(){
@@ -231,6 +234,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  async function userWallet(token,uid){return getDocAt(base,token,walletPath(uid),'ユーザー情報を読み込めませんでした。');}
  async function roomDoc(token,id){return getDocAt(battle.base,token,roomPath(id));}
  async function lobbyDoc(token,gradeKey){return getDocAt(battle.base,token,lobbyPath(gradeKey),'ロビー情報を読み込めませんでした。');}
+ async function standingDoc(token,gradeKey,uid){return getDocAt(battle.base,token,statsPath(gradeKey,uid),'対戦成績を読み込めませんでした。');}
+ async function dailyRankingDoc(token,gradeKey){return getDocAt(battle.base,token,dailyRankingPath(gradeKey),'ランキングを読み込めませんでした。');}
  async function commitAt(baseUrl,token,writes,message='対戦状態が更新されました。もう一度お試しください。'){
   if(!writes.length)return {};
   const response=await request(baseUrl+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
@@ -245,6 +250,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  function lobbyWrite(id,room){
   const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1},key='room'+rules.roomNo,path=lobbyPath(rules.gradeKey),state=lobbyState(room,id);
   return {update:{name:baseName(battle.projectId,path),fields:{[key]:encode(state),gradeKey:encode(rules.gradeKey),grade:encode(rules.grade),updatedAt:encode(Math.max(0,Math.floor(number(room.updatedAt,Date.now()))))}},updateMask:{fieldPaths:[key,'gradeKey','grade','updatedAt']}};
+ }
+ function standingWrite(gradeKey,uid,standing,snapshot){
+  return {update:{name:baseName(battle.projectId,statsPath(gradeKey,uid)),fields:encodeFields(standing)},updateMask:{fieldPaths:Object.keys(standing)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
  }
  function walletWrite(uid,wallet,coins){
   const path=walletPath(uid);
@@ -281,7 +289,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored),lobbyWrite(id,cleaned.room)]);continue;}
     catch(e){if(e.retryable&&attempt<3)continue;throw e;}
    }
-   const room=cleaned.room,beforeLobby=lobbyState(room,id),players=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];
+   const room=cleaned.room,beforeLobby=lobbyState(room,id),previousStatus=room.status,players=room.players.slice(),previousPlayers=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];
    if(operation==='join'){
     if(index>=0)return {room:publicRoom(room,id)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
@@ -377,6 +385,14 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     }else throw error('操作が正しくありません。',400);
     room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
    }
+   if(previousStatus==='playing'&&room.status==='finished'&&room.winnerUid&&previousPlayers.length===2){
+    const gradeKey=ROOM_RULES[id].gradeKey,endedAt=room.matchEndedAt||now();
+    const existing=await Promise.all(previousPlayers.map(player=>standingDoc(roomToken,gradeKey,player.uid)));
+    previousPlayers.forEach((player,i)=>{
+     const result=nextOnlineBattleStanding(existing[i]?.value||{},player,player.uid===room.winnerUid,endedAt);
+     roomWrites.push(standingWrite(gradeKey,player.uid,result,existing[i]));
+    });
+   }
    if(roomWrites.length&&lobbyStateChanged(beforeLobby,lobbyState(room,id)))roomWrites.push(lobbyWrite(id,room));
    let roomCommitted=false;
    try{
@@ -391,10 +407,52 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   }
   throw error('対戦状態の更新が競合しました。もう一度お試しください。',409);
  }
+
+ async function rankCandidates(token,gradeKey,todayDay){
+  let limit=12;
+  while(limit<=4096){
+   const response=await request(battle.base+'/documents/onlineBattleStats/'+gradeKey+':runQuery',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    signal:AbortSignal.timeout(20000),
+    body:JSON.stringify({structuredQuery:{from:[{collectionId:'players'}],orderBy:[{field:{fieldPath:'wins'},direction:'DESCENDING'}],limit}})
+   });
+   let raw=[];try{raw=await response.json();}catch{}
+   if(!response.ok||!Array.isArray(raw))throw error('ランキングの集計に失敗しました。',502);
+   const records=raw.filter(row=>row.document?.fields).map(row=>decodeFields(row.document.fields));
+   if(records.length<limit||onlineBattleRankingScanComplete(records,todayDay,10))return projectOnlineBattleLeaderboard(records,todayDay,10);
+   limit*=2;
+  }
+  throw error('ランキング候補が多すぎるため、集計を安全に完了できませんでした。',503);
+ }
+ async function publishRankings(){
+  const token=await battle.accessToken(),todayDay=japanBattleDay(now()),asOfDate=previousJapanBattleDay(now()),summary=[];
+  for(const gradeKey of ONLINE_BATTLE_GRADES){
+   const previous=await dailyRankingDoc(token,gradeKey);
+   if(previous?.value?.asOfDate===asOfDate){
+    summary.push({gradeKey,asOfDate,unchanged:true});
+    continue;
+   }
+   const leaders=await rankCandidates(token,gradeKey,todayDay);
+   const entry={schemaVersion:1,gradeKey,asOfDate,updatedAt:Math.floor(now()),leaders};
+   await commitAt(battle.base,token,[{
+    update:{name:baseName(battle.projectId,dailyRankingPath(gradeKey)),fields:encodeFields(entry)},
+    updateMask:{fieldPaths:Object.keys(entry)},
+    currentDocument:previous?.updateTime?{updateTime:previous.updateTime}:{exists:false}
+   }],'対戦ランキングを保存できませんでした。');
+   summary.push({gradeKey,asOfDate,entries:leaders.length});
+  }
+  return {asOfDate,summary};
+ }
  async function handle(req,res,path){
   try{
    const user=await verifyUser(req),roomToken=await battle.accessToken();
    if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:[]});
+   const rankingMatch=path.match(/^\/api\/online-battle\/rankings\/(4|3|pre2|2)$/);
+   if(req.method==='GET'&&rankingMatch){
+    const gradeKey=rankingMatch[1],snapshot=await dailyRankingDoc(roomToken,gradeKey);
+    const data=snapshot?.value||{};
+    return send(res,200,{gradeKey,grade:GRADE_BY_KEY[gradeKey].grade,asOfDate:data.asOfDate||'',leaders:Array.isArray(data.leaders)?data.leaders:[]});
+   }
    const lobbyMatch=path.match(/^\/api\/online-battle\/lobby\/(4|3|pre2|2)$/);
    if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(roomToken,lobbyMatch[1])});
    const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
@@ -406,5 +464,5 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    send(res,200,{ok:true,...result});
   }catch(e){send(res,e.status||500,{error:e.message||'オンライン対戦でエラーが発生しました。'});}
  }
- return {handle,ROOM_IDS,battleDatabaseSeparated:battle.separated,battleProjectId:battle.projectId};
+ return {handle,publishRankings,ROOM_IDS,battleDatabaseSeparated:battle.separated,battleProjectId:battle.projectId};
 }
