@@ -12,16 +12,22 @@ const wordTowerEndgameTitles=[
 export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog,'pet-fishing':petFishingCatalog};
 const HIDDEN_TITLE_PREFIXES=['creative:pet-instructions:'];
 export const WEEKLY_DAYS_TARGET=4;
+// These gameplay modes participate in daily rankings and weekly titles without adding
+// two unnecessary per-user creative-title progress documents to every titles read.
+export const RANKING_ONLY_CONTENTS=Object.freeze([
+ {id:'pet-typing-defense-normal',label:'もんすたディフェンス（ノーマル）'},
+ {id:'pet-typing-defense-hard',label:'もんすたディフェンス（ハード）'}
+]);
 const WEEKLY_SPECIAL_NAMES=Object.freeze({coins:'黄金の四冠王',ateru:'語彙を統べし者','basic-grammar':'語順の支配者','grammar':'文法の覇者','task-quest':'言霊の覇者','eiken-retry':'不屈の修練者'});
 export function weeklyTitleName(appId){
  if(appId==='coins')return WEEKLY_SPECIAL_NAMES.coins;
- const content=TITLE_CONTENTS.find(item=>item.id===appId);
+ const content=[...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].find(item=>item.id===appId);
  return content?(WEEKLY_SPECIAL_NAMES[appId]||content.label+'・週間覇者'):'';
 }
 export function weeklyTitles({earnedIds=[],progress={}}={}){
  const earned=new Set(Array.isArray(earnedIds)?earnedIds:[]);
  return [{id:'weekly:coins',appId:'coins',label:'獲得コイン',name:weeklyTitleName('coins'),condition:'1週間で4日以上、獲得コインTOP3に入る'},
-  ...TITLE_CONTENTS.map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
+  ...[...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
    .map(item=>{const done=Math.max(0,Math.min(7,Math.floor(Number(progress[item.appId])||0)));return {...item,need:WEEKLY_DAYS_TARGET,done:earned.has(item.id)?WEEKLY_DAYS_TARGET:done,unlocked:earned.has(item.id),category:'weekly'};});
 }
 const MASTER_NAMES=Object.freeze({
