@@ -22,7 +22,7 @@ import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import {createOnlineBattle} from './online-battle.mjs';
-import {createTodayNewsGenerator} from './today-news.mjs';
+import {createTodayNewsGenerator,verifyGithubOidcToken} from './today-news.mjs';
 import {createContactMessage} from './contact-message.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -315,6 +315,15 @@ export const server=http.createServer(async(req,res)=>{
   if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
   const path=new URL(req.url,'http://localhost').pathname;
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
+  if(path==='/api/online-battle/rankings/daily'){
+    try{
+      if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
+      const authorization=String(req.headers.authorization||'');
+      if(!authorization.startsWith('Bearer '))throw fail('GitHub Actions認証が必要です。',401);
+      await verifyGithubOidcToken(authorization.slice(7));
+      return send(res,200,await onlineBattle.publishRankings());
+    }catch(e){return send(res,e.status||500,{error:e.message||'ランキング集計に失敗しました。'});}
+  }
   if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
   if(path.startsWith('/api/online-battle'))return onlineBattle.handle(req,res,path);
   if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest"].includes(path)){
