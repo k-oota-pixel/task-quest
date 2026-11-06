@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMaterialRankings,dailyMaterialTransforms,rankMaterialRows} from './material-rankings.mjs';
+import {RANKING_ONLY_CONTENTS,TITLE_CONTENTS,weeklyTitles,weeklyTitleName} from './title-model.mjs';
 const fail=(message,status)=>Object.assign(Error(message),{status});
 const day='2026-11-06',previous=['2026-11-02','2026-11-03','2026-11-04','2026-11-05'];
 test('append a per-day counter to the existing activity transform, not an extra document',()=>{
@@ -52,4 +53,18 @@ test('daily material rankings cache and current-day invalidation; closed days ar
 test('single top position is stable when counts tie',()=>{
  const rows=rankMaterialRows([{uid:'b',petName:'B',count:6},{uid:'a',petName:'A',count:6},{uid:'c',petName:'C',count:4}]);
  assert.deepEqual(rows.map(x=>x.uid),['a','b','c']);assert.equal(rows[0].rank,1);
+});
+
+test('typing defense normal and hard share daily ranking infrastructure and unlock separate weekly titles',()=>{
+ const day='2026-11-06',ids=RANKING_ONLY_CONTENTS.map(x=>x.id);
+ assert.deepEqual(ids,['pet-typing-defense-normal','pet-typing-defense-hard']);
+ assert.equal(TITLE_CONTENTS.some(x=>ids.includes(x.id)),false,'no extra per-user creative title progress reads');
+ const updates=dailyMaterialTransforms(new Map([[ids[0],1],[ids[1],2]]),day);
+ assert.deepEqual(updates.map(x=>x.fieldPath),ids.map(id=>'dailyCounts.`'+day+'`.`'+id+'`'));
+ assert.deepEqual(updates.map(x=>x.increment.integerValue),['1','2']);
+ const weekly=weeklyTitles({earnedIds:['weekly:'+ids[1]],progress:{[ids[0]]:3,[ids[1]]:4}});
+ assert.equal(weekly.find(x=>x.id==='weekly:'+ids[0]).unlocked,false);
+ assert.equal(weekly.find(x=>x.id==='weekly:'+ids[0]).done,3);
+ assert.equal(weekly.find(x=>x.id==='weekly:'+ids[1]).unlocked,true);
+ assert.equal(weekly.find(x=>x.id==='weekly:'+ids[1]).name,weeklyTitleName(ids[1]));
 });
