@@ -1,4 +1,4 @@
-import {titleState,TITLE_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,RANKING_ONLY_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET} from './title-model.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 const encodeInt=value=>({integerValue:String(Math.max(0,Math.floor(Number(value)||0)))});
 const unlockedCount=titles=>new Set((titles||[]).filter(t=>t?.unlocked&&typeof t.id==='string').map(t=>t.id)).size;
@@ -33,7 +33,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   let weekly={progress:{}};
   if(includeWeekly){try{weekly=await weeklyProgress(uid);}catch(error){console.warn('Weekly title progress unavailable',error?.message||error);}}
   const earned=new Set(Array.isArray(selection.weeklyEarnedIds)?selection.weeklyEarnedIds.filter(x=>typeof x==='string'&&x.startsWith('weekly:')):[]);
-  const additions=Object.entries(weekly.progress||{}).filter(([app,days])=>Number(days)>=WEEKLY_DAYS_TARGET&&(app==='coins'||TITLE_CONTENTS.some(item=>item.id===app)))
+  const additions=Object.entries(weekly.progress||{}).filter(([app,days])=>Number(days)>=WEEKLY_DAYS_TARGET&&(app==='coins'||[...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].some(item=>item.id===app)))
    .map(([app])=>'weekly:'+app).filter(id=>!earned.has(id));
   if(includeWeekly&&additions.length){
    const ids=[...earned,...additions];
@@ -97,7 +97,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   if(selectedId.startsWith('master:')||selectedId.startsWith('weekly:')){
    // Master titles are derived from all previously earned titles, not client claims.
    const appId=selectedId.slice(7);
-   if(!TITLE_CONTENTS.some(item=>item.id===appId))throw fail('称号を選んでください。',400);
+   if(![...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].some(item=>item.id===appId))throw fail('称号を選んでください。',400);
    const state=await read(uid),title=state.titles.find(t=>t.id===selectedId&&t.unlocked);
    if(!title)throw fail('未解放の称号は選択できません。',400);
    return title.name;
