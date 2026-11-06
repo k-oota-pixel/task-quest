@@ -1,7 +1,7 @@
 import {challengePeriods} from './challenge-model.mjs';
-import {TITLE_CONTENTS} from './title-model.mjs';
+import {TITLE_CONTENTS,RANKING_ONLY_CONTENTS} from './title-model.mjs';
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
-const APPS=new Set(TITLE_CONTENTS.map(x=>x.id));
+const APPS=new Set([...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].map(x=>x.id));
 const integer=v=>Math.max(0,Math.min(1000000,Math.floor(Number(v)||0)));
 const validDay=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
 const safeName=s=>String(s||'').normalize('NFKC').trim().slice(0,24)||'ふしぎなたまご';
