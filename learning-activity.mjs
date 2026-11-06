@@ -2,6 +2,7 @@ import {activityTitles} from './title-model.mjs';
 import {dailyMaterialTransforms} from './material-rankings.mjs';
 import {challengePeriods,isChallengeContent,challengeProgressWrites} from './challenge-model.mjs';
 import {randomUUID} from 'node:crypto';
+const DEFENSE_IDS=new Set(['pet-typing-defense-normal','pet-typing-defense-hard']);
 const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','talk-quest','pet-catch','reading-training','pet-instructions','pet-chat','adventure-tower','adventure-dungeon','eigo-meter','word-wolf','pet-typing-defense-normal','pet-typing-defense-hard']);
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
 const validId=value=>typeof value==='string'&&/^[\w-]{8,100}$/.test(value);
@@ -22,6 +23,17 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
    unique.set(event.eventId,event.appId);
   }
   if(unique.size>100)throw fail('記録件数の上限を超えています。',413);
+  if([...unique.values()].some(appId=>DEFENSE_IDS.has(appId))){
+   // Bound each player's daily count to five distinct stages, regardless of device.
+   // One deterministic receipt per mode, JST day and stage prevents farming.
+   const event=body.events[0],match=String(event?.eventId||'').match(/^ptd-(normal|hard)-(\d{4}-\d{2}-\d{2})-stage-([1-5])-clear$/);
+   if(body.events.length!==1||unique.size!==1||!match||
+      event.appId!=='pet-typing-defense-'+match[1]||
+      match[2]!==challengePeriods().day||
+      body.batchId!==event.eventId.slice(0,-6)){
+    throw fail('ディフェンスのランキング記録IDが不正です。',400);
+   }
+  }
   const counts=new Map();for(const appId of unique.values())counts.set(appId,(counts.get(appId)||0)+1);
   const appIds=[...counts.keys()],{day,week}=challengePeriods(),token=await accessToken(),prefix=`projects/${projectId}/databases/(default)/documents/`;
   const receipt=prefix+`learning_activity/${user.uid}/events/${body.batchId}`;
@@ -56,7 +68,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
   const user=await verified(req),body=req.headers?.['content-type']?.startsWith('application/json')?await readJson(req,128000):{};
   if(Array.isArray(body.events))return await handleBatch(user,body,res);
-  const appId=body.appId;if(appId!==undefined&&!CONTENT_IDS.has(appId))throw fail('教材が不正です。',400);
+  const appId=body.appId;if(appId!==undefined&&!CONTENT_IDS.has(appId))throw fail('教材が不正です。',400);if(DEFENSE_IDS.has(appId))throw fail('ディフェンスのランキングにはステージ別の記録IDが必要です。',400);
   const token=await accessToken(),day=challengePeriods().day,prefix=`projects/${projectId}/databases/(default)/documents/`,transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
   if(appId){transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:'1'}});transforms.push(...dailyMaterialTransforms(new Map([[appId,1]]),day));}
   const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[...(appId?[{update:{name:prefix+`learning_activity/${user.uid}/events/${randomUUID()}`,fields:{day:encode(day),counts:{mapValue:{fields:{[appId]:{integerValue:'1'}}}}}},currentDocument:{exists:false}}]:[]),{update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms},...challengeProgressWrites({uid:user.uid,appId,projectId}),...(appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
