@@ -47,9 +47,10 @@ function retryFirstStatsWrite(prefix,events){
  for(const event of first){
   const key=keyOf(event.itemId);if(seen.has(key))continue;seen.add(key);
   itemFields[key]=encode({id:event.itemId,grade:event.grade});
-  fieldPaths.push(`items.${key}.id`,`items.${key}.grade`);
-  transforms.push({fieldPath:`items.${key}.attempts`,increment:{integerValue:'1'}});
-  if(event.correct)transforms.push({fieldPath:`items.${key}.correct`,increment:{integerValue:'1'}});
+  const itemPath=`items.\`${key}\``;
+  fieldPaths.push(`${itemPath}.id`,`${itemPath}.grade`);
+  transforms.push({fieldPath:`${itemPath}.attempts`,increment:{integerValue:'1'}});
+  if(event.correct)transforms.push({fieldPath:`${itemPath}.correct`,increment:{integerValue:'1'}});
  }
  transforms.push({fieldPath:'updatedAt',setToServerValue:'REQUEST_TIME'});
  return {update:{name:prefix+'analytics/retry-question-first-v1',fields:{schemaVersion:encode(1),items:{mapValue:{fields:itemFields}}}},updateMask:{fieldPaths},updateTransforms:transforms};
