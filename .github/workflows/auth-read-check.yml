@@ -8,6 +8,8 @@ on:
       - 'auth-read-optimization.test.mjs'
       - 'request-auth.mjs'
       - 'server.mjs'
+      - 'google-access-token.mjs'
+      - 'google-access-token.test.mjs'
       - '.github/workflows/auth-read-check.yml'
   pull_request:
     paths:
@@ -16,6 +18,8 @@ on:
       - 'auth-read-optimization.test.mjs'
       - 'request-auth.mjs'
       - 'server.mjs'
+      - 'google-access-token.mjs'
+      - 'google-access-token.test.mjs'
       - '.github/workflows/auth-read-check.yml'
   workflow_dispatch:
 permissions:
@@ -28,4 +32,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test code-auth.test.mjs auth-read-optimization.test.mjs
+      - run: node --check server.mjs
+      - run: node --test google-access-token.test.mjs code-auth.test.mjs auth-read-optimization.test.mjs api-security.test.mjs

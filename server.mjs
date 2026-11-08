@@ -28,7 +28,7 @@ import {createContactMessage} from './contact-message.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {createSign} from 'node:crypto';
+import {createGoogleAccessToken} from './google-access-token.mjs';
 
 const dir=fileURLToPath(new URL('.',import.meta.url));
 if(fs.existsSync(dir+'.env'))for(const line of fs.readFileSync(dir+'.env','utf8').split(/\r?\n/)){const m=line.match(/^([A-Z_]+)\s*=\s*(.*?)\s*$/);if(m&&!process.env[m[1]])process.env[m[1]]=m[2].replace(/^(['"])(.*)\1$/,'$2');}
@@ -45,7 +45,7 @@ const FIREBASE_PROJECT_ID=process.env.FIREBASE_PROJECT_ID||'eiken-retry';
 const FIREBASE_WEB_API_KEY=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ';
 const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||'').trim().toLowerCase();
 const FIRESTORE_BASE=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)`;
-let googleAccessToken='',googleAccessTokenUntil=0;
+
 const dailyCoinRankingCache={viewerSnapshots:new Map(),viewerSnapshotsDay:''};
 
 const system=`
@@ -87,8 +87,7 @@ function originAllowed(req){const origin=req.headers.origin;if(!origin)return tr
 function applyCors(req,res){if(req.headers.origin===GITHUB_ORIGIN){res.setHeader('Access-Control-Allow-Origin',GITHUB_ORIGIN);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization, X-Firebase-AppCheck');res.setHeader('Access-Control-Max-Age','86400');}}
 
 function getServiceAccount(){let raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON||'';if(!raw&&process.env.FIREBASE_SERVICE_ACCOUNT_B64){try{raw=Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64,'base64').toString('utf8');}catch{}}if(!raw)throw fail('管理画面のFirebase管理設定が未完了です。',503);let sa;try{sa=JSON.parse(raw);}catch{throw fail('管理画面のFirebase管理設定を確認してください。',503);}if(!sa?.client_email||!sa?.private_key)throw fail('管理画面のFirebase管理設定を確認してください。',503);return sa;}
-function b64urlJson(value){return Buffer.from(JSON.stringify(value)).toString('base64url');}
-async function getGoogleAccessToken(){if(googleAccessToken&&Date.now()<googleAccessTokenUntil-60000)return googleAccessToken;const sa=getServiceAccount(),now=Math.floor(Date.now()/1000),header=b64urlJson({alg:'RS256',typ:'JWT'}),claims=b64urlJson({iss:sa.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600}),unsigned=`${header}.${claims}`,signer=createSign('RSA-SHA256');signer.update(unsigned);signer.end();const assertion=`${unsigned}.${signer.sign(sa.private_key).toString('base64url')}`;const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});let data={};try{data=await response.json();}catch{}if(!response.ok||!data.access_token)throw fail('Firebase管理用の認証に失敗しました。',503);googleAccessToken=data.access_token;googleAccessTokenUntil=Date.now()+Number(data.expires_in||3600)*1000;return googleAccessToken;}
+const getGoogleAccessToken=createGoogleAccessToken({serviceAccount:getServiceAccount});
 const {verifyUser:verifyRawUser,checkApp}=createSecurityGate();
 const verifyUser=createRequestVerifier({verifyRawUser,admission:user=>codeAuth.admission(user),fail});
 async function verifyAdmin(req){if(!ADMIN_EMAIL)throw fail('管理者メールアドレスが未設定です。',503);const user=await verifyUser(req);if(!isAdministrator(user,ADMIN_EMAIL))throw fail('このアカウントには管理権限がありません。',403);return user;}
@@ -316,6 +315,17 @@ export const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
   if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
   const path=new URL(req.url,'http://localhost').pathname;
+  if(path==='/api/account/login'||path==='/api/account/session'){
+    const start=Date.now();let completed=false;
+    console.info(JSON.stringify({event:'auth_http',route:path,phase:'received'}));
+    res.once('finish',()=>{
+      completed=true;
+      console.info(JSON.stringify({event:'auth_http',route:path,phase:'completed',status:res.statusCode,elapsedMs:Date.now()-start}));
+    });
+    res.once('close',()=>{
+      if(!completed)console.warn(JSON.stringify({event:'auth_http',route:path,phase:'connection_closed',elapsedMs:Date.now()-start}));
+    });
+  }
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
   if(path==='/api/online-battle/rankings/daily'){
     try{
