@@ -3,6 +3,7 @@ import {createCodeAuth} from './code-auth.mjs';
 import {createRequestVerifier,isAdministrator} from './request-auth.mjs';
 import {createAdminPetNameReset} from './admin-pet-name-reset.mjs';
 import {createAdventureRankings} from './adventure-rankings.mjs';
+import {createDefenseBestRankings} from './defense-best-rankings.mjs';
 import {creativeCatalog} from './title-model.mjs';
 import {createTitleEvents} from './creative-title-events.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
@@ -211,7 +212,8 @@ const materialRankings=createMaterialRankings({base:FIRESTORE_BASE,projectId:FIR
 const handleTitleEvents=createTitleEvents({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
 const titleCountRankings=createTitleCountRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
 const learningTitles=createLearningTitles({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish,weeklyProgress:materialRankings.userWeekly});
-const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning,onDailyCountsChanged:materialRankings.changed});
+const defenseBestRankings=createDefenseBestRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,decodeFields,decorate:learningTitles.decorate,send,fail});
+const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning,onDailyCountsChanged:materialRankings.changed,onDefenseStageSaved:defenseBestRankings.publish});
 const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache,decorate:learningTitles.decorate});}});
 const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 const adventureRankings=createAdventureRankings({base:FIRESTORE_BASE,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,accessToken:getGoogleAccessToken,decodeFields,send,fail,decorate:learningTitles.decorate});
@@ -335,6 +337,7 @@ export const server=http.createServer(async(req,res)=>{
   }
   if(path==='/api/today/generate')return todayNews.handle(req,res);
   if(path==='/api/adventure/rankings')return adventureRankings.handle(req,res);
+  if(path==='/api/adventure/defense-rankings')return defenseBestRankings.handle(req,res);
   if(path==='/api/word-breaker/records')return wordBreakerRecords.handle(req,res);
   if(path==='/api/pet-catch/records')return petCatchRecords.handle(req,res);
   if(path==='/api/contact-message')return handleContactMessage(req,res);

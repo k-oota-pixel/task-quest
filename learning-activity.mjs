@@ -7,7 +7,7 @@ const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','t
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
 const validId=value=>typeof value==='string'&&/^[\w-]{8,100}$/.test(value);
 const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
-export function createLearningActivity({base,projectId,accessToken,verifyUser,send,fail,readJson,invalidate,onDailyCountsChanged=()=>{},fetch:request=fetch}){
+export function createLearningActivity({base,projectId,accessToken,verifyUser,send,fail,readJson,invalidate,onDailyCountsChanged=()=>{},onDefenseStageSaved=async()=>{},fetch:request=fetch}){
  const verifiedTokens=new Map();
  async function verified(req){
   const key=String(req.headers?.authorization||''),entry=verifiedTokens.get(key);
@@ -23,6 +23,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
    unique.set(event.eventId,event.appId);
   }
   if(unique.size>100)throw fail('記録件数の上限を超えています。',413);
+  let defenseStage=null;
   if([...unique.values()].some(appId=>DEFENSE_IDS.has(appId))){
    // Bound each player's daily count to five distinct stages, regardless of device.
    // One deterministic receipt per mode, JST day and stage prevents farming.
@@ -33,6 +34,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
       body.batchId!==event.eventId.slice(0,-6)){
     throw fail('ディフェンスのランキング記録IDが不正です。',400);
    }
+   defenseStage={mode:match[1],stage:Number(match[3])};
   }
   const counts=new Map();for(const appId of unique.values())counts.set(appId,(counts.get(appId)||0)+1);
   const appIds=[...counts.keys()],{day,week}=challengePeriods(),token=await accessToken(),prefix=`projects/${projectId}/databases/(default)/documents/`;
@@ -40,6 +42,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   const transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
   for(const appId of appIds)transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:String(counts.get(appId))}});
   transforms.push(...dailyMaterialTransforms(counts,day));
+  if(defenseStage)transforms.push({fieldPath:defenseStage.mode==='normal'?'typingDefenseBestNormal':'typingDefenseBestHard',maximum:{integerValue:String(defenseStage.stage)}});
   const challengeIds=appIds.filter(isChallengeContent),challengeWrites=[];
   if(challengeIds.length){
    const makeChallengeWrite=period=>({update:{name:prefix+`challenge_progress/${user.uid}/periods/${period}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:challengeIds.map(id=>({fieldPath:'completed.`'+id+'`',setToServerValue:'REQUEST_TIME'}))});
@@ -62,6 +65,11 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
    const total=Number(results[2+index*2]?.integerValue)||0,previous=Math.max(0,total-counts.get(appId));
    freshTitles.push(...activityTitles(appId,total).filter(title=>title.need>previous&&title.need<=total));
   });
+  if(defenseStage){
+   const savedBest=Number(results[transforms.length-1]?.integerValue)||defenseStage.stage;
+   try{await onDefenseStageSaved({uid:user.uid,mode:defenseStage.mode,stage:Math.min(5,Math.max(defenseStage.stage,savedBest))});}
+   catch(error){console.warn('Defense best ranking publication deferred',error?.message||error);}
+  }
   send(res,200,{ok:true,freshTitles});
  }
  return async function handle(req,res){try{

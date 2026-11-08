@@ -1,7 +1,7 @@
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
 
 export const TOWER_SEASON='2026-11-maou';
-const RANKING_SCHEMA=4;
+const RANKING_SCHEMA=5;
 const MODES={tower:'wordTowerBest',dungeon:'eikenDungeonBest'};
 const TOP_RANK=3;
 const floorOf=n=>Number.isSafeInteger(n)&&n>0&&n<=100000?n:0;
@@ -20,7 +20,7 @@ export function adventureLeaders(players,mode){
  const seen=new Set(),rows=[];
  for(const player of players){
   if(mode==='tower'&&player?.wordTowerSeason!==TOWER_SEASON)continue;
-  const uid=typeof player?.uid==='string'?player.uid:'',floor=floorOf(player?.[field]);if(!uid||!floor||seen.has(uid))continue;seen.add(uid);const row={uid,petName:petNameOf(player.petName),floor};if(mode==='tower'&&player?.wordTowerCleared===true)row.cleared=true;rows.push(row);
+  const uid=typeof player?.uid==='string'?player.uid:'',floor=floorOf(player?.[field]);if(!uid||!floor||seen.has(uid))continue;seen.add(uid);const row={uid,petName:petNameOf(player.petName),floor};if(floor===100&&player?.[mode==='tower'?'wordTowerCleared':'eikenDungeonCleared']===true)row.cleared=true;rows.push(row);
  }
  return rankTopThree(rows);
 }
@@ -63,17 +63,64 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
   const excluded=new Set(await excludedIds()),ids=[...new Set(await activeIds())].filter(uid=>!excluded.has(uid)),token=await accessToken(),players=[];
   for(let offset=0;offset<ids.length;offset+=200){
    const names=ids.slice(offset,offset+200).map(uid=>base.replace(/^https:\/\/firestore.googleapis.com\/v1\//,'')+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom');
-   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','wordTowerBest','wordTowerSeason','wordTowerCleared','eikenDungeonBest']}})});let rows=[];try{rows=await response.json();}catch{}
+   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','wordTowerBest','wordTowerSeason','wordTowerCleared','eikenDungeonBest','eikenDungeonCleared']}})});let rows=[];try{rows=await response.json();}catch{}
    if(!response.ok||!Array.isArray(rows))throw fail('ランキングを取得できませんでした。',response.status===429?429:502);
    const expected=new Set(names);for(const row of rows)if(row.found&&expected.has(row.found.name))players.push({uid:uidFromName(row.found.name),...decodeFields(row.found.fields||{})});
   }
   return {token,value:{schemaVersion:RANKING_SCHEMA,towerSeason:TOWER_SEASON,tower:adventureLeaders(players,'tower'),dungeon:adventureLeaders(players,'dungeon')}};
+ }
+ // Compare all listed floor-100 entries against their saved player records, once
+ // when upgrading from schema v4. Query only finalists rather than all users.
+ async function verifyFinalClearFlags(token,value){
+  const finalists=[...new Set([...value.tower,...value.dungeon].filter(row=>row.floor===100).map(row=>row.uid))];
+  if(!finalists.length)return {...value,schemaVersion:RANKING_SCHEMA};
+  const profiles=new Map(),prefix=base.replace(/^https:\/\/firestore.googleapis.com\/v1\//,'');
+  for(let offset=0;offset<finalists.length;offset+=200){
+   const names=finalists.slice(offset,offset+200).map(uid=>prefix+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom');
+   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(15000),body:JSON.stringify({documents:names,mask:{fieldPaths:['wordTowerBest','wordTowerSeason','wordTowerCleared','eikenDungeonBest','eikenDungeonCleared']}})});
+   const rows=await response.json().catch(()=>[]);
+   if(!response.ok||!Array.isArray(rows))throw fail('完全制覇記録を確認できませんでした。',502);
+   for(const row of rows)if(row.found)profiles.set(uidFromName(row.found.name),decodeFields(row.found.fields||{}));
+  }
+  if(finalists.some(uid=>!profiles.has(uid))){
+   // Removed users require rebuilding the top-3, not assuming their completion.
+   const rebuilt=await scanPlayers();
+   return {...rebuilt.value,schemaVersion:RANKING_SCHEMA};
+  }
+  const verified={...value,schemaVersion:RANKING_SCHEMA};
+  let mismatch=false;
+  for(const mode of ['tower','dungeon']){
+   verified[mode]=value[mode].map(row=>{
+    if(row.floor!==100)return row;
+    const saved=profiles.get(row.uid),best=floorOf(saved[MODES[mode]]);
+    if(best!==100||(mode==='tower'&&saved.wordTowerSeason!==TOWER_SEASON)){mismatch=true;return row;}
+    const cleared=saved[mode==='tower'?'wordTowerCleared':'eikenDungeonCleared']===true;
+    const updated={...row};delete updated.cleared;if(cleared)updated.cleared=true;
+    return updated;
+   });
+   verified[mode]=sanitizeLeaders(verified[mode]);
+  }
+  if(mismatch){
+   const rebuilt=await scanPlayers();
+   return {...rebuilt.value,schemaVersion:RANKING_SCHEMA};
+  }
+  console.info('Adventure finalist verification',JSON.stringify({
+   checked:finalists.length,tower100:verified.tower.filter(row=>row.floor===100).length,
+   towerCleared:verified.tower.filter(row=>row.floor===100&&row.cleared).length,
+   dungeon100:verified.dungeon.filter(row=>row.floor===100).length,
+   dungeonCleared:verified.dungeon.filter(row=>row.floor===100&&row.cleared).length
+  }));
+  return verified;
  }
  async function load(){
   const token=await accessToken(),stored=await readSummary(token),excluded=new Set(await excludedIds());
   if(stored){
    const staleSchema=stored.value.schemaVersion!==RANKING_SCHEMA,staleSeason=stored.value.towerSeason!==TOWER_SEASON,hasExcluded=[...stored.value.tower,...stored.value.dungeon].some(row=>excluded.has(row.uid));
    if(!staleSchema&&!staleSeason&&!hasExcluded)return stored;
+   if(stored.value.schemaVersion===4&&!staleSeason&&!hasExcluded){
+    const verified=await verifyFinalClearFlags(token,stored.value);
+    return writeSummary(token,verified,{updateTime:stored.updateTime});
+   }
    const rebuilt=await scanPlayers();return writeSummary(token,rebuilt.value,{updateTime:stored.updateTime});
   }
   const bootstrap=await scanPlayers();try{return await writeSummary(bootstrap.token,bootstrap.value,{createOnly:true});}catch(error){if(!error.retryable)throw error;const raced=await readSummary(bootstrap.token);if(raced&&raced.value.towerSeason===TOWER_SEASON)return raced;throw error;}
@@ -97,7 +144,7 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
    await snapshot();
    const token=await accessToken();let stored=cached?.value?{value:cached.value,updateTime:cached.updateTime}:await readSummary(token);if(!stored||stored.value.towerSeason!==TOWER_SEASON)stored=await load();
    for(let attempt=0;attempt<3;attempt++){
-    const next=sanitizeStored(stored.value);next.schemaVersion=RANKING_SCHEMA;next.towerSeason=TOWER_SEASON;const current=next[mode],candidateRows=current.filter(row=>row.uid!==uid).map(({rank,...row})=>row),candidate={uid,petName:petNameOf(petName),floor};if(mode==='tower'&&cleared===true)candidate.cleared=true;candidateRows.push(candidate);const updated=rankTopThree(candidateRows);next[mode]=updated;
+    const next=sanitizeStored(stored.value);next.schemaVersion=RANKING_SCHEMA;next.towerSeason=TOWER_SEASON;const current=next[mode],candidateRows=current.filter(row=>row.uid!==uid).map(({rank,...row})=>row),candidate={uid,petName:petNameOf(petName),floor};if(cleared===true&&floor===100)candidate.cleared=true;candidateRows.push(candidate);const updated=rankTopThree(candidateRows);next[mode]=updated;
     if(sameRows(current,updated)){cached={...stored,value:next,fetchedAt:now(),public:null};return publicRows(updated);}
     try{const written=await writeSummary(token,next,{updateTime:stored.updateTime});cached={...written,fetchedAt:now(),public:null};return publicRows(written.value[mode]);}
     catch(error){if(!error.retryable||attempt===2)throw error;stored=await readSummary(token);if(!stored||stored.value.towerSeason!==TOWER_SEASON)stored=await load();}
@@ -111,7 +158,7 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
    if(!req.headers?.['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await requestUser(req),body=await requestJson(req,1024),mode=String(body.mode||'');if(!Object.hasOwn(MODES,mode))throw fail('冒険先を選んでください。',400);
    if((await excludedIds()).includes(user.uid)){await refreshSharedSnapshot();return send(res,200,{ok:true,excluded:true,record:null});}
    const expectedFloor=floorOf(Number(body.expectedFloor)),token=await accessToken(),data=await userDoc(token,user.uid),rawSavedFloor=floorOf(data[MODES[mode]]),savedFloor=mode==='tower'&&data.wordTowerSeason!==TOWER_SEASON?0:rawSavedFloor;if(expectedFloor&&savedFloor<expectedFloor)return send(res,202,{ok:false,pending:true});
-   const record=await publish({uid:user.uid,mode,floor:savedFloor,petName:data.petName,cleared:mode==='tower'&&data.wordTowerCleared===true});await refreshSharedSnapshot();return send(res,200,{ok:true,record});
+   const record=await publish({uid:user.uid,mode,floor:savedFloor,petName:data.petName,cleared:data[mode==='tower'?'wordTowerCleared':'eikenDungeonCleared']===true});await refreshSharedSnapshot();return send(res,200,{ok:true,record});
   }
   throw fail('GETまたはPOSTのみ対応しています。',405);
  }catch(error){send(res,error.status||503,{error:error.status&&error.status<500?error.message:'ランキングを処理できませんでした。時間を置いて再表示してください。'});}}

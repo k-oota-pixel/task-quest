@@ -20,11 +20,16 @@ test('keeps only ranks 1-3 while preserving ties and excludes old tower seasons'
  assert.equal(adventureLeaders(players,'dungeon')[0].uid,'b');
  assert.equal(adventureLeaders([{uid:'x',wordTowerBest:10,wordTowerSeason:TOWER_SEASON}],'tower')[0].petName,'名前未設定のペット');
  assert.equal(adventureLeaders([{uid:'old',wordTowerBest:100,wordTowerSeason:'old-season'}],'tower').length,0);
+ assert.deepEqual(adventureLeaders([
+  {uid:'a',eikenDungeonBest:100,eikenDungeonCleared:true},
+  {uid:'b',eikenDungeonBest:100,eikenDungeonCleared:false}
+ ],'dungeon').map(row=>[row.uid,row.floor,row.rank,row.cleared===true]),[['a',100,1,true],['b',100,1,false]]);
+
 });
 
 test('normal GET restores one current-season summary document once, then serves the unified ranking file',async()=>{
  let summaryReads=0,scans=0,t=0;
- const stored={schemaVersion:4,towerSeason:TOWER_SEASON,tower:[{uid:'v',petName:'まる',floor:100},{uid:'u',petName:'もこ',floor:100,cleared:true},{uid:'w',petName:'ぽち',floor:30}],dungeon:[{uid:'v',petName:'まる',floor:25}]};
+ const stored={schemaVersion:5,towerSeason:TOWER_SEASON,tower:[{uid:'v',petName:'まる',floor:100},{uid:'u',petName:'もこ',floor:100,cleared:true},{uid:'w',petName:'ぽち',floor:30}],dungeon:[{uid:'v',petName:'まる',floor:25}]};
  const api=createAdventureRankings({
   base:'https://firestore.googleapis.com/v1/projects/p/databases/(default)',rankingStore:directStore(),
   activeIds:async()=>{scans++;return ['should-not-scan'];},accessToken:async()=>'token',decodeFields:value=>value,send,fail,now:()=>t,
@@ -77,7 +82,7 @@ test('missing summary bootstraps once, then POST publishes trusted saved best',a
     {found:{name:prefix+'users/u2/apps/english-playroom',fields:{petName:'B',wordTowerBest:40,wordTowerSeason:TOWER_SEASON,eikenDungeonBest:15}}},
     {found:{name:prefix+'users/u3/apps/english-playroom',fields:{petName:'C',wordTowerBest:30,wordTowerSeason:TOWER_SEASON,eikenDungeonBest:25}}}
    ]};}
-   if(target.includes('/documents/leaderboards/adventure')&&method==='GET')return created?{ok:true,status:200,json:async()=>({fields:{schemaVersion:4,towerSeason:TOWER_SEASON,tower:[{uid:'u1',petName:'A',floor:50,rank:1},{uid:'u2',petName:'B',floor:40,rank:2},{uid:'u3',petName:'C',floor:30,rank:3}],dungeon:[{uid:'u3',petName:'C',floor:25,rank:1},{uid:'u2',petName:'B',floor:15,rank:2},{uid:'u1',petName:'A',floor:5,rank:3}]},updateTime:'v1'})}:{ok:false,status:404,json:async()=>({})};
+   if(target.includes('/documents/leaderboards/adventure')&&method==='GET')return created?{ok:true,status:200,json:async()=>({fields:{schemaVersion:5,towerSeason:TOWER_SEASON,tower:[{uid:'u1',petName:'A',floor:50,rank:1},{uid:'u2',petName:'B',floor:40,rank:2},{uid:'u3',petName:'C',floor:30,rank:3}],dungeon:[{uid:'u3',petName:'C',floor:25,rank:1},{uid:'u2',petName:'B',floor:15,rank:2},{uid:'u1',petName:'A',floor:5,rank:3}]},updateTime:'v1'})}:{ok:false,status:404,json:async()=>({})};
    if(target.includes('/documents/leaderboards/adventure')&&method==='PATCH'){created=true;writes++;return {ok:true,status:200,json:async()=>({updateTime:'v'+writes})};}
    throw Error('unexpected request '+target);
   }
@@ -88,4 +93,42 @@ test('missing summary bootstraps once, then POST publishes trusted saved best',a
  assert.equal(pending.status,202);assert.equal(pending.body.pending,true);assert.equal(writes,1);
  const post={};await api.handle({method:'POST',url:'/api/adventure/rankings',headers:{authorization:'Bearer client-token','content-type':'application/json'},body:{mode:'tower',expectedFloor:35}},post);
  assert.equal(post.status,200);assert.equal(post.body.ok,true);assert.deepEqual(post.body.record.map(row=>[row.petName,row.floor,row.rank]),[['A',50,1],['B',40,2],['D',35,3]]);assert.equal(writes,2);
+});
+
+test('v4 snapshot checks every listed 100th-floor entrant without scanning every user',async()=>{
+ let batches=0,writes=0,scans=0,patched;
+ const base='https://firestore.googleapis.com/v1/projects/p/databases/(default)';
+ const prefix='projects/p/databases/(default)/documents/';
+ const saved={schemaVersion:4,towerSeason:TOWER_SEASON,
+  tower:[{uid:'u1',petName:'一',floor:100},{uid:'u2',petName:'二',floor:100,cleared:true}],
+  dungeon:[{uid:'u1',petName:'一',floor:100},{uid:'u2',petName:'二',floor:100},{uid:'u3',petName:'三',floor:100}]};
+ const profiles={
+  u1:{wordTowerBest:100,wordTowerSeason:TOWER_SEASON,wordTowerCleared:true,eikenDungeonBest:100,eikenDungeonCleared:false},
+  u2:{wordTowerBest:100,wordTowerSeason:TOWER_SEASON,wordTowerCleared:false,eikenDungeonBest:100,eikenDungeonCleared:true},
+  u3:{eikenDungeonBest:100,eikenDungeonCleared:true}
+ };
+ const api=createAdventureRankings({base,rankingStore:directStore(),activeIds:async()=>{scans++;return [];},
+  accessToken:async()=>'token',decodeFields:x=>x,decorate:async rows=>rows.map(({uid,...rest})=>({...rest,title:'称号'})),send,fail,
+  fetch:async(url,options={})=>{
+   const path=String(url),method=options.method||'GET';
+   if(path.includes('/documents:batchGet')){
+    batches++;
+    const req=JSON.parse(options.body);
+    assert.equal(req.documents.length,3);
+    assert.ok(req.mask.fieldPaths.includes('eikenDungeonCleared'));
+    return {ok:true,status:200,json:async()=>req.documents.map(name=>({found:{name,fields:profiles[name.split('/users/')[1].split('/')[0]]}}))};
+   }
+   if(path.includes('/documents/leaderboards/adventure')&&method==='GET')return {ok:true,status:200,json:async()=>({fields:saved,updateTime:'old'})};
+   if(path.includes('/documents/leaderboards/adventure')&&method==='PATCH'){writes++;patched=JSON.parse(options.body);return {ok:true,status:200,json:async()=>({updateTime:'new'})};}
+   throw Error('unexpected request '+path);
+  }
+ });
+ const out={};await api.handle({method:'GET',url:'/?mode=dungeon',headers:{}},out);
+ assert.equal(out.status,200);
+ assert.deepEqual(out.body.leaders.map(row=>[row.petName,row.floor,row.rank,row.cleared===true]),[
+  ['二',100,1,true],['三',100,1,true],['一',100,1,false]]);
+ const tower={};await api.handle({method:'GET',url:'/?mode=tower',headers:{}},tower);
+ assert.deepEqual(tower.body.leaders.map(row=>[row.petName,row.cleared===true]),[['一',true],['二',false]]);
+ assert.equal(batches,1);assert.equal(scans,0);assert.equal(writes,1);
+ assert.equal(patched.fields.schemaVersion.integerValue,'5');
 });
