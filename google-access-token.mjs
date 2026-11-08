@@ -27,20 +27,25 @@ export function createGoogleAccessToken({
    for(let attempt=1;attempt<=maxAttempts;attempt++){
     const started=now();
     try{
-     const response=await fetchImpl('https://oauth2.googleapis.com/token',{
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({
-       grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion
-      }),
-      signal:AbortSignal.timeout(timeoutMs)
-     });
-     if(!response.ok){
-      const failure=new Error('OAuth HTTP error');
-      failure.httpStatus=response.status;
-      throw failure;
-     }
-     const body=await response.json();
+     const controller=new AbortController();
+     const timer=setTimeout(()=>controller.abort(),timeoutMs);
+     let response,body;
+     try{
+      response=await fetchImpl('https://oauth2.googleapis.com/token',{
+       method:'POST',
+       headers:{'Content-Type':'application/x-www-form-urlencoded'},
+       body:new URLSearchParams({
+        grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion
+       }),
+       signal:controller.signal
+      });
+      if(!response.ok){
+       const failure=new Error('OAuth HTTP error');
+       failure.httpStatus=response.status;
+       throw failure;
+      }
+      body=await response.json();
+     }finally{clearTimeout(timer);}
      if(typeof body?.access_token!=='string'||!body.access_token)throw Error('Missing OAuth token');
      token=body.access_token;
      expiresAt=now()+Math.max(300,Number(body.expires_in)||3600)*1000;
