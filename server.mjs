@@ -317,24 +317,6 @@ export const server=http.createServer(async(req,res)=>{
   if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});
   const path=new URL(req.url,'http://localhost').pathname;
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
-  // Audits only already-listed finalists. Access is restricted to the existing,
-  // repository- and workflow-bound GitHub Actions OIDC identity.
-  if(path==='/api/adventure/verify-finalists'){
-    try{
-      if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
-      const authorization=String(req.headers.authorization||'');
-      if(!authorization.startsWith('Bearer '))throw fail('GitHub Actions認証が必要です。',401);
-      await verifyGithubOidcToken(authorization.slice(7));
-      const snapshot=await adventureRankings.snapshot();
-      const summarize=mode=>{
-        const finalists=(snapshot[mode]||[]).filter(row=>Number(row.floor)===100);
-        return {reached100:finalists.length,cleared:finalists.filter(row=>row.cleared===true).length,unfinished:finalists.filter(row=>row.cleared!==true).length};
-      };
-      const defense=await defenseBestRankings.shared();
-      const defenseSummary=mode=>({leaders:defense[mode].length,completed:defense[mode].filter(row=>row.floor===5).length});
-      return send(res,200,{ok:true,tower:summarize('tower'),dungeon:summarize('dungeon'),normal:defenseSummary('normal'),hard:defenseSummary('hard')});
-    }catch(error){return send(res,error.status||503,{error:error.message||'完全制覇記録を確認できませんでした。'});}
-  }
   if(path==='/api/online-battle/rankings/daily'){
     try{
       if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
