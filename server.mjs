@@ -330,7 +330,9 @@ export const server=http.createServer(async(req,res)=>{
         const finalists=(snapshot[mode]||[]).filter(row=>Number(row.floor)===100);
         return {reached100:finalists.length,cleared:finalists.filter(row=>row.cleared===true).length,unfinished:finalists.filter(row=>row.cleared!==true).length};
       };
-      return send(res,200,{ok:true,tower:summarize('tower'),dungeon:summarize('dungeon')});
+      const defense=await defenseBestRankings.shared();
+      const defenseSummary=mode=>({leaders:defense[mode].length,completed:defense[mode].filter(row=>row.floor===5).length});
+      return send(res,200,{ok:true,tower:summarize('tower'),dungeon:summarize('dungeon'),normal:defenseSummary('normal'),hard:defenseSummary('hard')});
     }catch(error){return send(res,error.status||503,{error:error.message||'完全制覇記録を確認できませんでした。'});}
   }
   if(path==='/api/online-battle/rankings/daily'){
