@@ -34,3 +34,30 @@ jobs:
           node-version: '22'
       - run: node --check server.mjs
       - run: node --test google-access-token.test.mjs code-auth.test.mjs auth-read-optimization.test.mjs api-security.test.mjs
+      - name: Smoke-test deployed login API without real credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=0
+          for attempt in $(seq 1 20); do
+            result="$(curl --silent --show-error --max-time 15 https://task-quest.onrender.com/api/status || true)"
+            if [[ "$result" == *'"authTransportVersion":"2026-11-08-bounded"'* ]]; then
+              ready=1
+              break
+            fi
+            sleep 7
+          done
+          if [[ "$ready" != 1 ]]; then
+            echo "Latest deployed backend did not respond to the status probe"
+            exit 1
+          fi
+          code="$(curl --silent --show-error --max-time 35 --output /tmp/monstudy-login-smoke.json --write-out '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'Origin: https://k-oota-pixel.github.io' \
+            --data '{"loginId":"zz_smoke_probe_account_20261108","password":"invalid-password-probe"}' \
+            https://task-quest.onrender.com/api/account/login)"
+          if [[ "$code" != 401 ]]; then
+            echo "Expected 401 for nonexistent account, got HTTP $code"
+            exit 1
+          fi
+          echo "Live login backend reached Google OAuth + Firestore and returned expected HTTP 401"
