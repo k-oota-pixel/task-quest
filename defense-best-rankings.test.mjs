@@ -18,10 +18,10 @@ test('legacy daily stage counts seed best records once and a saved stage updates
  const prefix='projects/p/databases/(default)/documents/';
  let batchReads=0,activityReads=0,walletReads=0;
  const records={
-  a:{dailyCounts:{'2026-11-06':{'pet-typing-defense-normal':5}},typingDefenseBestHard:1},
-  b:{typingDefenseBestNormal:5,typingDefenseBestHard:4},
+  a:{dailyCounts:{'2026-11-06':{'pet-typing-defense-normal':5}},typingDefenseBestHard:1,typingDefenseBestEasy:2},
+  b:{typingDefenseBestNormal:5,typingDefenseBestHard:4,typingDefenseBestEasy:4},
   c:{dailyCounts:{'2026-11-07':{'pet-typing-defense-normal':3}},typingDefenseBestHard:2},
-  d:{typingDefenseBestNormal:1}
+  d:{typingDefenseBestNormal:1,typingDefenseBestEasy:3}
  };
  const api=createDefenseBestRankings({
   base:'https://firestore.googleapis.com/v1/projects/p/databases/(default)',projectId:'p',
@@ -49,7 +49,10 @@ test('legacy daily stage counts seed best records once and a saved stage updates
  res={};await api.handle({method:'GET',url:'/?mode=hard'},res);
  assert.deepEqual(res.body.leaders.map(x=>[x.petName,x.floor,x.rank]),[
   ['ペットb',4,1],['ペットc',2,2],['ペットa',1,3]]);
- assert.equal(activityReads,4,'both boards share one bootstrap');
+ res={};await api.handle({method:'GET',url:'/?mode=easy'},res);
+ assert.deepEqual(res.body.leaders.map(x=>[x.petName,x.floor,x.rank]),[
+  ['ペットb',4,1],['ペットd',3,2],['ペットa',2,3]]);
+ assert.equal(activityReads,4,'all three boards share one bootstrap');
  const readsAfterLoad=batchReads;
  res={};await api.handle({method:'GET',url:'/?mode=normal'},res);
  assert.equal(batchReads,readsAfterLoad,'a ranking view requires no Firestore reads after bootstrap');
