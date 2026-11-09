@@ -2,7 +2,7 @@ import {activityTitles} from './title-model.mjs';
 import {dailyMaterialTransforms} from './material-rankings.mjs';
 import {challengePeriods,isChallengeContent,challengeProgressWrites} from './challenge-model.mjs';
 import {randomUUID} from 'node:crypto';
-const DEFENSE_IDS=new Set(['pet-typing-defense-normal','pet-typing-defense-hard']);
+const DEFENSE_IDS=new Set(['pet-typing-defense-easy','pet-typing-defense-easy','pet-typing-defense-normal','pet-typing-defense-hard']);
 const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','talk-quest','pet-catch','reading-training','pet-instructions','pet-chat','adventure-tower','adventure-dungeon','eigo-meter','word-wolf','pet-typing-defense-normal','pet-typing-defense-hard']);
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
 const validId=value=>typeof value==='string'&&/^[\w-]{8,100}$/.test(value);
@@ -27,7 +27,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   if([...unique.values()].some(appId=>DEFENSE_IDS.has(appId))){
    // Bound each player's daily count to five distinct stages, regardless of device.
    // One deterministic receipt per mode, JST day and stage prevents farming.
-   const event=body.events[0],match=String(event?.eventId||'').match(/^ptd-(normal|hard)-(\d{4}-\d{2}-\d{2})-stage-([1-5])-clear$/);
+   const event=body.events[0],match=String(event?.eventId||'').match(/^ptd-(easy|normal|hard)-(\d{4}-\d{2}-\d{2})-stage-([1-5])-clear$/);
    if(body.events.length!==1||unique.size!==1||!match||
       event.appId!=='pet-typing-defense-'+match[1]||
       match[2]!==challengePeriods().day||
@@ -42,7 +42,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   const transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
   for(const appId of appIds)transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:String(counts.get(appId))}});
   transforms.push(...dailyMaterialTransforms(counts,day));
-  if(defenseStage)transforms.push({fieldPath:defenseStage.mode==='normal'?'typingDefenseBestNormal':'typingDefenseBestHard',maximum:{integerValue:String(defenseStage.stage)}});
+  if(defenseStage)transforms.push({fieldPath:({easy:'typingDefenseBestEasy',normal:'typingDefenseBestNormal',hard:'typingDefenseBestHard'})[defenseStage.mode],maximum:{integerValue:String(defenseStage.stage)}});
   const challengeIds=appIds.filter(isChallengeContent),challengeWrites=[];
   if(challengeIds.length){
    const makeChallengeWrite=period=>({update:{name:prefix+`challenge_progress/${user.uid}/periods/${period}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:challengeIds.map(id=>({fieldPath:'completed.`'+id+'`',setToServerValue:'REQUEST_TIME'}))});
