@@ -50,3 +50,25 @@ test('typing defense milestones only accept one deterministic stage receipt per 
  assert.equal(published.length,1,'no repeat-best callback for duplicate receipt');
  assert.equal(commits,2,'only one successful commit and one duplicate are sent');
 });
+
+test('easy defense milestone is accepted and updates its own best-stage ranking',async()=>{
+ const day=challengePeriods().day,stem='ptd-easy-'+day+'-stage-3';
+ const body={batchId:stem,events:[{eventId:stem+'-clear',appId:'pet-typing-defense-easy'}]};
+ let sentWrites=[],published=[];
+ const handler=createLearningActivity({
+  base:'https://db',projectId:'p',accessToken:async()=>'token',
+  verifyUser:async()=>({uid:'student'}),readJson:async()=>body,
+  send:(r,status,payload)=>Object.assign(r,{status,payload}),
+  fail:(message,status)=>Object.assign(Error(message),{status}),
+  invalidate(){},onDefenseStageSaved:row=>published.push(row),
+  fetch:async(_url,options)=>{
+   sentWrites=JSON.parse(options.body).writes;
+   return {ok:true,status:200,json:async()=>({writeResults:[{}, {transformResults:[]}]})};
+  }
+ });
+ const result={};await handler({method:'POST',headers:{authorization:'Bearer demo','content-type':'application/json'}},result);
+ assert.equal(result.status,200);
+ assert.equal(result.payload.ok,true);
+ assert.ok(sentWrites[1].updateTransforms.some(t=>t.fieldPath==='typingDefenseBestEasy'&&t.maximum?.integerValue==='3'));
+ assert.deepEqual(published,[{uid:'student',mode:'easy',stage:3}]);
+});
