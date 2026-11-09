@@ -336,7 +336,9 @@ export const server=http.createServer(async(req,res)=>{
       return send(res,200,await onlineBattle.publishRankings());
     }catch(e){return send(res,e.status||500,{error:e.message||'ランキング集計に失敗しました。'});}
   }
-  if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
+  // Public GET is intentionally anonymous, while publishing (POST) still requires authentication.
+  const publicWordBreakerRead=req.method==='GET'&&path==='/api/word-breaker/records';
+  if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'&&!publicWordBreakerRead){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
   if(path.startsWith('/api/online-battle'))return onlineBattle.handle(req,res,path);
   if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest"].includes(path)){
     try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
