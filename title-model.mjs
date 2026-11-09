@@ -15,6 +15,7 @@ export const WEEKLY_DAYS_TARGET=4;
 // These gameplay modes participate in daily rankings and weekly titles without adding
 // two unnecessary per-user creative-title progress documents to every titles read.
 export const RANKING_ONLY_CONTENTS=Object.freeze([
+ {id:'pet-typing-defense-easy',label:'もんすたディフェンス（イージー）'},
  {id:'pet-typing-defense-normal',label:'もんすたディフェンス（ノーマル）'},
  {id:'pet-typing-defense-hard',label:'もんすたディフェンス（ハード）'}
 ]);
