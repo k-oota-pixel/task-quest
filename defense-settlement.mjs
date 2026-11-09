@@ -44,12 +44,14 @@ export function createDefenseSettlement({
   const activityPath='learning_activity/'+encodeURIComponent(uid);
   const receiptPath=walletPath+'/typingDefenseRewards/'+encodeURIComponent(body.runId);
   const token=await accessToken();
-  const afterCommit=async()=>{
+  const afterCommit=async({milestoneDelta=0,improvedBest=false,duplicate=false}={})=>{
    invalidate(uid);
    if(plan.stage){
-    onDailyCountsChanged([appId],day);
-    try{await onDefenseStageSaved({uid,mode:plan.mode,stage:plan.stage});}
-    catch(error){console.warn('Defense rank update deferred',error?.message||error);}
+    if(milestoneDelta)onDailyCountsChanged([appId],day);
+    if(improvedBest||duplicate){
+     try{await onDefenseStageSaved({uid,mode:plan.mode,stage:plan.stage});}
+     catch(error){console.warn('Defense rank update deferred',error?.message||error);}
+    }
    }
    if(plan.coins){
     try{await publishCoinBoard({uid,day,token});}
@@ -104,7 +106,7 @@ export function createDefenseSettlement({
     body:JSON.stringify({writes}),signal:AbortSignal.timeout(20000)
    });
    if(response.ok){
-    await afterCommit();
+    await afterCommit({milestoneDelta,improvedBest:plan.stage>cappedStage(activity.fields?.[MODES[plan.mode]])});
     return result(plan,day);
    }
    const error=await response.json().catch(()=>({}));
@@ -116,7 +118,7 @@ export function createDefenseSettlement({
    if(receipt.exists){
     if(receipt.fields.mode!==plan.mode||receipt.fields.clearedPhases!==plan.clearedPhases)
      throw fail('同じプレイIDで別の結果を保存することはできません。',409);
-    await afterCommit();
+    await afterCommit({duplicate:true});
     return result(plan,day,true);
    }
   }
