@@ -1,8 +1,8 @@
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
 
-// Persistent highest cleared stage for each defense mode. Both boards share one
+// Persistent highest cleared stage for each defense mode. All boards share one
 // Render-side snapshot; returning viewers never scan Firestore individually.
-const SCHEMA=1,MODES={normal:'typingDefenseBestNormal',hard:'typingDefenseBestHard'};
+const SCHEMA=2,MODES={easy:'typingDefenseBestEasy',normal:'typingDefenseBestNormal',hard:'typingDefenseBestHard'};
 const stageOf=value=>Math.max(0,Math.min(5,Math.floor(Number(value)||0)));
 const cleanName=value=>String(value||'').normalize('NFKC').trim().slice(0,24)||'名前未設定のペット';
 const uniqueId=name=>{const match=String(name||'').match(/\/learning_activity\/([^/]+)$/);return match?decodeURIComponent(match[1]):'';};
@@ -59,22 +59,24 @@ export function createDefenseBestRankings({base,projectId,accessToken,activeIds,
   const rows=[];
   for(let i=0;i<ids.length;i+=200){
    const names=ids.slice(i,i+200).map(uid=>prefix+'learning_activity/'+encodeURIComponent(uid));
-   const docs=await call(names,['typingDefenseBestNormal','typingDefenseBestHard','dailyCounts']);
+   const docs=await call(names,['typingDefenseBestEasy','typingDefenseBestNormal','typingDefenseBestHard','dailyCounts']);
    for(const item of docs){
     if(!item.found)continue;
     const uid=uniqueId(item.found.name),d=decodeFields(item.found.fields||{});
     if(!uid||excluded.has(uid))continue;
+    const easy=Math.max(stageOf(d.typingDefenseBestEasy),legacyStage(d,'pet-typing-defense-easy'));
     const normal=Math.max(stageOf(d.typingDefenseBestNormal),legacyStage(d,'pet-typing-defense-normal'));
     const hard=Math.max(stageOf(d.typingDefenseBestHard),legacyStage(d,'pet-typing-defense-hard'));
-    rows.push({uid,normal,hard});
+    rows.push({uid,easy,normal,hard});
    }
   }
+  const easyTop=defenseTopThree(rows.map(row=>({uid:row.uid,floor:row.easy})));
   const normalTop=defenseTopThree(rows.map(row=>({uid:row.uid,floor:row.normal})));
   const hardTop=defenseTopThree(rows.map(row=>({uid:row.uid,floor:row.hard})));
-  const combined=await hydrate([...normalTop,...hardTop]);
-  return {schemaVersion:SCHEMA,updatedAt:now(),normal:combined.slice(0,normalTop.length),hard:combined.slice(normalTop.length)};
+  const combined=await hydrate([...easyTop,...normalTop,...hardTop]);
+  return {schemaVersion:SCHEMA,updatedAt:now(),easy:combined.slice(0,easyTop.length),normal:combined.slice(easyTop.length,easyTop.length+normalTop.length),hard:combined.slice(easyTop.length+normalTop.length)};
  }
- async function shared(){return rankingStore.getSection(section,{load:bootstrap,valid:value=>value?.schemaVersion===SCHEMA&&Array.isArray(value.normal)&&Array.isArray(value.hard)});}
+ async function shared(){return rankingStore.getSection(section,{load:bootstrap,valid:value=>value?.schemaVersion===SCHEMA&&Array.isArray(value.easy)&&Array.isArray(value.normal)&&Array.isArray(value.hard)});}
  async function publish({uid,mode,stage}){
   if(!uid||!Object.hasOwn(MODES,mode)||!stageOf(stage))return;
   const task=async()=>{
