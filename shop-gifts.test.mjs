@@ -84,3 +84,30 @@ test('concurrent wallet change re-reads and charges the up-to-date balance only'
  assert.equal(result.status,200);assert.equal(f.counts.commits,2);
  assert.equal(f.docs.get(f.alice).fields.coins,25);assert.equal(f.counts.writes,3);
 });
+
+
+test('opening plus thanks is one atomic commit and preserves counters',async()=>{
+ const f=fixture();
+ const sent=await f.call('alice','send',body);assert.equal(sent.status,200);
+ const response=await f.call('bob','open-and-reply',{giftId,replyId:'thanks'});
+ assert.equal(response.status,200);
+ assert.equal(f.counts.reads,5); // send 2, combined reply 3
+ assert.equal(f.counts.writes,5); // send 3, combined reply 2
+ const receiver=f.docs.get(f.bob).fields;
+ assert.equal(receiver.giftUnreadCount,0);
+ assert.equal(receiver.giftInbox[0].opened,true);
+ assert.equal(receiver.giftInbox[0].replyId,'thanks');
+ assert.equal(f.docs.get(f.alice).fields.giftUnreadReplyCount,1);
+ const again=await f.call('bob','open-and-reply',{giftId,replyId:'happy'});
+ assert.equal(again.status,200);
+ assert.equal(again.payload.alreadyReplied,true);
+ assert.equal(f.counts.writes,5);
+ assert.equal(f.docs.get(f.alice).fields.giftReplies.length,1);
+});
+test('combined opening and thanks reject forged gift IDs without writing',async()=>{
+ const f=fixture();await f.call('alice','send',body);
+ const before=f.counts.writes;
+ const result=await f.call('bob','open-and-reply',{giftId:'00000000-0000-4000-8000-000000000002',replyId:'thanks'});
+ assert.equal(result.status,404);
+ assert.equal(f.counts.writes,before);
+});
