@@ -133,7 +133,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
  }
  async function searchGift(q,excludeUid){
   const name=String(q||'').normalize('NFKC').trim().toLocaleLowerCase('ja-JP');
-  if(!name||[...name].length>12)return [];
+  if(!name||[...name].length>20)return [];
   const time=Number(now());
   let users=giftCache&&time-giftCache.at<60000?giftCache.users:null;
   if(!users){
@@ -144,7 +144,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
     })().finally(()=>{giftLoading=null;});
     users=await giftLoading;
   }
-  return users.filter(x=>x.uid!==excludeUid&&String(x.petName||'').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(name)&&x.nickname)
+  return users.filter(x=>x.uid!==excludeUid&&(String(x.petName||'').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(name)||String(x.nickname||'').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(name))&&x.nickname)
     .slice(0,10).map(x=>({uid:x.uid,petName:x.petName,nickname:x.nickname}));
  }
  return {get,lookup,selfSync,sync,build,searchGift};
