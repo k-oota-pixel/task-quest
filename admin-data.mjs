@@ -102,7 +102,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
     const known=new Set(rows.filter(r=>r.document).map(r=>decodeFields(r.document.fields||{}).uid));
     return (await authDirectory()).filter(u=>!known.has(u.localId)).sort((a,b)=>String(a.localId).localeCompare(String(b.localId)));
   });}
-  async function page(token){return cached('page:'+token,async()=>{
+  async function page(token,compact=false){return cached((compact?'page-compact:':'page:')+token,async()=>{
     const c=cursor(token);let rows=[],nextPageToken=null;
     if(c.phase==='recent'){
       const query={from:[{collectionId:'learning_activity'}],orderBy:[{field:{fieldPath:'lastLearningAt'},direction:'DESCENDING'},{field:{fieldPath:'__name__'},direction:'DESCENDING'}],limit:7};
@@ -113,6 +113,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       if(more){const last=documents[5];nextPageToken=encode({phase:'recent',at:decodeFields(last.fields).lastLearningAt,name:last.name});}
       else {const waiting=await unrecorded(),room=6-rows.length;rows.push(...waiting.slice(0,room).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null})));if(waiting.length>room)nextPageToken=encode({phase:'unrecorded',offset:room});}
     }else{const waiting=await unrecorded();rows=waiting.slice(c.offset,c.offset+6).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null}));if(waiting.length>c.offset+6)nextPageToken=encode({phase:'unrecorded',offset:c.offset+6});}
+    if(compact)return {users:rows.map(row=>({uid:row.uid,lastLearningAt:row.lastLearningAt??null,createdAt:row.createdAt??null})),nextPageToken,pageSize:6,fetchedAt:now()};
     const codeNames=await codeAccountsFor(rows.map(row=>row.uid));const users=await Promise.all(rows.map(async row=>{const p=await summary(row.uid),nickname=normalizeNickname(p.nickname),identity=codeNames.get(row.uid)||{};return {...row,codeName:identity.codeName||'',loginId:identity.loginId||'',nickname:nickname||'ニックネーム未登録',hasNickname:validNickname(nickname),petName:normalizeNickname(p.petName)||'ペット名未設定',coins:Math.max(0,Math.floor(Number(p.coins)||0))};}));
     return {users,nextPageToken,pageSize:6,fetchedAt:now()};
   });}
@@ -300,7 +301,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       if(query){send(res,200,await search(query));return;}
       const token=url.searchParams.get('pageToken')||'';
       if(token.length>4096||url.searchParams.has('limit')&&url.searchParams.get('limit')!=='6')throw fail('一覧は6人ずつ取得してください。',400);
-      send(res,200,await page(token));
+      send(res,200,await page(token,url.searchParams.get('compact')==='1'));
     }catch(error){send(res,error.status||500,{error:error.message||'管理情報を取得できませんでした。'});}
   }
   function updateCoins(uid,coins){
@@ -310,9 +311,9 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       if(key==='summary:'+uid&&e.value)e.value.coins=coins;
     }
   }
-  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');cache.delete('activity:'+uid);cache.delete('unrecorded');for(const [key,e]of cache)if(key.startsWith('page:')||key.startsWith('code-page:'))cache.delete(key);}
+  function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');cache.delete('activity:'+uid);cache.delete('unrecorded');for(const [key,e]of cache)if(key.startsWith('page:')||key.startsWith('page-compact:')||key.startsWith('code-page:'))cache.delete(key);}
   async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
-  function invalidateLearning(uid){cache.delete('activity:'+uid);cache.delete('summary:'+uid);cache.delete('unrecorded');for(const key of cache.keys())if(key.startsWith('page:'))cache.delete(key);}
+  function invalidateLearning(uid){cache.delete('activity:'+uid);cache.delete('summary:'+uid);cache.delete('unrecorded');for(const key of cache.keys())if(key.startsWith('page:')||key.startsWith('page-compact:'))cache.delete(key);}
   async function adminIds(){const email=String(process.env.ADMIN_EMAIL||'').trim().toLowerCase();if(!email)return [];return (await authDirectory()).filter(u=>String(u.email||'').trim().toLowerCase()===email).map(u=>u.localId).filter(Boolean);}
   return {handle,updateCoins,invalidate,invalidateLearning,activeIds,adminIds,messageSenderProfiles};
 }
