@@ -389,7 +389,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/material-activity')return handleMaterialActivity(req,res);
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
   if(path==='/api/admin/retry-question-stats')return handleRetryQuestionStats(req,res);
-  if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages'].includes(path))return adminData.handle(req,res);
+  if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
   if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,adminApiVersion:'1.5.7',challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
