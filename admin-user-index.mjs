@@ -79,7 +79,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    const users=index.users.filter(item=>item.uid!==uid);
    const old=index.users.find(item=>item.uid===uid)||{uid,codeName:'',loginId:'',nickname:'',petName:''};
    users.push({uid,codeName:String(change.codeName??old.codeName??''),loginId:String(change.loginId??old.loginId??''),
-    nickname:String(fields.nickname??old.nickname??''),petName:String(fields.petName??old.petName??'')});
+    nickname:String(fields.nickname||''),petName:String(fields.petName||'')});
    users.sort((a,b)=>a.uid.localeCompare(b.uid));
    const encoded=encodeFields({version:1,updatedAt:new Date(now()).toISOString(),users});
    if(Buffer.byteLength(JSON.stringify(encoded),'utf8')>850000)return;
@@ -88,6 +88,18 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
     return;
    }catch(error){if(attempt===3)throw error;}
   }
+ }
+ async function lookup(reqHttp,res){
+  try{
+   if(reqHttp.method!=='GET')throw fail('GETのみ対応しています。',405);
+   await verifyAdmin(reqHttp);
+   const uid=new URL(reqHttp.url,'http://localhost').searchParams.get('uid')||'';
+   if(!/^[A-Za-z0-9_-]{1,128}$/.test(uid))throw fail('ユーザーIDが不正です。',400);
+   const raw=await req(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom?mask.fieldPaths=coins&mask.fieldPaths=nickname&mask.fieldPaths=petName');
+   if(!raw)throw fail('利用者が見つかりません。',404);
+   const d=decodeFields(raw.fields||{});
+   send(res,200,{uid,coins:Math.max(0,Math.floor(Number(d.coins)||0)),nickname:String(d.nickname||''),petName:String(d.petName||'')});
+  }catch(error){send(res,error.status||500,{error:error.message||'利用者を確認できませんでした。'});}
  }
  async function get(reqHttp,res){
   try{
@@ -106,5 +118,5 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    send(res,200,{ok:true});
   }catch(error){send(res,error.status||500,{error:error.message||'検索情報を更新できませんでした。'});}
  }
- return {get,selfSync,sync,build};
+ return {get,lookup,selfSync,sync,build};
 }
