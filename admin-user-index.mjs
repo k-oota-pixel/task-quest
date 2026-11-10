@@ -2,6 +2,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
  const docName='projects/'+projectId+'/databases/(default)/documents/admin_search_index/current';
  const url=base+'/documents/admin_search_index/current';
  let building=null;
+ const selfSyncAt=new Map();
  async function req(url,options={}){
   const token=await accessToken();
   const response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'}});
@@ -78,8 +79,10 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    const fields=decodeFields(profile?.fields||{});
    const users=index.users.filter(item=>item.uid!==uid);
    const old=index.users.find(item=>item.uid===uid)||{uid,codeName:'',loginId:'',nickname:'',petName:''};
-   users.push({uid,codeName:String(change.codeName??old.codeName??''),loginId:String(change.loginId??old.loginId??''),
-    nickname:String(fields.nickname||''),petName:String(fields.petName||'')});
+   const newRow={uid,codeName:String(change.codeName??old.codeName??''),loginId:String(change.loginId??old.loginId??''),
+    nickname:String(fields.nickname||''),petName:String(fields.petName||'')};
+   if(index.users.some(item=>item.uid===uid&&JSON.stringify(item)===JSON.stringify(newRow)))return;
+   users.push(newRow);
    users.sort((a,b)=>a.uid.localeCompare(b.uid));
    const encoded=encodeFields({version:1,updatedAt:new Date(now()).toISOString(),users});
    if(Buffer.byteLength(JSON.stringify(encoded),'utf8')>850000)return;
@@ -96,7 +99,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    const uid=new URL(reqHttp.url,'http://localhost').searchParams.get('uid')||'';
    if(!/^[A-Za-z0-9_-]{1,128}$/.test(uid))throw fail('ユーザーIDが不正です。',400);
    const raw=await req(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom?mask.fieldPaths=coins&mask.fieldPaths=nickname&mask.fieldPaths=petName');
-   if(!raw)throw fail('利用者が見つかりません。',404);
+   if(!raw)return send(res,200,{uid,coins:0,nickname:'',petName:''});
    const d=decodeFields(raw.fields||{});
    send(res,200,{uid,coins:Math.max(0,Math.floor(Number(d.coins)||0)),nickname:String(d.nickname||''),petName:String(d.petName||'')});
   }catch(error){send(res,error.status||500,{error:error.message||'利用者を確認できませんでした。'});}
@@ -114,6 +117,10 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
   try{
    if(reqHttp.method!=='POST')throw fail('POSTのみ対応しています。',405);
    const user=await verifyUser(reqHttp);
+   const last=selfSyncAt.get(user.uid)||0;
+   if(now()-last<30000)return send(res,200,{ok:true,skipped:true});
+   selfSyncAt.set(user.uid,now());
+   if(selfSyncAt.size>1000)selfSyncAt.delete(selfSyncAt.keys().next().value);
    await sync(user.uid);
    send(res,200,{ok:true});
   }catch(error){send(res,error.status||500,{error:error.message||'検索情報を更新できませんでした。'});}
