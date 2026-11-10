@@ -108,7 +108,7 @@ async function incrementUnread({env,fetchImpl,uid,accessToken}){
   if(!update.ok)throw Error('notification update failed');
 }
 
-export function createContactMessage({verifyUser,readJson,send,fail,getAdminUids=async()=>[],fetchImpl=fetch,env=process.env,now=Date.now}){
+export function createContactMessage({verifyUser,readJson,send,fail,getAdminUids=async()=>[],onPersisted=async()=>{},fetchImpl=fetch,env=process.env,now=Date.now}){
   const windows=new Map();
   const WINDOW_MS=60*60*1000;
   const LIMIT=5;
@@ -137,6 +137,8 @@ export function createContactMessage({verifyUser,readJson,send,fail,getAdminUids
       const createdAt=new Date(now()).toISOString();
       const timestamp=new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',dateStyle:'medium',timeStyle:'medium'}).format(new Date(now()));
       const saved=await persistMessage({env,fetchImpl,user,message,page,timestamp,createdAt});
+      try{await onPersisted({id:saved.id,uid:user.uid,message,page,sentAt:timestamp,createdAt});}
+      catch(error){console.warn('Contact message page aggregation deferred',{id:saved.id,reason:error.message});}
       try{for(const uid of await getAdminUids())await incrementUnread({env,fetchImpl,uid,accessToken:saved.accessToken});}catch(error){console.error('Contact notification update failed',{id:saved.id});}
       let emailDelivered=false;try{emailDelivered=await tryEmail({env,fetchImpl,user,message,page,timestamp});}catch{console.info('Contact email delivery unavailable',{id:saved.id});}
       if(!emailDelivered)console.info('Contact message saved without email delivery',{id:saved.id});
