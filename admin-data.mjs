@@ -235,6 +235,15 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
         const account=await authAccount(uid);
         send(res,200,{uid,email:String(account.email||'')});return;
       }
+      if(url.pathname==='/api/admin/search-preview'){
+        const uids=[...new Set((url.searchParams.get('uids')||'').split(',').filter(Boolean))];
+        if(!uids.length||uids.length>6||uids.some(uid=>!/^[A-Za-z0-9_-]{1,128}$/.test(uid)))throw fail('検索結果は6人以内で指定してください。',400);
+        const rows=await Promise.all(uids.map(async uid=>{
+          const [profile,lastLearningAt]=await Promise.all([summary(uid),activity(uid)]);
+          return {uid,coins:Math.max(0,Math.floor(Number(profile.coins)||0)),lastLearningAt};
+        }));
+        send(res,200,{users:rows,fetchedAt:now()});return;
+      }
       if(url.pathname==='/api/admin/contact-messages'){
         const token=url.searchParams.get('pageToken')||'';
         if(listMessagePage){
