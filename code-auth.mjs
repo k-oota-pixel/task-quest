@@ -33,7 +33,7 @@ export function customToken(sa,uid,reset=false,version=0){
  const unsigned=enc({alg:'RS256',typ:'JWT'})+'.'+enc({iss:sa.client_email,sub:sa.client_email,aud:'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',iat:now,exp:now+3600,uid,claims:{codeAccount:true,codeVersion:version,passwordResetRequired:reset}});
  return unsigned+'.'+createSign('RSA-SHA256').update(unsigned).end().sign(sa.private_key,'base64url');
 }
-export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,onAccountCreated=async()=>{},issuedHashes=preissued,issuedCodes=configuredCodes}){
+export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,onAccountCreated=async()=>{},onDirectoryChanged=async()=>{},issuedHashes=preissued,issuedCodes=configuredCodes}){
  const prefix='projects/'+projectId+'/databases/(default)/documents/';
  async function request(url,options={}){
   const access=await accessToken(),response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},signal:AbortSignal.timeout(20000)});
@@ -116,7 +116,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      for(const uid of codeByUid.keys()){const index=uidDocs.get(docName('account_uids',uid));if(index?.value.idKey)uidToAccountKey.set(uid,String(index.value.idKey));else unlinked++;}
      const accountNames=[...new Set([...uidToAccountKey.values()])].map(idKey=>docName('code_accounts',idKey)),accountDocs=await fetchDocs(accountNames),writes=[],seen=new Set();
      for(const [uid,code]of codeByUid){const idKey=uidToAccountKey.get(uid);if(!idKey)continue;const name=docName('code_accounts',idKey),account=accountDocs.get(name);if(!account){unlinked++;continue;}if(account.value.codeName){unchanged++;continue;}if(seen.has(name)){unchanged++;continue;}seen.add(name);writes.push(write('code_accounts',idKey,{...account.value,codeName:code},account));}
-     if(writes.length)await commit(writes);
+     if(writes.length){await commit(writes);await onDirectoryChanged().catch(e=>console.warn('Admin index refresh deferred',e.message));}
      return send(res,200,{restored:writes.length,unchanged,unlinked});
     }
     if(route==='/api/admin/code-name-auto-restore'){
@@ -137,6 +137,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      const accountNames=[...new Set([...uidToAccountKey.values()])].map(idKey=>docName('code_accounts',idKey)),accountDocs=await fetchDocs(accountNames),writes=[],seen=new Set();
      for(const [uid,code]of codeByUid){const idKey=uidToAccountKey.get(uid);if(!idKey)continue;const name=docName('code_accounts',idKey),account=accountDocs.get(name);if(!account){unlinked++;continue;}if(account.value.codeName){unchanged++;continue;}if(seen.has(name)){unchanged++;continue;}seen.add(name);writes.push(write('code_accounts',idKey,{...account.value,codeName:code},account));}
      for(let i=0;i<writes.length;i+=400)await commit(writes.slice(i,i+400));
+     if(writes.length)await onDirectoryChanged().catch(e=>console.warn('Admin index refresh deferred',e.message));
      return send(res,200,{restored:writes.length,unchanged,unlinked,linked:codeByUid.size,scanned,unmatched,unused});
     }
     const key=digest(normalizeCode(body.code)),code=await read('registration_codes',key);
