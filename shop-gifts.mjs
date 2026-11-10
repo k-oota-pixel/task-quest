@@ -132,7 +132,7 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
     }
     throw error('開封処理をやり直してください。',409);
   }
-  async function replyGift(req,res,user){
+  async function replyGift(req,res,user,{openOnReply=false}={}){
     if(req.method!=='POST')throw error('POSTのみ対応しています。',405);
     const {giftId,replyId}=await readJson(req,512);
     if(!UUID.test(giftId||'')||!Object.hasOwn(GIFT_REPLIES,replyId))throw error('返信内容を選び直してください。');
@@ -143,7 +143,7 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
       const receiver=docData(receiverRaw,decodeFields),inbox=list(receiver.giftInbox),idx=inbox.findIndex(x=>x.giftId===giftId);
       if(idx<0)throw error('ギフトが見つかりません。',404);
       const gift=inbox[idx];
-      if(!gift.opened)throw error('先にプレゼントを開封してください。',409);
+      if(!gift.opened&&!openOnReply)throw error('先にプレゼントを開封してください。',409);
       if(gift.replyId)return send(res,200,{ok:true,alreadyReplied:true});
       if(!UID.test(gift.senderUid||'')||gift.senderUid===user.uid)throw error('返信先が正しくありません。',409);
       const [event,senderRaw]=await Promise.all([read(token,eventPath(giftId)),read(token,userPath(gift.senderUid))]);
@@ -153,10 +153,12 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
       const sender=docData(senderRaw,decodeFields),replies=list(sender.giftReplies);
       if(replies.some(x=>x.giftId===giftId))return send(res,200,{ok:true,alreadyReplied:true});
       const nextReplies=bounded([...replies,{giftId,recipientUid:user.uid,recipientNickname:String(receiver.nickname||''),recipientPetName:String(receiver.petName||''),itemId:gift.itemId,itemName:gift.itemName,replyId,receivedAt:new Date().toISOString(),seen:false}],60,'seen');
-      inbox[idx]={...gift,replyId};
+      inbox[idx]={...gift,opened:gift.opened||openOnReply,replyId};
+      const receiverPatch={giftInbox:inbox};
+      if(openOnReply)receiverPatch.giftUnreadCount=unread(inbox,'opened');
       try{
         await commit(token,[
-          writeDoc(userPath(user.uid),{giftInbox:inbox},receiverRaw),
+          writeDoc(userPath(user.uid),receiverPatch,receiverRaw),
           writeDoc(userPath(gift.senderUid),{giftReplies:nextReplies,giftUnreadReplyCount:unread(nextReplies,'seen')},senderRaw)
         ]);
         return send(res,200,{ok:true});
@@ -190,6 +192,7 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
       if(path==='/api/shop/gifts/send')return await sendGift(req,res,user);
       if(path==='/api/shop/gifts/open')return await openGift(req,res,user);
       if(path==='/api/shop/gifts/reply')return await replyGift(req,res,user);
+      if(path==='/api/shop/gifts/open-and-reply')return await replyGift(req,res,user,{openOnReply:true});
       if(path==='/api/shop/gifts/seen')return await seenReply(req,res,user);
       throw error('ページが見つかりません。',404);
     }catch(e){return send(res,e.status||500,{error:e.message||'ギフトの処理に失敗しました。'});}
