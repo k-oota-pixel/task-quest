@@ -47,3 +47,43 @@ test('first admin lookup builds index once; following reads fetch only one docum
  assert.equal(c.body.users.find(u=>u.uid==='u1').petName,'新しいペット');
  assert.equal(commits,2);
 });
+
+
+test('gift pet-name searches reuse one index read for 60 seconds and invalidate after a profile sync',async()=>{
+ let time=100000,indexReads=0,profileName='ポチ';
+ let saved={updateTime:'v1',fields:{users:[
+   {uid:'a',petName:'ぺっと',nickname:'あお'},
+   {uid:'b',petName:'ポチ',nickname:'びー'}
+ ]}};
+ const api=createAdminUserIndex({
+  base:'https://firestore.test',projectId:'test',
+  accessToken:async()=>'token',verifyAdmin:async()=>true,verifyUser:async()=>({uid:'a'}),
+  encodeFields:x=>x,decodeFields:x=>x,send:(res,status,body)=>Object.assign(res,{status,body}),
+  fail:(message,status)=>Object.assign(new Error(message),{status}),now:()=>time,
+  fetchImpl:async(url,options={})=>{
+   if(url==='https://firestore.test/documents/admin_search_index/current'){
+    indexReads++;return {ok:true,status:200,json:async()=>structuredClone(saved)};
+   }
+   if(url.includes('/users/b/apps/english-playroom')){
+    return {ok:true,status:200,json:async()=>({fields:{petName:profileName,nickname:'びー'}})};
+   }
+   if(url.endsWith('/documents:commit')){
+    const write=JSON.parse(options.body).writes[0];
+    saved={updateTime:'v2',fields:structuredClone(write.update.fields)};
+    return {ok:true,status:200,json:async()=>({})};
+   }
+   throw Error('unexpected '+url);
+  }
+ });
+ let result=await api.searchGift('ポ','a');
+ assert.deepEqual(result,[{uid:'b',petName:'ポチ',nickname:'びー'}]);
+ await api.searchGift('ポ','a');
+ assert.equal(indexReads,1);
+ time+=60001;await api.searchGift('ポ','a');
+ assert.equal(indexReads,2);
+ profileName='もも';
+ await api.sync('b');
+ result=await api.searchGift('ポ','a');
+ assert.deepEqual(result,[]);
+ assert.equal(indexReads,4); // cached search read, sync read, fresh search read
+});
