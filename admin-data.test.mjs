@@ -15,6 +15,7 @@ function fixture(){
     const ids=q.where.fieldFilter.value.arrayValue.values.map(value=>value.stringValue);codeQueries++;codeRequested+=ids.length;assert.ok(ids.length<=6);assert.equal(q.limit,ids.length);
     return {ok:true,json:async()=>ids.map(uid=>({document:{name:'projects/test/databases/(default)/documents/code_accounts/'+uid,fields:{uid,loginId:'id-'+uid,codeName:'code-'+uid}}}))};
    }
+   if(q.from[0].collectionId==='apps'){queries++;assert.equal(q.where.fieldFilter.field.fieldPath,'petName');assert.equal(q.where.fieldFilter.op,'EQUAL');assert.equal(q.limit,100);return {ok:true,json:async()=>[{document:{name:'projects/test/databases/(default)/documents/users/u3/apps/english-playroom',fields:{petName:'Fluffy'}}}]};}
    queries++;assert.equal(q.from[0].collectionId,'learning_activity');let rows=records;if(!q.select){assert.equal(q.limit,7);assert.equal(q.orderBy[0].field.fieldPath,'lastLearningAt');assert.equal(q.orderBy[0].direction,'DESCENDING');if(q.startAt)rows=rows.filter(r=>r.fields.lastLearningAt<q.startAt.values[0].timestampValue);rows=rows.slice(0,q.limit);}return {ok:true,json:async()=>rows.map(document=>({document}))};
   }
   if(u.pathname.endsWith('documents:batchGet')){details++;const names=JSON.parse(opt.body).documents;assert.equal(names.length,9);return {ok:true,json:async()=>names.map(name=>({found:{name,fields:name.includes('/learning_activity/')?{contents:{'listening-training':{lastLearningAt:stamp(1)}}}:{coins:7,submissions:2}}}))};}
@@ -43,4 +44,16 @@ test('details remain lazy and cached; coin updates preserve names and learning t
  const detail=await f.call('/api/admin/user?uid=u19');assert.ok(detail.body.activity.contents['listening-training'].lastLearningAt);assert.equal(Object.keys(detail.body.apps).length,8);await f.call('/api/admin/user?uid=u19');assert.equal(f.stats().details,1);
  f.api.updateCoins('u19',107);const updated=await f.call('/api/admin/users');assert.equal(updated.body.users[0].coins,107);assert.equal(updated.body.users[0].petName,'Pet');assert.equal(updated.body.users[0].lastLearningAt,at);
  f.api.invalidateLearning('u0');await f.call('/api/admin/users');assert.equal(f.stats().queries,2,'a newly active learner invalidates ordering even if previously on a different page');assert.equal(f.stats().codeQueries,1,'same visible identities remain cached independently from learning-order refreshes');
+});
+
+test('admin search resolves UIDs without extra scans and pet names with a bounded exact-match query',async()=>{
+ const f=fixture();
+ const uid=await f.call('/api/admin/users?search=u19');
+ assert.equal(uid.status,200);assert.deepEqual(uid.body.users.map(u=>u.uid),['u19']);
+ const before=f.stats().queries;
+ const pet=await f.call('/api/admin/users?search=Fluffy');
+ assert.equal(pet.status,200);assert.deepEqual(pet.body.users.map(u=>u.uid),['u3']);
+ assert.equal(f.stats().queries,before+1,'one targeted pet-name collection-group query');
+ await f.call('/api/admin/users?search=Fluffy');
+ assert.equal(f.stats().queries,before+1,'pet-name query is cached for repeated searches');
 });
