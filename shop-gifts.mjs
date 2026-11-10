@@ -79,26 +79,25 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
       const [senderRaw,targetRaw]=await Promise.all([read(token,userPath(user.uid)),read(token,userPath(recipientUid))]);
       if(!senderRaw||!targetRaw)throw error('送信先が見つかりません。',404);
       const sender=docData(senderRaw,decodeFields),target=docData(targetRaw,decodeFields);
-      const duplicate=async()=>{if(await sentBefore(token,giftId,user.uid,recipientUid,itemId))return send(res,200,{ok:true,alreadySent:true,itemName:item.name,price:item.price});};
+      const duplicate=async()=>{if(await sentBefore(token,giftId,user.uid,recipientUid,itemId)){send(res,200,{ok:true,alreadySent:true,itemName:item.name,price:item.price});return true;}return false;};
       if(cleanName(target.petName)!==cleanName(body.recipientPetName)||cleanName(target.nickname)!==cleanName(body.recipientNickname)){
-        const result=await duplicate();if(result!==undefined)return result;
+        if(await duplicate())return;
         throw error('相手のお名前が変更されています。もう一度検索してください。',409);
       }
-      if(list(target.petShop?.ownedItems).length){/* ownership IDs are strings, checked below */}
       const owned=Array.isArray(target.petShop?.ownedItems)?target.petShop.ownedItems:[];
       if(owned.includes(itemId)){
-        const result=await duplicate();if(result!==undefined)return result;
+        if(await duplicate())return;
         throw error('相手はこの商品をすでに持っています。',409);
       }
       if(coin(sender.coins)<item.price){
-        const result=await duplicate();if(result!==undefined)return result;
+        if(await duplicate())return;
         throw error('コインが足りません。',409);
       }
       const inbox=list(target.giftInbox);
       const now=new Date().toISOString();
       const receipt={giftId,senderUid:user.uid,senderNickname:String(sender.nickname||''),senderPetName:String(sender.petName||''),itemId,itemName:item.name,messageId,sentAt:now,opened:false,replyId:''};
       const nextInbox=bounded([...inbox,receipt],60,'opened');
-      const sent=bounded([...list(sender.giftSent),{giftId,recipientUid,recipientNickname:String(target.nickname||''),recipientPetName:String(target.petName||''),itemId,itemName:item.name,messageId,sentAt:now}],40,'giftIdNeverProtected');
+      const sent=[...list(sender.giftSent),{giftId,recipientUid,recipientNickname:String(target.nickname||''),recipientPetName:String(target.petName||''),itemId,itemName:item.name,messageId,sentAt:now}].slice(-40);
       const shop=target.petShop&&typeof target.petShop==='object'?target.petShop:{};
       const petShop={...shop,ownedItems:[...owned,itemId],equipped:shop.equipped&&typeof shop.equipped==='object'?shop.equipped:{}};
       const writes=[
