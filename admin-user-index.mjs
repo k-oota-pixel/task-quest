@@ -125,5 +125,12 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    send(res,200,{ok:true});
   }catch(error){send(res,error.status||500,{error:error.message||'検索情報を更新できませんでした。'});}
  }
- return {get,lookup,selfSync,sync,build};
+ async function searchGift(q,excludeUid){
+  const name=String(q||'').normalize('NFKC').trim().toLocaleLowerCase('ja-JP');
+  if(!name||[...name].length>12)return [];
+  const index=await read()||await build();
+  return index.users.filter(x=>x.uid!==excludeUid&&String(x.petName||'').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(name)&&x.nickname)
+    .slice(0,10).map(x=>({uid:x.uid,petName:x.petName,nickname:x.nickname}));
+ }
+ return {get,lookup,selfSync,sync,build,searchGift};
 }
