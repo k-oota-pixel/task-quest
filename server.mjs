@@ -26,6 +26,8 @@ import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import {createOnlineBattle} from './online-battle.mjs';
 import {createTodayNewsGenerator,verifyGithubOidcToken} from './today-news.mjs';
 import {createContactMessage} from './contact-message.mjs';
+import {createAdminUserIndex} from './admin-user-index.mjs';
+import {createAdminMessagePages} from './admin-message-pages.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -185,8 +187,8 @@ async function grantCoins(accessToken,uid,amount){const docName=`projects/${FIRE
 async function registerNickname(accessToken,uid,value){const nickname=normalizeNickname(value);if(!validNickname(nickname))throw fail('ニックネームは1〜20文字で入力してください。',400);const current=await getUserDoc(accessToken,uid);if(validNickname(current.nickname))return normalizeNickname(current.nickname);const key=nicknameKey(nickname),registryId=Buffer.from(key,'utf8').toString('base64url');const userDocName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`,registryName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/nickname_registry/${registryId}`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:registryName,fields:{uid:{stringValue:uid},nickname:{stringValue:nickname}}},currentDocument:{exists:false}},{update:{name:userDocName,fields:{nickname:{stringValue:nickname},nicknameKey:{stringValue:key},nicknameSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['nickname','nicknameKey','nicknameSchemaVersion']},updateTransforms:[{fieldPath:'nicknameUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok){if(response.status===409||data?.error?.status==='ALREADY_EXISTS')throw fail('そのニックネームはすでに使われています。別の名前を入力してください。',409);throw fail('ニックネームを登録できませんでした。',502);}return nickname;}
 
 const renameShopName=createShopNameChanges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID});
-async function handleShopRename(req,res){try{if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await verifyUser(req),body=await readJson(req,1024),access=await getGoogleAccessToken(),result=await renameShopName(access,user.uid,body.kind,body.name);adminData.invalidate(user.uid);send(res,200,{ok:true,...result});}catch(e){send(res,e.status||500,{error:e.message||'名前を変更できませんでした。'});}}
-async function handleProfileNickname(req,res){try{if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await verifyUser(req),body=await readJson(req,1024),access=await getGoogleAccessToken(),nickname=await registerNickname(access,user.uid,body.nickname);adminData.invalidate(user.uid);send(res,200,{ok:true,nickname});}catch(e){send(res,e.status||500,{error:e.message||'ニックネームを登録できませんでした。'});}}
+async function handleShopRename(req,res){try{if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await verifyUser(req),body=await readJson(req,1024),access=await getGoogleAccessToken(),result=await renameShopName(access,user.uid,body.kind,body.name);adminData.invalidate(user.uid);await adminUserIndex.sync(user.uid).catch(error=>console.warn('Admin index sync deferred',error.message));send(res,200,{ok:true,...result});}catch(e){send(res,e.status||500,{error:e.message||'名前を変更できませんでした。'});}}
+async function handleProfileNickname(req,res){try{if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);const user=await verifyUser(req),body=await readJson(req,1024),access=await getGoogleAccessToken(),nickname=await registerNickname(access,user.uid,body.nickname);adminData.invalidate(user.uid);await adminUserIndex.sync(user.uid).catch(error=>console.warn('Admin index sync deferred',error.message));send(res,200,{ok:true,nickname});}catch(e){send(res,e.status||500,{error:e.message||'ニックネームを登録できませんでした。'});}}
 async function handleDailyCoinLeaderboard(req,res){
   try{
     if(req.method!=='GET'&&req.method!=='POST')throw fail('GETまたはPOSTのみ対応しています。',405);
@@ -201,10 +203,12 @@ async function handleDailyCoinLeaderboard(req,res){
     send(res,200,board);
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
-const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,serviceAccount:getServiceAccount,verifyUser:verifyRawUser,verifyAdmin,isAdmin:user=>isAdministrator(user,ADMIN_EMAIL),readJson,send,fail,encodeFields:encodeFirestoreFields,decodeFields});
-const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname});
+const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,serviceAccount:getServiceAccount,verifyUser:verifyRawUser,verifyAdmin,isAdmin:user=>isAdministrator(user,ADMIN_EMAIL),readJson,send,fail,encodeFields:encodeFirestoreFields,decodeFields,onAccountCreated:(uid,change)=>adminUserIndex.sync(uid,change)});
+const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,listMessagePage:token=>adminMessagePages.list(token)});
+const adminUserIndex=createAdminUserIndex({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,encodeFields:encodeFirestoreFields,decodeFields,send,fail});
+const adminMessagePages=createAdminMessagePages({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,encodeFields:encodeFirestoreFields,decodeFields,getProfiles:uids=>adminData.messageSenderProfiles(uids)});
 const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
-const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:adminData.invalidate});
+const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:uid=>{adminData.invalidate(uid);void adminUserIndex.sync(uid).catch(error=>console.warn('Admin index sync deferred',error.message));}});
 const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
 const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
@@ -319,7 +323,7 @@ Do not claim to be a human. Stay in character as the student's pet.
 const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KEY||backupKey||key,model:process.env.TODAY_GEMINI_MODEL||model,send,fail});
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
-const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds});
+const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds,onPersisted:message=>adminMessagePages.append(message)});
 const onlineBattle=createOnlineBattle({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,fail,decodeFields});
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
@@ -364,6 +368,9 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/adventure/defense-settlement')return handleDefenseSettlement(req,res);
   if(path==='/api/word-breaker/records')return wordBreakerRecords.handle(req,res);
   if(path==='/api/pet-catch/records')return petCatchRecords.handle(req,res);
+  if(path==='/api/search-index/self-sync')return adminUserIndex.selfSync(req,res);
+  if(path==='/api/admin/search-index')return adminUserIndex.get(req,res);
+  if(path==='/api/admin/search-user')return adminUserIndex.lookup(req,res);
   if(path==='/api/contact-message')return handleContactMessage(req,res);
   if(path==='/api/pet-chat')return handlePetChat(req,res);
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
