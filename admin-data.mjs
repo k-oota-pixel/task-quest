@@ -123,12 +123,25 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
     const authByUid=new Map(directory.map(user=>[String(user.localId||''),user]));
     const nickByUid=new Map(nicknames.filter(row=>authByUid.has(row.uid)).map(row=>[row.uid,row.nickname]));
     const matchUids=new Set();
+    // Authentication UID matching uses the cached identity directory: no extra Firestore reads.
+    for(const uid of authByUid.keys())if(uid.toLocaleLowerCase('ja-JP').includes(needle))matchUids.add(uid);
     for(const [uid,nickname] of nickByUid)if(nickname.toLocaleLowerCase('ja-JP').includes(needle))matchUids.add(uid);
     for(const [uid,account] of codeNames)if(authByUid.has(uid)&&[account.codeName,account.loginId].some(value=>value.toLocaleLowerCase('ja-JP').includes(needle)))matchUids.add(uid);
+    // Pet names are not in the nickname/code indices. Only if nothing else matches,
+    // look up the exact pet name using a bounded collection-group query (not a full-user scan).
+    if(!matchUids.size){
+      const petUids=await cached('pet-name-search:'+normalized,async()=>{
+        const structuredQuery={from:[{collectionId:'apps',allDescendants:true}],select:{fields:[{fieldPath:'petName'}]},where:{fieldFilter:{field:{fieldPath:'petName'},op:'EQUAL',value:{stringValue:normalized}}},limit:100};
+        const result=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery})});
+        const prefix='projects/'+projectId+'/databases/(default)/documents/users/';
+        return result.filter(row=>row.document?.name?.startsWith(prefix)&&row.document.name.endsWith('/apps/english-playroom')).map(row=>row.document.name.slice(prefix.length,-'/apps/english-playroom'.length));
+      });
+      for(const uid of petUids)if(authByUid.has(uid))matchUids.add(uid);
+    }
     const matches=[...matchUids].map(uid=>{const account=codeNames.get(uid)||{};return {uid,nickname:nickByUid.get(uid)||'',codeName:account.codeName||'',loginId:account.loginId||''};});
     matches.sort((a,b)=>{
       const rank=value=>{const v=value.toLocaleLowerCase('ja-JP');return v===needle?0:v.startsWith(needle)?1:v.includes(needle)?2:9;};
-      const aq=Math.min(rank(a.nickname),rank(a.codeName),rank(a.loginId)),bq=Math.min(rank(b.nickname),rank(b.codeName),rank(b.loginId));
+      const aq=Math.min(rank(a.uid),rank(a.nickname),rank(a.codeName),rank(a.loginId)),bq=Math.min(rank(b.uid),rank(b.nickname),rank(b.codeName),rank(b.loginId));
       if(aq!==bq)return aq-bq;
       const au=authByUid.get(a.uid)||{},bu=authByUid.get(b.uid)||{};
       return a.nickname.localeCompare(b.nickname,'ja-JP');
