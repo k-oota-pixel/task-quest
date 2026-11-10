@@ -78,6 +78,7 @@ test('gift pet-name searches reuse one index read for 60 seconds and invalidate 
  let result=await api.searchGift('ポ','a');
  assert.deepEqual(result,[{uid:'b',petName:'ポチ',nickname:'びー'}]);
  await api.searchGift('ポ','a');
+ assert.deepEqual(await api.searchGift('びー','a'),[{uid:'b',petName:'ポチ',nickname:'びー'}]); // nickname lookup shares the index cache
  assert.equal(indexReads,1);
  time+=60001;await api.searchGift('ポ','a');
  assert.equal(indexReads,2);

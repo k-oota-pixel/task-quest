@@ -6,12 +6,13 @@ function admissionCacheScope(req){
   const path=new URL(String(req?.url||''),'http://localhost').pathname;
   if(path.startsWith('/api/online-battle'))return 'battle';
   if(path.startsWith('/api/shop/gifts/'))return 'gift';
+  if(path==='/api/friends'||path.startsWith('/api/friends/'))return 'friend';
   return '';
  }catch{return '';}
 }
 
 // Share the admission check inside each request. For the high-frequency
-// online-battle API and multi-step SHOP gift API, cache only the Firestore
+// online-battle API, SHOP gift API and friends API, cache only the Firestore
 // registration result (1h and 1min respectively). Firebase token validation
 // is never cached; every new HTTP request is authenticated again.
 export function createRequestVerifier({verifyRawUser,admission,fail,now=Date.now,battleAdmissionTtlMs=ONLINE_BATTLE_ADMISSION_TTL_MS,giftAdmissionTtlMs=SHOP_GIFT_ADMISSION_TTL_MS}){
@@ -23,7 +24,7 @@ export function createRequestVerifier({verifyRawUser,admission,fail,now=Date.now
     const user=await verifyRawUser(req);
     let session;
     const scope=admissionCacheScope(req);
-    const ttl=scope==='battle'?battleAdmissionTtlMs:scope==='gift'?giftAdmissionTtlMs:0;
+    const ttl=scope==='battle'?battleAdmissionTtlMs:(scope==='gift'||scope==='friend')?giftAdmissionTtlMs:0;
     if(ttl>0){
      const at=Number(now()),key=`${scope}|${String(user?.uid||'')}|${String(user?.provider||'')}|${Number(user?.codeVersion||0)}`;
      const cached=admissionCache.get(key);

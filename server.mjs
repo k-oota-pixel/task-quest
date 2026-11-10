@@ -17,6 +17,7 @@ import {createLearningActivity} from './learning-activity.mjs';
 import {createLearningDashboard} from './learning-dashboard.mjs';
 import {createShopNameChanges} from './shop-name-changes.mjs';
 import {createShopGifts} from './shop-gifts.mjs';
+import {createPetFriends} from './pet-friends.mjs';
 import {createPetCatchRecords} from './pet-catch-records.mjs';
 import {createWordBreakerRecords} from './word-breaker-records.mjs';
 import {createAdminData} from './admin-data.mjs';
@@ -208,6 +209,7 @@ const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,listMessagePage:token=>adminMessagePages.list(token)});
 const adminUserIndex=createAdminUserIndex({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,encodeFields:encodeFirestoreFields,decodeFields,send,fail});
 const shopGifts=createShopGifts({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
+const petFriends=createPetFriends({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
 const adminMessagePages=createAdminMessagePages({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,encodeFields:encodeFirestoreFields,decodeFields,getProfiles:uids=>adminData.messageSenderProfiles(uids)});
 const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:uid=>{adminData.invalidate(uid);void adminUserIndex.sync(uid).catch(error=>console.warn('Admin index sync deferred',error.message));}});
@@ -384,6 +386,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/learning/title-rankings')return titleCountRankings.handle(req,res);
   if(path==='/api/learning/activity')return handleLearningActivity(req,res);
   if(path==='/api/learning/dashboard')return handleLearningDashboard(req,res);
+  if(path==='/api/friends'||path.startsWith('/api/friends/'))return petFriends.handle(req,res,path);
   if(path.startsWith('/api/shop/gifts/'))return shopGifts.handle(req,res,path);
   if(path==='/api/shop/rename')return handleShopRename(req,res);
   if(path==='/api/profile/nickname')return handleProfileNickname(req,res);
