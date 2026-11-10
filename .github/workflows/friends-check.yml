@@ -1,0 +1,14 @@
+name: Friends API checks
+on: [pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test pet-friends.test.mjs admin-user-index.test.mjs request-auth.test.mjs shop-gifts.test.mjs
+      - run: node --check pet-friends.mjs && node --check server.mjs
