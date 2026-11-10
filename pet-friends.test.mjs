@@ -38,7 +38,7 @@ function fixture(){
   }
  });
  async function call(uid,path,body){
-  const res={};await api.handle({uid,url:'/api/friends'+path,method:body?'POST':'GET',headers:{'content-type':'application/json'},body},res,'/api/friends'+path);return res;
+  const res={};await api.handle({uid,url:'/api/friends'+path,method:body?'POST':'GET',headers:{'content-type':'application/json'},body},res,('/api/friends'+path).split('?')[0]);return res;
  }
  return {call,docs,count};
 }
