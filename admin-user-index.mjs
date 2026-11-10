@@ -3,6 +3,10 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
  const url=base+'/documents/admin_search_index/current';
  let building=null;
  const selfSyncAt=new Map();
+ // Shared, short-lived cache for public pet-name lookup. Avoids one Firestore
+ // document read per keystroke/search, while send-time profile checks remain fresh.
+ let giftCache=null,giftLoading=null;
+ const invalidateGiftCache=()=>{giftCache=null;};
  async function req(url,options={}){
   const token=await accessToken();
   const response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'}});
@@ -66,6 +70,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    if(Buffer.byteLength(JSON.stringify(fields),'utf8')>850000)throw fail('検索データが大きくなりました。複数ドキュメントへの分割が必要です。',413);
    try{await req(base+'/documents:commit',{method:'POST',body:JSON.stringify({writes:[{update:{name:docName,fields},currentDocument:index?{updateTime:index.updateTime}:{exists:false}}]})});}
    catch(error){const latest=await read();if(latest)return latest;throw error;}
+   invalidateGiftCache();
    return {users,updatedAt:new Date(now()).toISOString()};
   })().finally(()=>{building=null;});
   return building;
@@ -88,6 +93,7 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
    if(Buffer.byteLength(JSON.stringify(encoded),'utf8')>850000)return;
    try{
     await req(base+'/documents:commit',{method:'POST',body:JSON.stringify({writes:[{update:{name:docName,fields:encoded},currentDocument:{updateTime:index.updateTime}}]})});
+    invalidateGiftCache();
     return;
    }catch(error){if(attempt===3)throw error;}
   }
@@ -128,8 +134,17 @@ export function createAdminUserIndex({base,projectId,accessToken,verifyAdmin,ver
  async function searchGift(q,excludeUid){
   const name=String(q||'').normalize('NFKC').trim().toLocaleLowerCase('ja-JP');
   if(!name||[...name].length>12)return [];
-  const index=await read()||await build();
-  return index.users.filter(x=>x.uid!==excludeUid&&String(x.petName||'').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(name)&&x.nickname)
+  const time=Number(now());
+  let users=giftCache&&time-giftCache.at<60000?giftCache.users:null;
+  if(!users){
+    if(!giftLoading)giftLoading=(async()=>{
+      const index=await read()||await build();
+      giftCache={at:Number(now()),users:index.users};
+      return index.users;
+    })().finally(()=>{giftLoading=null;});
+    users=await giftLoading;
+  }
+  return users.filter(x=>x.uid!==excludeUid&&String(x.petName||'').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(name)&&x.nickname)
     .slice(0,10).map(x=>({uid:x.uid,petName:x.petName,nickname:x.nickname}));
  }
  return {get,lookup,selfSync,sync,build,searchGift};
