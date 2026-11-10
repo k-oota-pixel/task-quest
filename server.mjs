@@ -213,7 +213,7 @@ const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,acc
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:uid=>{adminData.invalidate(uid);void adminUserIndex.sync(uid).catch(error=>console.warn('Admin index sync deferred',error.message));}});
 const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
-const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
+const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
 const materialRankings=createMaterialRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,excludedIds:adminData.adminIds});
 const handleTitleEvents=createTitleEvents({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
 const titleCountRankings=createTitleCountRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
