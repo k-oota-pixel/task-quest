@@ -57,3 +57,18 @@ test('admin search resolves UIDs without extra scans and pet names with a bounde
  await f.call('/api/admin/users?search=Fluffy');
  assert.equal(f.stats().queries,before+1,'pet-name query is cached for repeated searches');
 });
+
+
+test('compact recent-user list reads only learning activity, never six profiles or code records',async()=>{
+ const f=fixture();
+ const first=await f.call('/api/admin/users?limit=6&compact=1');
+ assert.equal(first.status,200);
+ assert.deepEqual(first.body.users.map(row=>row.uid),['u19','u18','u17','u16','u15','u14']);
+ assert.ok(first.body.users.every(row=>!('coins' in row)&&!('nickname' in row)&&!('petName' in row)&&!('codeName' in row)));
+ assert.deepEqual(f.stats(),{summaries:0,queries:1,codeQueries:0,codeRequested:0,authReads:0,details:0});
+ const next=await f.call('/api/admin/users?limit=6&compact=1&pageToken='+encodeURIComponent(first.body.nextPageToken));
+ assert.equal(next.status,200);assert.equal(next.body.users.length,6);
+ assert.deepEqual(f.stats(),{summaries:0,queries:2,codeQueries:0,codeRequested:0,authReads:0,details:0});
+ await f.call('/api/admin/users?limit=6&compact=1');
+ assert.equal(f.stats().queries,2,'cached compact page avoids repeated Firebase reads');
+});
