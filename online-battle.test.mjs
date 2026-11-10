@@ -141,7 +141,7 @@ test('旧形式のロビー情報も更新時刻から期限切れ判定する',
  assert.equal(projectOnlineBattleLobbyRoom({status:'finished',playerCount:2,updatedAt},'4-8',updatedAt+ONLINE_BATTLE_RESULT_TTL_MS).status,'open');
 });
 
-test('入室は1コイン以上必要で、不足時は理由を表示し書き込まない',async()=>{
+test('0コインでも入室でき、入室時にコインを消費しない',async()=>{
  async function attemptJoin(coins){
   const commits=[];
   const fetch=async (url,options={})=>{
@@ -171,19 +171,100 @@ test('入室は1コイン以上必要で、不足時は理由を表示し書き�
   await service.handle({method:'POST'},response,'/api/online-battle/room/4-1/join');
   return {response,commits};
  }
+ for(const coins of [0,1,10]){
+  const result=await attemptJoin(coins);
+  assert.equal(result.response.status,200);
+  assert.equal(result.response.body.room.players[0].uid,'test-user');
+  assert.equal(result.response.body.room.status,'waiting');
+  assert.equal(result.commits.length,1);
+  assert.equal(result.commits[0].writes.length,2);
+  assert.ok(result.commits[0].writes.every(write=>!write.update.name.includes('/users/')),'入室時にコインを消費しない');
+ }
+});
 
- const insufficient=await attemptJoin(0);
- assert.equal(insufficient.response.status,400);
- assert.match(insufficient.response.body.error,/コイン不足/);
- assert.match(insufficient.response.body.error,/1コイン/);
- assert.match(insufficient.response.body.error,/現在0コイン/);
- assert.equal(insufficient.commits.length,0);
+async function simulateCoinlessBattle(operation,initialRoom,actor='test-user'){
+ const reads=[],commits=[];
+ const fetch=async (url,options={})=>{
+  const path=String(url);
+  if(path.endsWith('/documents/onlineBattleRooms/room4-1')){
+   reads.push('room');
+   return {status:200,ok:true,json:async()=>({fields:{__testValue:initialRoom},updateTime:'room-1'})};
+  }
+  if(path.includes('/documents/onlineBattleStats/')){
+   reads.push('stats');
+   return {status:404,ok:false,json:async()=>({})};
+  }
+  if(path.includes('/documents/users/')){
+   reads.push('wallet');
+   return {status:200,ok:true,json:async()=>({fields:{__testValue:{coins:0}},updateTime:'wallet-1'})};
+  }
+  if(path.endsWith('/documents:commit')){
+   commits.push(JSON.parse(options.body).writes);
+   return {status:200,ok:true,json:async()=>({})};
+  }
+  throw new Error('Unexpected Firestore request: '+path);
+ };
+ const service=createOnlineBattle({
+  base:'https://firestore.googleapis.com/v1/projects/online-battle-test/databases/(default)',
+  projectId:'online-battle-test',
+  accessToken:async()=> 'fake-token',
+  verifyUser:async()=>({uid:actor}),
+  readJson:async()=>({}),
+  send:(res,status,payload)=>{res.status=status;res.body=payload;},
+  decodeFields:fields=>fields.__testValue||{},
+  fetch,
+  now:()=>1_000_000
+ });
+ const response={};
+ await service.handle({method:'POST'},response,'/api/online-battle/room/4-1/'+operation);
+ return {response,reads,commits};
+}
 
- const sufficient=await attemptJoin(1);
- assert.equal(sufficient.response.status,200);
- assert.equal(sufficient.response.body.room.players[0].uid,'test-user');
- assert.equal(sufficient.response.body.room.status,'waiting');
- assert.equal(sufficient.commits.length,1);
- assert.equal(sufficient.commits[0].writes.length,2);
- assert.ok(sufficient.commits[0].writes.every(write=>!write.update.name.includes('/users/')),'入室時にコインを消費しない');
+test('対戦開始は双方0コインでも可能で財布のread/writeがない',async()=>{
+ const initial=room({
+  roomId:'4-1',players:[player('test-user',999_000),{...player('opponent',999_000),ready:true}]
+ });
+ const result=await simulateCoinlessBattle('ready',initial);
+ assert.equal(result.response.status,200);
+ assert.equal(result.response.body.room.status,'playing');
+ assert.equal(result.reads.filter(name=>name==='wallet').length,0);
+ assert.ok(result.commits.flat().every(write=>!write.update.name.includes('/users/')));
+});
+
+test('再戦は双方0コインでも可能で財布のread/writeがない',async()=>{
+ const initial=room({
+  roomId:'4-1',status:'finished',matchEndedAt:990_000,
+  players:[player('test-user',999_000),{...player('opponent',999_000),rematchReady:true}]
+ });
+ const result=await simulateCoinlessBattle('continue',initial);
+ assert.equal(result.response.status,200);
+ assert.equal(result.response.body.room.status,'playing');
+ assert.equal(result.reads.filter(name=>name==='wallet').length,0);
+ assert.ok(result.commits.flat().every(write=>!write.update.name.includes('/users/')));
+});
+
+test('勝利時は0コインの勝者に正確に1コイン付与する',async()=>{
+ const initial=room({
+  roomId:'4-1',status:'playing',players:[player('test-user',999_000),{...player('opponent',999_000),hp:1}]
+ });
+ const result=await simulateCoinlessBattle('attack',initial);
+ assert.equal(result.response.status,200);
+ assert.equal(result.response.body.room.status,'finished');
+ assert.equal(result.response.body.room.winnerUid,'test-user');
+ assert.equal(result.reads.filter(name=>name==='wallet').length,1);
+ const walletWrites=result.commits.flat().filter(write=>write.update.name.includes('/users/'));
+ assert.equal(walletWrites.length,1);
+ assert.equal(walletWrites[0].update.fields.coins.integerValue,'1');
+});
+
+test('相手が対戦中に退室した不戦勝でも1コイン付与する',async()=>{
+ const initial=room({
+  roomId:'4-1',status:'playing',players:[player('test-user',999_000),player('opponent',999_000)]
+ });
+ const result=await simulateCoinlessBattle('leave',initial,'opponent');
+ assert.equal(result.response.status,200);
+ assert.equal(result.response.body.room.winnerUid,'test-user');
+ const walletWrites=result.commits.flat().filter(write=>write.update.name.includes('/users/'));
+ assert.equal(walletWrites.length,1);
+ assert.equal(walletWrites[0].update.fields.coins.integerValue,'1');
 });
