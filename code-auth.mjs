@@ -33,7 +33,7 @@ export function customToken(sa,uid,reset=false,version=0){
  const unsigned=enc({alg:'RS256',typ:'JWT'})+'.'+enc({iss:sa.client_email,sub:sa.client_email,aud:'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',iat:now,exp:now+3600,uid,claims:{codeAccount:true,codeVersion:version,passwordResetRequired:reset}});
  return unsigned+'.'+createSign('RSA-SHA256').update(unsigned).end().sign(sa.private_key,'base64url');
 }
-export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,issuedHashes=preissued,issuedCodes=configuredCodes}){
+export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,onAccountCreated=async()=>{},issuedHashes=preissued,issuedCodes=configuredCodes}){
  const prefix='projects/'+projectId+'/databases/(default)/documents/';
  async function request(url,options={}){
   const access=await accessToken(),response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},signal:AbortSignal.timeout(20000)});
@@ -185,6 +185,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     const record=await passwordRecord(body.password);
     const writes=[write('registration_codes',codeKey,{...unused.value,used:true,uid},stored),write('code_accounts',idKey,{uid,loginId,codeName:code,...record,resetRequired:false,createdAt:new Date().toISOString()}),write('account_uids',uid,{idKey,loginId,version:0,resetRequired:false})];
     await commit(writes);
+    await onAccountCreated(uid,{codeName:code,loginId}).catch(error=>console.warn('Admin search index sync deferred',{reason:error.message}));
     return send(res,200,{token:customToken(serviceAccount(),uid)});
    }finally{active--;}
   }catch(error){send(res,error.status||500,{error:error.status?error.message:'認証処理に失敗しました。時間をおいて再度お試しください。'});}
