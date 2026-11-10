@@ -1,5 +1,5 @@
 const APP_IDS=['english-playroom','ateru','basic-quest','eiken-retry','eiken-cloze','eiken-title','task-quest','eiken-pre2-interview-a'];
-export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,fetch:request=globalThis.fetch,now=Date.now}){
+export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUser,send,fail,decodeFields,listMessagePage=null,normalizeNickname,validNickname,fetch:request=globalThis.fetch,now=Date.now}){
   const cache=new Map(),TTL=60000;
   async function cached(key,read){
     const previous=cache.get(key);if(previous&&previous.until>now())return previous.promise;
@@ -237,6 +237,15 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
       }
       if(url.pathname==='/api/admin/contact-messages'){
         const token=url.searchParams.get('pageToken')||'';
+        if(listMessagePage){
+          const result=await listMessagePage(token);
+          if(!token){
+            try{const access=await accessToken(),notificationUrl=base+'/documents/users/'+encodeURIComponent(admin.uid)+'/developerMessageNotifications/current?updateMask.fieldPaths=unreadCount';
+              await request(notificationUrl,{method:'PATCH',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},body:JSON.stringify({fields:{unreadCount:{integerValue:'0'}}})});}
+            catch{console.warn('Contact unread count reset failed');}
+          }
+          send(res,200,result);return;
+        }
         if(token.length>4096)throw fail('ページ情報が不正です。',400);
         const endpoint=new URL(base+'/documents/developerMessages');
         endpoint.searchParams.set('pageSize','50');
@@ -296,5 +305,5 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
   async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
   function invalidateLearning(uid){cache.delete('activity:'+uid);cache.delete('summary:'+uid);cache.delete('unrecorded');for(const key of cache.keys())if(key.startsWith('page:'))cache.delete(key);}
   async function adminIds(){const email=String(process.env.ADMIN_EMAIL||'').trim().toLowerCase();if(!email)return [];return (await authDirectory()).filter(u=>String(u.email||'').trim().toLowerCase()===email).map(u=>u.localId).filter(Boolean);}
-  return {handle,updateCoins,invalidate,invalidateLearning,activeIds,adminIds};
+  return {handle,updateCoins,invalidate,invalidateLearning,activeIds,adminIds,messageSenderProfiles};
 }
