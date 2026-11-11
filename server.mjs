@@ -96,7 +96,7 @@ function getServiceAccount(){let raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON||
 const getGoogleAccessToken=createGoogleAccessToken({serviceAccount:getServiceAccount});
 const {verifyUser:verifyRawUser,checkApp}=createSecurityGate();
 const verifyUser=createRequestVerifier({verifyRawUser,admission:user=>codeAuth.admission(user),fail});
-async function verifyAdmin(req){if(!ADMIN_EMAIL)throw fail('管理者メールアドレスが未設定です。',503);const user=await verifyUser(req);if(!isAdministrator(user,ADMIN_EMAIL))throw fail('このアカウントには管理権限がありません。',403);return user;}
+async function verifyAdmin(req, verify=verifyUser){if(!ADMIN_EMAIL)throw fail('管理者メールアドレスが未設定です。',503);const user=await verify(req);if(!isAdministrator(user,ADMIN_EMAIL))throw fail('このアカウントには管理権限がありません。',403);return user;}
 
 function decodeFirestoreValue(v){if(!v||typeof v!=='object')return null;if('nullValue'in v)return null;if('stringValue'in v)return v.stringValue;if('booleanValue'in v)return !!v.booleanValue;if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return Number(v.doubleValue);if('timestampValue'in v)return v.timestampValue;if('referenceValue'in v)return v.referenceValue;if('bytesValue'in v)return v.bytesValue;if('geoPointValue'in v)return v.geoPointValue;if('arrayValue'in v)return (v.arrayValue.values||[]).map(decodeFirestoreValue);if('mapValue'in v){const out={};for(const [k,val]of Object.entries(v.mapValue.fields||{}))out[k]=decodeFirestoreValue(val);return out;}return null;}
 function decodeFields(fields={}){const out={};for(const [k,v]of Object.entries(fields))out[k]=decodeFirestoreValue(v);return out;}
@@ -207,7 +207,7 @@ async function handleDailyCoinLeaderboard(req,res){
   }catch(error){send(res,error.status||500,{error:error.message||'ランキングを取得できませんでした。'});}
 }
 const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,serviceAccount:getServiceAccount,verifyUser:verifyRawUser,verifyAdmin,isAdmin:user=>isAdministrator(user,ADMIN_EMAIL),readJson,send,fail,encodeFields:encodeFirestoreFields,decodeFields,onAccountCreated:(uid,change)=>adminUserIndex.sync(uid,change),onDirectoryChanged:()=>adminUserIndex.build(true)});
-const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,listMessagePage:token=>adminMessagePages.list(token)});
+const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyDetailAdmin:req=>verifyAdmin(req,verifyRawUser),verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,listMessagePage:token=>adminMessagePages.list(token)});
 const adminUserIndex=createAdminUserIndex({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,encodeFields:encodeFirestoreFields,decodeFields,send,fail});
 const shopGifts=createShopGifts({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
 const petFriends=createPetFriends({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
