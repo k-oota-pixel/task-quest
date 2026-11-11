@@ -9,7 +9,25 @@ const wordTowerEndgameTitles=[
  {id:'creative:word-tower:17',name:'深淵の門を越えし者',condition:'100階に到達し、魔王の前に立つ',metric:'bestFloor',need:100,displayNeed:1},
  {id:'creative:word-tower:18',name:'終焉を喰らう者',condition:'100階の魔王を撃破する',metric:'bestFloor',need:101,displayNeed:1}
 ];
-export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog,'pet-fishing':petFishingCatalog};
+export const DEFENSE_TITLE_APP='pet-typing-defense';
+const defenseTitleCatalog=[
+ {id:'creative:pet-typing-defense:01',name:"新米防衛兵",condition:"もんすた城の防衛を初めてプレイする",metric:'plays',need:1},
+ {id:'creative:pet-typing-defense:02',name:"森の守り人",condition:"単語の森をクリアする",metric:'bestStage',need:1},
+ {id:'creative:pet-typing-defense:03',name:"畑の救世主",condition:"ポテトマンの畑をクリアする",metric:'bestStage',need:2},
+ {id:'creative:pet-typing-defense:04',name:"文法の守護者",condition:"文法の砦をクリアする",metric:'bestStage',need:3},
+ {id:'creative:pet-typing-defense:05',name:"言葉の騎士",condition:"タスク別英会話をクリアする",metric:'bestStage',need:4},
+ {id:'creative:pet-typing-defense:06',name:"文法の賢者",condition:"文法別の試練をクリアする",metric:'bestStage',need:5},
+ {id:'creative:pet-typing-defense:07',name:"城の守護兵",condition:"イージーを完全クリアする",metric:'easyClears',need:1},
+ {id:'creative:pet-typing-defense:08',name:"鉄壁の防衛隊長",condition:"ノーマルを完全クリアする",metric:'normalClears',need:1},
+ {id:'creative:pet-typing-defense:09',name:"伝説の城主",condition:"ハードを完全クリアする",metric:'hardClears',need:1},
+ {id:'creative:pet-typing-defense:10',name:"正確無比",condition:"1ステージを全問正解で突破する",metric:'perfectStages',need:1},
+ {id:'creative:pet-typing-defense:11',name:"無傷の守護者",condition:"城の耐久力を失わず全5ステージクリアする",metric:'flawlessClears',need:1},
+ {id:'creative:pet-typing-defense:12',name:"防衛の達人",condition:"いずれかの難易度で累計10回完全クリアする",metric:'totalClears',need:10},
+ {id:'creative:pet-typing-defense:13',name:"不落の城",condition:"いずれかの難易度で累計30回完全クリアする",metric:'totalClears',need:30},
+ {id:'creative:pet-typing-defense:14',name:"三界の守護神",condition:"3難易度すべて完全クリアする",metric:'modesCleared',need:3},
+ {id:'creative:pet-typing-defense:15',name:"究極の防衛王",condition:"ハードを城の耐久力を失わず完全クリアする",metric:'hardFlawlessClears',need:1}
+];
+export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog,'pet-fishing':petFishingCatalog,[DEFENSE_TITLE_APP]:defenseTitleCatalog};
 const HIDDEN_TITLE_PREFIXES=['creative:pet-instructions:'];
 export const WEEKLY_DAYS_TARGET=4;
 // These gameplay modes participate in daily rankings and weekly titles without adding
@@ -28,7 +46,7 @@ export function weeklyTitleName(appId){
 export function weeklyTitles({earnedIds=[],progress={}}={}){
  const earned=new Set(Array.isArray(earnedIds)?earnedIds:[]);
  return [{id:'weekly:coins',appId:'coins',label:'獲得コイン',name:weeklyTitleName('coins'),condition:'1週間で4日以上、獲得コインTOP3に入る'},
-  ...[...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
+  ...[...TITLE_CONTENTS.filter(app=>app.id!==DEFENSE_TITLE_APP),...RANKING_ONLY_CONTENTS].map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
    .map(item=>{const done=Math.max(0,Math.min(7,Math.floor(Number(progress[item.appId])||0)));return {...item,need:WEEKLY_DAYS_TARGET,done:earned.has(item.id)?WEEKLY_DAYS_TARGET:done,unlocked:earned.has(item.id),category:'weekly'};});
 }
 const MASTER_NAMES=Object.freeze({
@@ -60,7 +78,7 @@ export function masterTitles(titles=[]){
 }
 export function creativeTitles(appId,progress={}){return (creativeCatalog[appId]||[]).map(t=>{const raw=count(progress.metrics?.[t.metric]),unlocked=raw>=t.need,displayNeed=count(t.displayNeed)||t.need;return {...t,appId,label:TITLE_CONTENTS.find(x=>x.id===appId)?.label||appId,need:displayNeed,done:t.displayNeed?(unlocked?displayNeed:0):raw,unlocked};});}
 export function validTitleName(id){if(HIDDEN_TITLE_PREFIXES.some(prefix=>id?.startsWith(prefix)))return '';if(id?.startsWith('master:'))return masterTitleName(id.slice(7));if(id?.startsWith('weekly:'))return weeklyTitleName(id.slice(7));const t=Object.values(creativeCatalog).flat().find(t=>t.id===id);if(t)return t.name;if(id?.startsWith('retry:'))return retryCatalog.titles.find(t=>'retry:'+t.id===id)?.name||'';return activityTitles('eiken-retry',0).find(t=>t.id===id)?.name||'';}
-export const TITLE_CONTENTS=[{id:'basic-grammar',label:'並べ替え問題（基本文法）'},{id:'grammar',label:'並べ替え問題（文法別）'},{id:'today',label:'TODAY'},...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'case-talk',label:'サポート付きケーストーク'},{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'pet-fishing',label:'PET FISHING'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'}];
+export const TITLE_CONTENTS=[{id:'basic-grammar',label:'並べ替え問題（基本文法）'},{id:'grammar',label:'並べ替え問題（文法別）'},{id:'today',label:'TODAY'},...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'case-talk',label:'サポート付きケーストーク'},{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'pet-fishing',label:'PET FISHING'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'},{id:DEFENSE_TITLE_APP,label:'もんすた城の防衛'}];
 const count=value=>Math.max(0,Math.floor(Number(value)||0));
 export function activityTitles(appId,total){
  if(appId!=='eiken-retry')return [];
@@ -69,8 +87,24 @@ export function activityTitles(appId,total){
  if(appId!=='eiken-retry')tiers.push([3,'ルーキー'],[5,'探究者'],[25,'熟練者'],[200,'達人'],[300,'レジェンド'],[500,'殿堂入り']);
  return tiers.sort((a,b)=>a[0]-b[0]).map(([need,suffix])=>({id:appId+':'+need,appId,label:content.label,name:content.label+'・'+suffix,need,done:count(total),unlocked:count(total)>=need,condition:`取り組みを${need}回記録する`}));
 }
+
+/** Wallet-derived defense titles: zero additional title_progress reads. */
+export function defenseTitleProgress(activity={},wallet={}){
+ const raw=wallet.typingDefenseTitleStats||{},c=v=>Math.max(0,Math.floor(Number(v)||0));
+ const bestByMode={easy:c(activity.typingDefenseBestEasy),normal:c(activity.typingDefenseBestNormal),hard:c(activity.typingDefenseBestHard)};
+ const easyClears=Math.max(c(raw.easyClears),Number(bestByMode.easy>=5));
+ const normalClears=Math.max(c(raw.normalClears),Number(bestByMode.normal>=5));
+ const hardClears=Math.max(c(raw.hardClears),Number(bestByMode.hard>=5));
+ return {metrics:{
+  plays:c(raw.plays),bestStage:Math.max(c(raw.bestStage),...Object.values(bestByMode)),
+  easyClears,normalClears,hardClears,perfectStages:c(raw.perfectStages),
+  flawlessClears:c(raw.flawlessClears),hardFlawlessClears:c(raw.hardFlawlessClears),
+  totalClears:c(raw.totalClears),modesCleared:Number(easyClears>0)+Number(normalClears>0)+Number(hardClears>0)
+ }};
+}
+
 export function titleState({activity={},retry={},selection={},progress={},wallet={},weeklyEarnedIds=[],weeklyProgress={}}={}){
- progress={...progress};
+ progress={...progress,[DEFENSE_TITLE_APP]:defenseTitleProgress(activity,wallet)};
  for(const [app,field] of [['word-tower','wordTowerBest'],['eiken-dungeon','eikenDungeonBest']]){const prior=progress[app]||{};progress[app]={...prior,metrics:{...prior.metrics,bestFloor:Math.max(count(prior.metrics?.bestFloor),count(wallet[field]))}};}
  const titles=TITLE_CONTENTS.flatMap(x=>[...activityTitles(x.id,activity.contents?.[x.id]?.titleCount),...creativeTitles(x.id,progress[x.id])]);
  const done={};for(const [id,r] of Object.entries(retry.state?.records||{})){const grade=retryCatalog.questions[id];if(grade&&count(r?.attempts)>0)done[grade]=(done[grade]||0)+1;}
