@@ -120,7 +120,7 @@ test('lazy migration preserves historical friends and pending applications witho
  assert.equal(bob.socialFriends.friends[0].uid,'alice');
  assert.equal(f.docs.get('users/alice/apps/english-playroom').fields.socialFriends.friends[0].uid,'bob');
  assert.equal(bob.socialFriends.incoming.length,0);
- assert.equal(alice.socialFriends.outgoing.length,0);
+ assert.equal(f.docs.get('users/alice/apps/english-playroom').fields.socialFriends.outgoing.length,0);
  // The historical records are left untouched as a rollback backup.
  assert.deepEqual(f.docs.get('social_friends/alice').fields,aliceLegacy);
 });
