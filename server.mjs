@@ -26,6 +26,7 @@ import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import {createOnlineBattle} from './online-battle.mjs';
+import {createRealtimeRoomStore} from './rtdb-room-store.mjs';
 import {createTodayNewsGenerator,verifyGithubOidcToken} from './today-news.mjs';
 import {createContactMessage} from './contact-message.mjs';
 import {createAdminUserIndex} from './admin-user-index.mjs';
@@ -329,6 +330,50 @@ const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
 const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds,onPersisted:message=>adminMessagePages.append(message)});
 const onlineBattle=createOnlineBattle({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,fail,decodeFields});
+const previewDatabaseUrl=(process.env.BATTLE_RTDB_PREVIEW_URL||'').trim();
+const previewUsers=new Set((process.env.BATTLE_RTDB_PREVIEW_UIDS||'').split(',').map(uid=>uid.trim()).filter(Boolean));
+const previewCredential=process.env.BATTLE_RTDB_PREVIEW_SERVICE_ACCOUNT_B64||'';
+const previewAccessToken=createGoogleAccessToken({
+ serviceAccount:()=>JSON.parse(Buffer.from(previewCredential,'base64').toString('utf8')),
+ scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+});
+function configuredOnlineBattlePreview(){
+ if(!previewDatabaseUrl||!previewUsers.size||!previewCredential)return null;
+ try{
+  if(new URL(previewDatabaseUrl).protocol!=='https:')throw Error('HTTPS is required');
+  return createOnlineBattle({
+   base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
+   verifyUser:async req=>{
+    const user=await verifyUser(req);
+    if(!previewUsers.has(user.uid))throw fail('この検証版への参加は許可されていません。',403);
+    return user;
+   },
+   readJson,send,fail,decodeFields,
+   roomStore:createRealtimeRoomStore({databaseUrl:previewDatabaseUrl,accessToken:previewAccessToken})
+  });
+ }catch{
+  console.warn('Online battle preview configuration is invalid');
+  return null;
+ }
+}
+const onlineBattlePreview=configuredOnlineBattlePreview();
+async function checkRealtimeBattleConnection(){
+ if(process.env.BATTLE_RTDB_CONNECTION_CHECK!=='1')return;
+ try{
+  const target=new URL(previewDatabaseUrl);
+  if(target.hostname!=='eiken-retry-default-rtdb.asia-southeast1.firebasedatabase.app'||target.protocol!=='https:'){
+   throw Error('Unexpected database URL');
+  }
+  const accessToken=createGoogleAccessToken({
+   serviceAccount:getServiceAccount,
+   scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+  });
+  await createRealtimeRoomStore({databaseUrl:target.href,accessToken}).verifyConnection();
+  console.info(JSON.stringify({event:'battle_rtdb_connection_check',result:'success'}));
+ }catch(error){
+  console.warn(JSON.stringify({event:'battle_rtdb_connection_check',result:'failure',status:error?.status||null}));
+ }
+}
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
@@ -346,6 +391,11 @@ export const server=http.createServer(async(req,res)=>{
     });
   }
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
+  const previewPrefix='/api/online-battle-preview';
+  if(path===previewPrefix||path.startsWith(previewPrefix+'/')){
+    if(!onlineBattlePreview)return send(res,404,{error:'検証版は公開されていません。'});
+    return onlineBattlePreview.handle(req,res,'/api/online-battle'+path.slice(previewPrefix.length));
+  }
   if(path==='/api/online-battle/rankings/daily'){
     try{
       if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
@@ -431,7 +481,10 @@ export const server=http.createServer(async(req,res)=>{
   }catch(e){send(res,e.status||502,{error:e.name==='TimeoutError'?'AI判定がタイムアウトしました。再挑戦してください。':e.message&&e.status?e.message:'判定結果を取得できませんでした。再挑戦してください。'});}
 });
 
-if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>console.log('Task Quest server ready'));
+if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>{
+ console.log('Task Quest server ready');
+ void checkRealtimeBattleConnection();
+});
 
 
 
