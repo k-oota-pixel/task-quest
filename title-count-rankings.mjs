@@ -23,7 +23,7 @@ export function topTitleCounts(entries=[]){
  }
  return [...byUid.values()].sort((a,b)=>b.unlockedTitleCount-a.unlockedTitleCount||a.petName.localeCompare(b.petName,'ja')||a.uid.localeCompare(b.uid)).slice(0,3);
 }
-const toPublic=value=>({schemaVersion:VERSION,updatedAt:value.updatedAt||'',leaders:topTitleCounts(value.leaders).map(({uid,...rest},index)=>({...rest,rank:index+1}))});
+const toPublic=value=>({schemaVersion:VERSION,updatedAt:value.updatedAt||'',leaders:topTitleCounts(value.leaders).map((row,index)=>({...row,rank:index+1}))});
 const sameLeaders=(a,b)=>JSON.stringify(topTitleCounts(a))===JSON.stringify(topTitleCounts(b));
 const uidFromName=name=>{const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);if(!match)return '';try{return decodeURIComponent(match[1]);}catch{return '';}};
 
@@ -82,7 +82,7 @@ export function createTitleCountRankings({
   return loading;
  }
  async function snapshot(){
-  return rankingStore.getSection(CACHE_SECTION,{load:async()=>toPublic((await load()).value),valid:data=>data?.schemaVersion===VERSION});
+  return rankingStore.getSection(CACHE_SECTION,{load:async()=>toPublic((await load()).value),valid:data=>data?.schemaVersion===VERSION&&Array.isArray(data.leaders)&&data.leaders.every(row=>isUid(row.uid))});
  }
  async function publish(candidate){
   if(!isUid(candidate?.uid))return;
