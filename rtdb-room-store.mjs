@@ -2,7 +2,9 @@ const ROOM_ID = /^(?:4|3|pre2|2)-(?:10|[1-9])$/;
 const GRADE = /^(?:4|3|pre2|2)$/;
 const firebaseHost = hostname => /\.(?:firebaseio\.com|firebasedatabase\.app)$/.test(hostname);
 
-export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fetch, emulatorNamespace }) {
+export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fetch, emulatorNamespace, mode = 'preview' }) {
+ if (mode !== 'preview' && mode !== 'production') throw new Error('Invalid realtime battle mode');
+ const root = mode === 'production' ? 'onlineBattle' : 'onlineBattlePreview';
  const database = new URL(databaseUrl);
  if (database.pathname !== '/' || database.username || database.password || database.search || database.hash ||
      !(database.protocol === 'https:' && firebaseHost(database.hostname) ||
@@ -12,7 +14,7 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
 
  function url(grade, room = '') {
   if (!GRADE.test(grade) || room && !ROOM_ID.test(room)) throw new Error('Invalid battle room path');
-  const target = new URL('/onlineBattlePreview/rooms/' + grade + (room ? '/' + room : '') + '.json', database);
+  const target = new URL('/' + root + '/rooms/' + grade + (room ? '/' + room : '') + '.json', database);
   if (emulatorNamespace && database.hostname === '127.0.0.1') target.searchParams.set('ns', emulatorNamespace);
   return target;
  }
@@ -110,7 +112,7 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   }
  }
 
- return { read, write, lobby, stream };
+ return { mode, read, write, lobby, stream };
 }
 
 export async function* realtimeEvents(body) {

@@ -6,7 +6,6 @@ import { createOnlineBattle, ONLINE_BATTLE_JOIN_TTL_MS } from './online-battle.m
 import { createRealtimeRoomStore, realtimeEvents } from './rtdb-room-store.mjs';
 
 const roomPath = '/api/online-battle/room/4-1';
-const wallet = uid => 'onlineBattlePreviewUsers/' + uid + '/apps/english-playroom';
 const projectId = 'demo-monstudy-battle';
 const base = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)';
 
@@ -19,7 +18,7 @@ function decode(value) {
 function decodeFields(fields) {
  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, decode(value)]));
 }
-function fakeFirestore() {
+function fakeFirestore(wallet) {
  const docs = new Map();
  const counts = { reads: 0, writes: 0 };
  for (const uid of ['a', 'b']) {
@@ -155,8 +154,11 @@ async function emulatorRealtime(port) {
  return {request,bytes,port,namespace,token:'owner',failNextClear:()=>{failClear=true;}};
 }
 
-test('two players, live updates, contention, reconnect and exactly-once settlement', async t => {
- const firestore = fakeFirestore();
+for (const mode of ['preview', 'production']) {
+test(mode + ' storage: two players, contention, reconnect and exactly-once settlement', async t => {
+ const prefix=mode==='preview'?'onlineBattlePreview':'onlineBattle';
+ const wallet=uid=>(mode==='preview'?'onlineBattlePreviewUsers/':'users/')+uid+'/apps/english-playroom';
+ const firestore = fakeFirestore(wallet);
  const emulatorPort=process.env.MONSTUDY_RTDB_EMULATOR_PORT;
  const realtime=emulatorPort?await emulatorRealtime(emulatorPort):fakeRealtime();
  let now = 1_000_000;
@@ -169,7 +171,7 @@ test('two players, live updates, contention, reconnect and exactly-once settleme
   fetch: firestore.request, now: () => now,
   roomStore: createRealtimeRoomStore({
    databaseUrl:'http://127.0.0.1:'+(realtime.port||9000),
-   accessToken:async () => realtime.token||'fixture', request:realtime.request, emulatorNamespace:realtime.namespace
+   accessToken:async () => realtime.token||'fixture', request:realtime.request, emulatorNamespace:realtime.namespace, mode
   })
  });
  const server = createServer((req,res) => void service.handle(req,res,req.url));
@@ -245,8 +247,9 @@ test('two players, live updates, contention, reconnect and exactly-once settleme
  assert.equal(firestore.docs.get(wallet('b')).value.coins,0);
  assert.equal(firestore.docs.get(wallet('a')).value.petDungeonItems.bandage,1);
  assert.equal(firestore.docs.get(wallet('a')).value.onlineBattleTitleStats.games,1);
- assert.equal(firestore.docs.get('onlineBattlePreviewStats/4/players/a').value.wins,1);
- assert.ok([...firestore.docs.keys()].every(path=>path.startsWith('onlineBattlePreview')));
+ assert.equal(firestore.docs.get(prefix+'Stats/4/players/a').value.wins,1);
+ assert.ok([...firestore.docs.keys()].every(path=>path.startsWith(prefix)||path===wallet('a')||path===wallet('b')));
+ if(mode==='production')assert.ok([...firestore.docs.keys()].every(path=>!path.startsWith('onlineBattlePreview')));
  const continued = await Promise.all([api('a','continue'),api('b','continue')]);
  assert.ok(continued.some(result=>result.room.status==='playing'));
  const rematch=await api('a');
@@ -258,3 +261,4 @@ test('two players, live updates, contention, reconnect and exactly-once settleme
  assert.equal((await api('a')).room.status,'open');
  t.diagnostic(JSON.stringify({rtdbBodyBytes:realtime.bytes,firestoreOperations:firestore.counts}));
 });
+}

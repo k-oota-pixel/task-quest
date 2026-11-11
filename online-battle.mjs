@@ -241,8 +241,9 @@ export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
 export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore=null}){
  const error=failExternal||fail;
  const battle=battleDatabase({base,projectId,accessToken,request,error});
- const collection=name=>roomStore?'onlineBattlePreview'+name:'onlineBattle'+name;
- const walletPath=uid=>(roomStore?'onlineBattlePreviewUsers/':'users/')+encodeURIComponent(uid)+'/apps/english-playroom';
+ const preview=Boolean(roomStore&&roomStore.mode!=='production');
+ const collection=name=>preview?'onlineBattlePreview'+name:'onlineBattle'+name;
+ const walletPath=uid=>(preview?'onlineBattlePreviewUsers/':'users/')+encodeURIComponent(uid)+'/apps/english-playroom';
  const statsPath=(gradeKey,uid)=>collection('Stats')+'/'+gradeKey+'/players/'+encodeURIComponent(uid);
  const dailyRankingPath=gradeKey=>collection('Rankings')+'/'+gradeKey;
  async function getDocAt(baseUrl,token,path,message='対戦データを読み込めませんでした。'){
@@ -360,10 +361,10 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   throw error('対戦報酬の保存が競合しました。',503);
  }
  // The standings receipt and standings are saved in a single Firestore commit.
- async function recordPreviewStandings(token,pending){
+ async function recordRealtimeStandings(token,pending){
   const played=pending.entries.filter(entry=>entry.played);
   if(!played.length)return pending;
-  const path='onlineBattlePreviewStandingReceipts/'+pending.id;
+  const path=collection('StandingReceipts')+'/'+pending.id;
   for(let attempt=0;attempt<4;attempt++){
    const receipt=await getDocAt(battle.base,token,path);
    if(receipt)return {...pending,entries:receipt.value.entries};
@@ -391,7 +392,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  async function settlePending(id,roomToken,walletToken,stored){
   const pending=stored?.value?.pendingSettlement;
   if(!pending)return false;
-  const settlement=roomStore?await recordPreviewStandings(roomToken,pending):pending;
+  const settlement=roomStore?await recordRealtimeStandings(roomToken,pending):pending;
   const awards=await applySettlement(roomToken,walletToken,settlement);
   const room=safeRoom(stored.value,id);
   room.pendingSettlement=null;
@@ -441,7 +442,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     if(index>=0)return {room:publicRoom(room,id,uid)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
     const wallet=await userWallet(walletToken,uid),data=wallet?.value||{};
-     if(roomStore&&!wallet)throw error('検証用の対戦プロフィールが用意されていません。',403);
+     if(preview&&!wallet)throw error('検証用の対戦プロフィールが用意されていません。',403);
     const player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
     room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;roomWrites.push(roomWrite(id,room,stored));
    }else if(operation==='leave'){
