@@ -19,14 +19,14 @@ test('selection validates earned titles, clears selection and mirrors the select
  selectedId='creative:ateru:15';r={};await api.handle({method:'POST'},r);assert.equal(r.status,400);assert.equal(selectionWrites,1);assert.equal(summaryWrites,1);
  selectedId='';r={};await api.handle({method:'POST'},r);assert.equal(r.status,200);assert.equal(r.body.selectedTitle,'');assert.equal(selectionWrites,2);assert.equal(summaryWrites,2);
  docs.push({found:{name:'projects/p/databases/(default)/documents/user_titles/u',fields:{selectedId:'creative:ateru:1',selectedTitle:'古い表示名'}}});
- assert.deepEqual(await api.decorate([{uid:'u',petName:'もこ',coinsToday:3}]),[{petName:'もこ',coinsToday:3,title:'見習い探偵、出動！'}]);
+ assert.deepEqual(await api.decorate([{uid:'u',petName:'もこ',coinsToday:3}]),[{petName:'もこ',coinsToday:3,uid:'u',title:'見習い探偵、出動！'}]);
 });
 test('leaderboard titles accept streamed Firestore batchGet results',async()=>{
  const prefix='projects/p/databases/(default)/documents/';
  const rows=[{found:{name:prefix+'user_titles/u1',fields:{selectedId:'creative:ateru:1'}}},{missing:prefix+'user_titles/u2'}];
  const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'token',decodeFields:x=>x,fail,fetch:async()=>({ok:true,text:async()=>rows.map(row=>JSON.stringify(row)).join('\n')})});
  const decorated=await api.decorate([{uid:'u1',petName:'もこ'},{uid:'u2',petName:'ぽち'}]);
- assert.deepEqual(decorated,[{petName:'もこ',title:'見習い探偵、出動！'},{petName:'ぽち',title:'称号なし'}]);
+ assert.deepEqual(decorated,[{petName:'もこ',uid:'u1',title:'見習い探偵、出動！'},{petName:'ぽち',uid:'u2',title:'称号なし'}]);
 });
 test('full title read returns and mirrors unlocked title count',async()=>{
  const prefix='projects/p/databases/(default)/documents/';
