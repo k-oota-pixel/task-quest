@@ -6,7 +6,7 @@ const integer=v=>Math.max(0,Math.min(1000000,Math.floor(Number(v)||0)));
 const validDay=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
 const safeName=s=>String(s||'').normalize('NFKC').trim().slice(0,24)||'ふしぎなたまご';
 const uidFromDoc=name=>{const m=String(name||'').match(/\/documents\/learning_activity\/([^/]+)$/);return m?decodeURIComponent(m[1]):''};
-const rowsToPublic=list=>list.map(({uid,...rest})=>rest);
+const rowsToPublic=list=>list.map(row=>({...row}));
 export function dailyMaterialTransforms(appCounts,day){
  if(!validDay(day))return [];
  return [...appCounts].filter(([app,count])=>APPS.has(app)&&integer(count)>0)
