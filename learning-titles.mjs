@@ -80,7 +80,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    const value=await response.json();rows=Array.isArray(value)?value:[value];
   }
   const names=new Map(uids.map(uid=>[uid,validTitleName(decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedId)]));
-  return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||'称号なし'}));
+  return leaders.map(({uid,...entry})=>({...entry,uid,title:names.get(uid)||'称号なし'}));
  }
  async function readSelection(uid){
   const token=await accessToken(),walletResponse=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom',{headers:{Authorization:'Bearer '+token}});
