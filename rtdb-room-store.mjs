@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 const ROOM_ID = /^(?:4|3|pre2|2)-(?:10|[1-9])$/;
 const GRADE = /^(?:4|3|pre2|2)$/;
 const firebaseHost = hostname => /\.(?:firebaseio\.com|firebasedatabase\.app)$/.test(hostname);
@@ -79,6 +81,27 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   }));
  }
 
+ async function verifyConnection() {
+  const nonce = randomUUID();
+  const target = new URL('/onlineBattlePreview/connectionChecks/' + nonce + '.json', database);
+  if (emulatorNamespace && database.hostname === '127.0.0.1') target.searchParams.set('ns', emulatorNamespace);
+  const operation = (method, headers = {}, body) => send(target, {
+   method, headers, body, signal: AbortSignal.timeout(12000)
+  });
+  try {
+   const written = await operation('PUT', {
+    'Content-Type': 'application/json', 'If-Match': 'null_etag'
+   }, JSON.stringify(nonce));
+   try { check(written); } finally { await written.body?.cancel(); }
+   const read = await operation('GET');
+   check(read);
+   if (await read.json() !== nonce) throw new Error('Realtime Database connection check returned unexpected data');
+  } finally {
+   const deleted = await operation('DELETE');
+   try { check(deleted); } finally { await deleted.body?.cancel(); }
+  }
+ }
+
  async function stream(id, downstream, project) {
   const controller = new AbortController();
   const close = () => controller.abort();
@@ -112,7 +135,7 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   }
  }
 
- return { mode, read, write, lobby, stream };
+ return { mode, read, write, lobby, stream, verifyConnection };
 }
 
 export async function* realtimeEvents(body) {

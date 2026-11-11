@@ -141,6 +141,10 @@ async function emulatorRealtime(port) {
  const blocked=await fetch(url+'/onlineBattlePreview.json?ns='+namespace);
  assert.equal(blocked.status,401);
  await blocked.body.cancel();
+ const probe=createRealtimeRoomStore({databaseUrl:url,accessToken:async()=> 'owner',emulatorNamespace:namespace});
+ await probe.verifyConnection();
+ const empty=await fetch(url+'/onlineBattlePreview/connectionChecks.json?ns='+namespace,{headers:{Authorization:'Bearer owner'}});
+ assert.equal(await empty.json(),null);
  const bytes={snapshots:0,streams:0,uploads:0};
  let failClear=false;
  async function request(target,options){

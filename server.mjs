@@ -357,6 +357,23 @@ function configuredOnlineBattlePreview(){
  }
 }
 const onlineBattlePreview=configuredOnlineBattlePreview();
+async function checkRealtimeBattleConnection(){
+ if(process.env.BATTLE_RTDB_CONNECTION_CHECK!=='1')return;
+ try{
+  const target=new URL(previewDatabaseUrl);
+  if(target.hostname!=='eiken-retry-default-rtdb.asia-southeast1.firebasedatabase.app'||target.protocol!=='https:'){
+   throw Error('Unexpected database URL');
+  }
+  const accessToken=createGoogleAccessToken({
+   serviceAccount:getServiceAccount,
+   scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+  });
+  await createRealtimeRoomStore({databaseUrl:target.href,accessToken}).verifyConnection();
+  console.info(JSON.stringify({event:'battle_rtdb_connection_check',result:'success'}));
+ }catch(error){
+  console.warn(JSON.stringify({event:'battle_rtdb_connection_check',result:'failure',status:error?.status||null}));
+ }
+}
 export const server=http.createServer(async(req,res)=>{
   applyCors(req,res);res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   if(req.method==='OPTIONS'){if(!originAllowed(req))return send(res,403,{error:'このサイトからは利用できません。'});res.writeHead(204);return res.end();}
@@ -464,7 +481,10 @@ export const server=http.createServer(async(req,res)=>{
   }catch(e){send(res,e.status||502,{error:e.name==='TimeoutError'?'AI判定がタイムアウトしました。再挑戦してください。':e.message&&e.status?e.message:'判定結果を取得できませんでした。再挑戦してください。'});}
 });
 
-if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>console.log('Task Quest server ready'));
+if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>{
+ console.log('Task Quest server ready');
+ void checkRealtimeBattleConnection();
+});
 
 
 
