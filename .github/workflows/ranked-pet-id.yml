@@ -1,0 +1,41 @@
+name: Ranked pet ID regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'daily-coins.mjs'
+      - 'daily-coins.test.mjs'
+      - 'adventure-rankings.mjs'
+      - 'adventure-rankings.test.mjs'
+      - 'defense-best-rankings.mjs'
+      - 'defense-best-rankings.test.mjs'
+      - 'material-rankings.mjs'
+      - 'material-rankings.test.mjs'
+      - 'title-count-rankings.mjs'
+      - 'title-count-rankings.test.mjs'
+      - 'learning-titles.mjs'
+      - 'learning-titles.test.mjs'
+      - '.github/workflows/ranked-pet-id.yml'
+  pull_request:
+    paths:
+      - 'daily-coins.mjs'
+      - 'adventure-rankings.mjs'
+      - 'defense-best-rankings.mjs'
+      - 'material-rankings.mjs'
+      - 'title-count-rankings.mjs'
+      - 'learning-titles.mjs'
+      - '.github/workflows/ranked-pet-id.yml'
+permissions:
+  contents: read
+jobs:
+  ranked-pet-ids:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check daily-coins.mjs && node --check adventure-rankings.mjs && node --check defense-best-rankings.mjs && node --check material-rankings.mjs && node --check title-count-rankings.mjs && node --check learning-titles.mjs
+      - run: node --test daily-coins.test.mjs adventure-rankings.test.mjs defense-best-rankings.test.mjs title-count-rankings.test.mjs
+      - run: node --test --test-name-pattern="daily material rankings cache" material-rankings.test.mjs
+      - run: node --test --test-name-pattern="leaderboard titles accept streamed" learning-titles.test.mjs
