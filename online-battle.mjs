@@ -275,7 +275,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  }
  function ledgerPath(id){return 'onlineBattleSettlements/'+encodeURIComponent(id);}
  // Reuse the existing per-match ledger. Titles and coins are committed atomically
- // to Firebase #1; no title document, per-attack write, or new Firebase #2 read.
+ // to Firebase #1; no title document or per-attack write.
+ // Historical grade totals require a one-time Firebase #2 import per player.
  function settlementWrites(settlement,wallets=new Map()){
   const awards={},writes=[],titleStats=new Map();
   for(const entry of settlement.entries){
@@ -317,11 +318,32 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   }
   return {writes,awards};
  }
- async function applySettlement(walletToken,settlement){
+ async function baselineOnlineTitleStats(roomToken,entry){
+  const otherGrades=ONLINE_BATTLE_GRADES.filter(grade=>grade!==entry.gradeKey);
+  const others=await Promise.all(otherGrades.map(grade=>standingDoc(roomToken,grade,entry.uid)));
+  // This grade's PRE-match totals are stored with the pending receipt.
+  const records=Object.fromEntries(otherGrades.map((grade,i)=>[grade,field(others[i]?.value)]));
+  records[entry.gradeKey]=field(entry.priorGrade);
+  const byGrade=Object.fromEntries(ONLINE_BATTLE_GRADES.map(grade=>[grade,{
+   games:Math.max(0,Math.floor(number(records[grade]?.games))),
+   wins:Math.max(0,Math.floor(number(records[grade]?.wins)))
+  }]));
+  return {games:Object.values(byGrade).reduce((sum,item)=>sum+item.games,0),
+   wins:Object.values(byGrade).reduce((sum,item)=>sum+item.wins,0),
+   streak:0,maxStreak:0,byGrade};
+ }
+ async function applySettlement(roomToken,walletToken,settlement){
   for(let attempt=0;attempt<4;attempt++){
    const players=settlement.entries.filter(entry=>entry.played);
    const snapshots=await Promise.all(players.map(entry=>userWallet(walletToken,entry.uid)));
    const wallets=new Map(players.map((entry,i)=>[entry.uid,snapshots[i]]));
+   // Migrates old per-grade totals once. Subsequent matches read no extra Firebase #2 docs.
+   await Promise.all(players.filter(entry=>wallets.get(entry.uid)?.value?.onlineBattleTitleStats===undefined)
+    .map(async entry=>{
+     const snapshot=wallets.get(entry.uid);
+     const initial=await baselineOnlineTitleStats(roomToken,entry);
+     wallets.set(entry.uid,{...snapshot,value:{...snapshot.value,onlineBattleTitleStats:initial}});
+    }));
    const {writes,awards}=settlementWrites(settlement,wallets);
    try{
     await commitAt(base,walletToken,writes,'対戦報酬・称号・アイテムの精算を保存できませんでした。');
@@ -338,7 +360,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  async function settlePending(id,roomToken,walletToken,stored){
   const pending=stored?.value?.pendingSettlement;
   if(!pending)return false;
-  const awards=await applySettlement(walletToken,pending);
+  const awards=await applySettlement(roomToken,walletToken,pending);
   const room=safeRoom(stored.value,id);
   room.pendingSettlement=null;
   room.titleAwards=awards;
@@ -480,9 +502,18 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     const gradeKey=ROOM_RULES[id].gradeKey,endedAt=room.matchEndedAt||now();
     const existing=await Promise.all(previousPlayers.map(player=>standingDoc(roomToken,gradeKey,player.uid)));
     previousPlayers.forEach((player,i)=>{
-     const result=nextOnlineBattleStanding(existing[i]?.value||{},player,player.uid===room.winnerUid,endedAt);
+     const prior=field(existing[i]?.value);
+     const entry=room.pendingSettlement?.entries?.find(item=>item.uid===player.uid);
+     if(entry)entry.priorGrade={
+      games:Math.max(0,Math.floor(number(prior.games))),
+      wins:Math.max(0,Math.floor(number(prior.wins)))
+     };
+     const result=nextOnlineBattleStanding(prior,player,player.uid===room.winnerUid,endedAt);
      roomWrites.push(standingWrite(gradeKey,player.uid,result,existing[i]));
     });
+    // Save pre-match grade stats in the SAME room write, no additional write.
+    const index=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
+    if(index>=0)roomWrites[index]=roomWrite(id,room,stored);
    }
    if(roomWrites.length&&lobbyStateChanged(beforeLobby,lobbyState(room,id)))roomWrites.push(lobbyWrite(id,room));
    let roomCommitted=false;
