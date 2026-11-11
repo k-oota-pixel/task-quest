@@ -1,5 +1,5 @@
 const APP_IDS=['english-playroom','ateru','basic-quest','eiken-retry','eiken-cloze','eiken-title','task-quest','eiken-pre2-interview-a'];
-export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUser,send,fail,decodeFields,listMessagePage=null,normalizeNickname,validNickname,fetch:request=globalThis.fetch,now=Date.now}){
+export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyDetailAdmin=verifyAdmin,verifyUser,send,fail,decodeFields,listMessagePage=null,normalizeNickname,validNickname,fetch:request=globalThis.fetch,now=Date.now}){
   const cache=new Map(),TTL=60000;
   async function cached(key,read){
     const previous=cache.get(key);if(previous&&previous.until>now())return previous.promise;
@@ -229,7 +229,8 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyUs
         send(res,200,{ok:true,passwordResetRequired:true});return;
       }
       if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
-      const admin=await verifyAdmin(req); // Cache never bypasses authentication or authorization.
+      // User detail uses Firebase Auth directly, including on cache hits.
+      const admin=url.pathname==='/api/admin/user'?await verifyDetailAdmin(req):await verifyAdmin(req);
       if(url.pathname==='/api/admin/users'&&url.searchParams.has('emailUid')){
         const uid=url.searchParams.get('emailUid')||'';
         if(!uid||uid.length>128||/[\/\u0000-\u001f]/.test(uid))throw fail('ユーザーIDが不正です。',400);
