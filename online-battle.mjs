@@ -1,4 +1,4 @@
-import {createSign} from 'node:crypto';
+import {createSign,randomUUID} from 'node:crypto';
 import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard,onlineBattleRankingScanComplete} from './online-battle-standings.mjs';
 
 const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
@@ -133,14 +133,14 @@ function profile(data,uid){
  const nickname=typeof data.nickname==='string'&&data.nickname.trim()?data.nickname.trim().slice(0,24):'なまえ未設定';
  const petName=typeof data.petName==='string'&&data.petName.trim()?data.petName.trim().slice(0,24):(data.petHatched?'ペット':'ふしぎなたまご');
  const stats=petStats(data);
- return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0};
+ return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0,coinsAtJoin:Math.max(0,Math.floor(number(data.coins))),battleInventory:normalizeInventory(data.petDungeonItems),spentItems:{}};
 }
-function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchEndedAt:0,updatedAt:Date.now()};}
+function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchId:'',pendingSettlement:null,matchEndedAt:0,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2).map(player=>{
   const stats=field(player.stats),maxHp=Math.max(1,Math.floor(number(stats.hp,10))),maxMp=Math.max(0,Math.floor(number(stats.mp,6)));
-  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0)))};
+  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0))),coinsAtJoin:Math.max(0,Math.floor(number(player.coinsAtJoin))),battleInventory:normalizeInventory(player.battleInventory),spentItems:normalizeInventory(player.spentItems)};
  }):[];
  room.seq=Math.max(0,Math.floor(number(room.seq)));
  room.matchEndedAt=Math.max(0,Math.floor(number(room.matchEndedAt,0)));
@@ -152,6 +152,16 @@ function resetExpiredRoom(room,id,at){
  fresh.updatedAt=at;
  fresh.matchEndedAt=0;
  return fresh;
+}
+function createPendingSettlement(room,players=room.players,winnerUid=room.winnerUid){
+ const entries=(players||[]).map(player=>({
+  uid:String(player.uid||''),
+  coins:player.uid===winnerUid?1:0,
+  items:Object.fromEntries(DUNGEON_ITEMS.map(item=>[item.id,Math.max(0,Math.floor(number(player.spentItems?.[item.id])))]).filter(([,count])=>count>0))
+ })).filter(row=>row.uid&&(row.coins>0||Object.keys(row.items).length>0));
+ if(!entries.length)return null;
+ const matchId=String(room.matchId||'legacy-'+room.roomId+'-'+room.updatedAt+'-'+room.seq).replace(/[^A-Za-z0-9-]/g,'-');
+ return {id:matchId,roomId:room.roomId,entries,createdAt:Date.now()};
 }
 export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
  const room=safeRoom(value,id),current=Math.max(0,Math.floor(number(at,Date.now())));
@@ -170,6 +180,7 @@ export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
   });
   const activePlayers=room.players.filter(player=>current-player.joinedAt<ONLINE_BATTLE_JOIN_TTL_MS);
   if(activePlayers.length!==room.players.length){
+   if(room.status==='playing'&&!room.pendingSettlement)room.pendingSettlement=createPendingSettlement(room,room.players,'');
    room.players=activePlayers.map(player=>({...player,ready:false,rematchReady:false,lastActionAt:0}));
    room.status=room.players.length?'waiting':'open';
    room.winnerUid='';
@@ -183,9 +194,12 @@ export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
  }
  return {room,changed,reason};
 }
-function publicRoom(value,id){
- const room=safeRoom(value,id);
- return {...room,players:room.players.map(p=>({...p,uid:p.uid,petShop:p.petShop||{}}))};
+function publicRoom(value,id,viewerUid=''){
+ const {pendingSettlement,...room}=safeRoom(value,id);
+ return {...room,players:room.players.map(player=>{
+  const {battleInventory,spentItems,coinsAtJoin,...safe}=player;
+  return {...safe,petShop:player.petShop||{},...(player.uid===viewerUid?{inventory:battleInventory,coins:coinsAtJoin}:{})};
+ })};
 }
 function lobbyState(room,id){
  const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1};
@@ -254,19 +268,49 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  function standingWrite(gradeKey,uid,standing,snapshot){
   return {update:{name:baseName(battle.projectId,statsPath(gradeKey,uid)),fields:encodeFields(standing)},updateMask:{fieldPaths:Object.keys(standing)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
  }
- function walletWrite(uid,wallet,coins){
-  const path=walletPath(uid);
-  return {update:{name:baseName(projectId,path),fields:{coins:{integerValue:String(coins)}}},updateMask:{fieldPaths:['coins']},currentDocument:wallet?.updateTime?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}]};
+ function ledgerPath(id){return 'onlineBattleSettlements/'+encodeURIComponent(id);}
+ function settlementWrites(settlement){
+  const writes=[{update:{name:baseName(projectId,ledgerPath(settlement.id)),fields:encodeFields({id:settlement.id,roomId:settlement.roomId,createdAt:settlement.createdAt})},currentDocument:{exists:false}}];
+  for(const entry of settlement.entries){
+   const transforms=[];
+   if(entry.coins)transforms.push({fieldPath:'coins',increment:encode(entry.coins)});
+   for(const [itemId,count] of Object.entries(entry.items||{})){
+    if(!DUNGEON_ITEMS.some(item=>item.id===itemId)||!Number.isSafeInteger(count)||count<=0)continue;
+    const fieldPath='petDungeonItems.'+String.fromCharCode(96)+itemId+String.fromCharCode(96);
+    transforms.push({fieldPath,increment:encode(-count)});
+   }
+   if(transforms.length)writes.push({transform:{document:baseName(projectId,walletPath(entry.uid)),fieldTransforms:transforms},currentDocument:{exists:true}});
+  }
+  return writes;
+ }
+ async function applySettlement(walletToken,settlement){
+  try{await commitAt(base,walletToken,settlementWrites(settlement),'対戦報酬・アイテムの精算を保存できませんでした。');}
+  catch(e){
+   const saved=await getDocAt(base,walletToken,ledgerPath(settlement.id),'精算記録を確認できませんでした。');
+   if(saved?.value?.id===settlement.id)return;
+   throw e;
+  }
+ }
+ async function settlePending(id,roomToken,walletToken,stored){
+  const pending=stored?.value?.pendingSettlement;
+  if(!pending)return false;
+  await applySettlement(walletToken,pending);
+  const room=safeRoom(stored.value,id);room.pendingSettlement=null;
+  try{await commitAt(battle.base,roomToken,[roomWrite(id,room,stored)],'精算状態を保存できませんでした。');}
+  catch(e){if(!e.retryable)throw e;}
+  return true;
  }
  function inventoryWrite(uid,wallet,inventory){
   const path=walletPath(uid);
   return {update:{name:baseName(projectId,path),fields:{petDungeonItems:encode(inventory)}},updateMask:{fieldPaths:['petDungeonItems']},currentDocument:wallet?.updateTime?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'petUpdatedAt',setToServerValue:'REQUEST_TIME'}]};
  }
- async function snapshot(id,roomToken){
-  for(let attempt=0;attempt<3;attempt++){
-   const doc=await roomDoc(roomToken,id),cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
-   if(!cleaned.changed)return publicRoom(cleaned.room,id);
-   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc),lobbyWrite(id,cleaned.room)]);return publicRoom(cleaned.room,id);}
+ async function snapshot(id,roomToken,viewerUid){
+  for(let attempt=0;attempt<6;attempt++){
+   const doc=await roomDoc(roomToken,id);
+   if(doc?.value?.pendingSettlement){await settlePending(id,roomToken,await accessToken(),doc);continue;}
+   const cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
+   if(!cleaned.changed)return publicRoom(cleaned.room,id,viewerUid);
+   try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,doc),lobbyWrite(id,cleaned.room)]);continue;}
    catch(e){if(e.retryable&&attempt<2)continue;throw e;}
   }
   throw error('対戦ルームを更新できませんでした。',409);
@@ -278,31 +322,29 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   const rooms=Array.from({length:10},(_,index)=>projectOnlineBattleLobbyRoom(value['room'+(index+1)],`${gradeKey}-${index+1}`,current));
   return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};
  }
- async function awardWinner(walletToken,walletWrites,uid){
-  const winnerWallet=await userWallet(walletToken,uid),coins=Math.max(0,Math.floor(number(winnerWallet?.value?.coins)));
-  walletWrites.push(walletWrite(uid,winnerWallet,coins+1));
- }
  async function act(id,uid,roomToken,walletToken,operation,body){
-  for(let attempt=0;attempt<4;attempt++){
-   const stored=await roomDoc(roomToken,id),cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
+  for(let attempt=0;attempt<6;attempt++){
+   const stored=await roomDoc(roomToken,id);
+   if(stored?.value?.pendingSettlement){await settlePending(id,roomToken,walletToken,stored);continue;}
+   const cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
    if(cleaned.changed){
     try{await commitAt(battle.base,roomToken,[roomWrite(id,cleaned.room,stored),lobbyWrite(id,cleaned.room)]);continue;}
     catch(e){if(e.retryable&&attempt<3)continue;throw e;}
    }
-   const room=cleaned.room,beforeLobby=lobbyState(room,id),previousStatus=room.status,players=room.players.slice(),previousPlayers=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[],walletWrites=[];
+   const room=cleaned.room,beforeLobby=lobbyState(room,id),previousStatus=room.status,players=room.players.slice(),previousPlayers=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[];
    if(operation==='join'){
-    if(index>=0)return {room:publicRoom(room,id)};
+    if(index>=0)return {room:publicRoom(room,id,uid)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
     const wallet=await userWallet(walletToken,uid),data=wallet?.value||{};
     const player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
     room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;roomWrites.push(roomWrite(id,room,stored));
    }else if(operation==='leave'){
-    if(index<0)return {room:publicRoom(room,id)};
+    if(index<0)return {room:publicRoom(room,id,uid)};
     if(room.status==='playing'){
      const opponent=players.find(p=>p.uid!==uid),at=now();
      if(opponent){
       room.players=[{...opponent,ready:false,rematchReady:false}];room.status='finished';room.winnerUid=opponent.uid;room.lastEvent={type:'forfeit',from:uid,to:opponent.uid,at};room.matchEndedAt=at;room.seq++;room.updatedAt=at;
-      await awardWinner(walletToken,walletWrites,opponent.uid);roomWrites.push(roomWrite(id,room,stored));
+      roomWrites.push(roomWrite(id,room,stored));
      }else{
       room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=at;roomWrites.push(roomWrite(id,room,stored));
      }
@@ -317,20 +359,20 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      players[index]={...players[index],ready:true};room.players=players;
      if(players.every(p=>p.ready)){
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;});
-      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.lastEvent={type:'start',at:now()};
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.lastEvent={type:'start',at:now()};
      }
     }else if(operation==='miss'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],at=now();
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
      attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-1);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage:1,at};
-     if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;await awardWinner(walletToken,walletWrites,room.winnerUid);}
+     if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;}
     }else if(operation==='magic'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      if(room.noItems)throw error('このルームは魔法・アイテムなしです。',400);
      const spell=MAGIC_SPELLS.find(entry=>entry.id===String(body?.spellId||''));
      if(!spell)throw error('使用する魔法を選んでください。',400);
-     const wallet=await userWallet(walletToken,uid),level=petLevel(wallet?.value||{}),attacker=players[index],at=now();
+     const attacker=players[index],level=attacker.level,at=now();
      if(level<spell.level)throw error('この魔法はまだ習得していません。',400);
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
      if(Math.floor(number(attacker.mp))<spell.mpCost)throw error('MPが足りません。',400);
@@ -343,7 +385,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      }else{
       const targetIndex=index===0?1:0,defender=players[targetIndex],damage=Math.max(0,rolled);
       defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);room.lastEvent={type:'magic',kind:'attack',from:uid,to:defender.uid,spellId:spell.id,name:spell.name,damage,mpCost:spell.mpCost,at};
-      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(walletToken,walletWrites,uid);}
+      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
      }
     }else if(operation==='item'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -354,9 +396,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってからアイテムを使ってください。',429);
      if(item.kind==='hp'&&attacker.hp>=attacker.stats.hp)throw error('HPは満タンです。',400);
      if(item.kind==='mp'&&attacker.mp>=attacker.stats.mp)throw error('MPは満タンです。',400);
-     const wallet=await userWallet(walletToken,uid),inventory=normalizeInventory(wallet?.value?.petDungeonItems);
+     const inventory=normalizeInventory(attacker.battleInventory);
      if((inventory[item.id]||0)<1)throw error(item.name+'を持っていません。',400);
-     inventory[item.id]-=1;walletWrites.push(inventoryWrite(uid,wallet,inventory));attacker.lastActionAt=at;room.seq++;
+     inventory[item.id]-=1;attacker.battleInventory=inventory;attacker.spentItems={...attacker.spentItems,[item.id]:Math.max(0,Math.floor(number(attacker.spentItems?.[item.id])))+1};attacker.lastActionAt=at;room.seq++;
      let amount=0;
      if(item.kind==='hp'){const before=attacker.hp;attacker.hp=Math.min(attacker.stats.hp,attacker.hp+item.amount);amount=attacker.hp-before;}
      else{const before=attacker.mp;attacker.mp=Math.min(attacker.stats.mp,attacker.mp+item.amount);amount=attacker.mp-before;}
@@ -367,16 +409,23 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(at-number(attacker.lastActionAt)>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
      const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
-     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;await awardWinner(walletToken,walletWrites,uid);}
+     if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
     }else if(operation==='continue'){
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;});
-      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.lastEvent={type:'start',at:now()};
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
     room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
+   }
+   if(previousStatus==='playing'&&room.status==='finished'){
+    room.pendingSettlement=createPendingSettlement(room,previousPlayers,room.winnerUid);
+    const winner=room.players.find(player=>player.uid===room.winnerUid);
+    if(winner)winner.coinsAtJoin=Math.max(0,Math.floor(number(winner.coinsAtJoin)))+1;
+    const roomWriteIndex=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
+    if(roomWriteIndex>=0)roomWrites[roomWriteIndex]=roomWrite(id,room,stored);
    }
    if(previousStatus==='playing'&&room.status==='finished'&&room.winnerUid&&previousPlayers.length===2){
     const gradeKey=ROOM_RULES[id].gradeKey,endedAt=room.matchEndedAt||now();
@@ -389,10 +438,15 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    if(roomWrites.length&&lobbyStateChanged(beforeLobby,lobbyState(room,id)))roomWrites.push(lobbyWrite(id,room));
    let roomCommitted=false;
    try{
-    await commitAt(battle.base,roomToken,roomWrites);
+    const result=await commitAt(battle.base,roomToken,roomWrites);
     roomCommitted=true;
-    if(walletWrites.length)await commitAt(base,walletToken,walletWrites,'コイン・アイテム情報を更新できませんでした。もう一度お試しください。');
-    return {room:publicRoom(room,id)};
+    if(room.pendingSettlement){
+     const roomIndex=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
+     const saved={value:room,updateTime:result.writeResults?.[roomIndex]?.updateTime||stored?.updateTime||''};
+     try{await settlePending(id,roomToken,walletToken,saved);}
+     catch(e){console.warn('Online battle settlement deferred for retry',String(e?.message||e));}
+    }
+    return {room:publicRoom(room,id,uid)};
    }catch(e){
     if(!roomCommitted&&e.retryable&&attempt<3)continue;
     throw e;
@@ -451,7 +505,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
    if(!match)throw error('対戦ルームが見つかりません。',404);
    const id=match[1],operation=match[2];
-   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,roomToken)});
+   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,roomToken,user.uid)});
    if(req.method!=='POST'||!operation)throw error('この操作は利用できません。',405);
    const walletToken=await accessToken(),body=await readJson(req,1024),result=await act(id,user.uid,roomToken,walletToken,operation,body);
    send(res,200,{ok:true,...result});
