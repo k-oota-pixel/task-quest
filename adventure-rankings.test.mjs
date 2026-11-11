@@ -41,7 +41,7 @@ test('normal GET restores one current-season summary document once, then serves 
   }
  });
  const get=async mode=>{const response={};await api.handle({method:'GET',url:'/?mode='+mode,headers:{}},response);return response;};
- let response=await get('tower');assert.equal(response.status,200);assert.equal(response.body.leaders.length,3);assert.deepEqual(response.body.leaders[0],{petName:'もこ',floor:100,cleared:true,rank:1,title:'魔王の塔の覇者'});assert.equal(response.body.leaders[1].cleared,undefined);
+ let response=await get('tower');assert.equal(response.status,200);assert.equal(response.body.leaders.length,3);assert.deepEqual(response.body.leaders[0],{uid:'u',petName:'もこ',floor:100,cleared:true,rank:1,title:'魔王の塔の覇者'});assert.equal(response.body.leaders[1].cleared,undefined);
  response=await get('dungeon');assert.equal(response.body.leaders[0].petName,'まる');assert.equal(summaryReads,1);assert.equal(scans,0);
  t=60001;await get('tower');assert.equal(summaryReads,1);assert.equal(scans,0);
  assert.equal((await get('unknown')).status,400);

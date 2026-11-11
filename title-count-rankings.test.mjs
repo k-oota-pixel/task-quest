@@ -46,7 +46,7 @@ test('first lookup creates a durable summary; later viewers use cache with no Fi
  });
  const first=await api.snapshot();
  assert.deepEqual(first.leaders.map(x=>x.petName),['あ','び','し']);
- assert.equal(first.leaders.some(x=>x.uid),false);
+ assert.deepEqual(first.leaders.map(x=>x.uid),['a','b','c'],'title ranking must include stable pet-view IDs');
  assert.equal(writes,1);assert.equal(reads,1);assert.equal(batchReads,1);
  const again=await api.snapshot();assert.deepEqual(again,first);
  assert.equal(reads,1);assert.equal(batchReads,1);

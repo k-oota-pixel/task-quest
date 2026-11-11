@@ -37,7 +37,7 @@ function encodeValue(value){
 }
 const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([key,item])=>[key,encodeValue(item)]));
 function uidFromName(name){const match=String(name||'').match(/\/documents\/users\/([^/]+)\/apps\/english-playroom$/);return match?decodeURIComponent(match[1]):'';}
-function publicRows(rows){return rows.map(({uid,...row})=>row);}
+function publicRows(rows){return rows.map(row=>({...row}));}
 function sameRows(a,b){return JSON.stringify(a.map(({uid,petName,floor,cleared})=>({uid,petName,floor,cleared:cleared===true})))===JSON.stringify(b.map(({uid,petName,floor,cleared})=>({uid,petName,floor,cleared:cleared===true})));}
 export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],accessToken,decodeFields,decorate,send,fail,fetch:request=globalThis.fetch,now=Date.now,webApiKey=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygMSEIORXhKZOaDjYvpSJ4EQ',rankingStore=runtimePublicRankingCache()}){
  const docUrl=base+'/documents/leaderboards/adventure';
@@ -127,15 +127,18 @@ export function createAdventureRankings({base,activeIds,excludedIds=async()=>[],
  }
  async function decorateSummary(value){
   const tower=sanitizeLeaders(value?.tower),dungeon=sanitizeLeaders(value?.dungeon),combined=[...tower.map(row=>({...row,__mode:'tower'})),...dungeon.map(row=>({...row,__mode:'dungeon'}))];
-  const decorated=decorate?await decorate(combined):combined.map(({uid,...row})=>row),result={tower:[],dungeon:[]};
-  for(const item of decorated){const currentMode=item.__mode;if(!Object.hasOwn(result,currentMode))continue;const {__mode,...row}=item;result[currentMode].push(row);}return result;
+  const decorated=decorate?await decorate(combined):combined,result={tower:[],dungeon:[]};
+  for(const [index,item] of decorated.entries()){
+   const currentMode=combined[index]?.__mode;if(!Object.hasOwn(result,currentMode))continue;
+   const {__mode,...row}=item;result[currentMode].push({...row,uid:combined[index].uid});
+  }return result;
  }
  async function snapshot(){
   if(cached&&now()-cached.fetchedAt<60000){if(!cached.public)cached.public=await decorateSummary(cached.value);return {rankingSchema:RANKING_SCHEMA,exclusionVersion:1,towerSeason:TOWER_SEASON,fetchedAt:cached.fetchedAt,...cached.public};}
   if(inflight)return inflight;if(now()<retryAfter)throw fail('少し待ってから再表示してください。',503);
   inflight=load().then(async stored=>{cached={...stored,fetchedAt:now(),public:null};cached.public=await decorateSummary(cached.value);return {rankingSchema:RANKING_SCHEMA,exclusionVersion:1,towerSeason:TOWER_SEASON,fetchedAt:cached.fetchedAt,...cached.public};}).catch(error=>{retryAfter=now()+5000;throw error;}).finally(()=>{inflight=null;});return inflight;
  }
- async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot,valid:value=>value?.rankingSchema===RANKING_SCHEMA&&value?.exclusionVersion===1&&value?.towerSeason===TOWER_SEASON});}
+ async function sharedSnapshot(){return rankingStore.getSection('adventure',{load:snapshot,valid:value=>value?.rankingSchema===RANKING_SCHEMA&&value?.exclusionVersion===1&&value?.towerSeason===TOWER_SEASON&&['tower','dungeon'].every(mode=>Array.isArray(value[mode])&&value[mode].every(row=>typeof row.uid==='string'&&row.uid.length>0))});}
  async function refreshSharedSnapshot(){const result=await snapshot();await rankingStore.setSection('adventure',result);return result;}
  async function publish({uid,mode,floor,petName,cleared=false}){
   if(!uid||!Object.hasOwn(MODES,mode)||(floor=floorOf(floor))===0)return null;

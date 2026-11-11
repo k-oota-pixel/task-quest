@@ -46,6 +46,7 @@ test('legacy daily stage counts seed best records once and a saved stage updates
  assert.deepEqual(res.body.leaders.map(x=>[x.petName,x.floor,x.rank,x.cleared===true]),[
   ['ペットa',5,1,true],['ペットb',5,1,true],['ペットc',3,3,false]]);
  assert.equal(res.body.leaders[0].title,'称号 a');
+ assert.equal(res.body.leaders[0].uid,'a','defense ranking must preserve pet-view ID');
  res={};await api.handle({method:'GET',url:'/?mode=hard'},res);
  assert.deepEqual(res.body.leaders.map(x=>[x.petName,x.floor,x.rank]),[
   ['ペットb',4,1],['ペットc',2,2],['ペットa',1,3]]);

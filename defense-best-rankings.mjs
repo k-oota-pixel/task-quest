@@ -7,7 +7,7 @@ const stageOf=value=>Math.max(0,Math.min(5,Math.floor(Number(value)||0)));
 const cleanName=value=>String(value||'').normalize('NFKC').trim().slice(0,24)||'名前未設定のペット';
 const uniqueId=name=>{const match=String(name||'').match(/\/learning_activity\/([^/]+)$/);return match?decodeURIComponent(match[1]):'';};
 const walletId=name=>{const match=String(name||'').match(/\/users\/([^/]+)\/apps\/english-playroom$/);return match?decodeURIComponent(match[1]):'';};
-const publicRows=rows=>rows.map(({uid,...row})=>row);
+const publicRows=rows=>rows.map(row=>({...row}));
 export function defenseTopThree(rows=[]){
  const unique=new Map();
  for(const row of rows){

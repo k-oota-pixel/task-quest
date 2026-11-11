@@ -1,4 +1,4 @@
-import {titleState,TITLE_CONTENTS,RANKING_ONLY_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,RANKING_ONLY_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET,DEFENSE_TITLE_APP,defenseTitleProgress,ONLINE_TITLE_APP,onlineBattleTitleProgress} from './title-model.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 const encodeInt=value=>({integerValue:String(Math.max(0,Math.floor(Number(value)||0)))});
 const unlockedCount=titles=>new Set((titles||[]).filter(t=>t?.unlocked&&typeof t.id==='string').map(t=>t.id)).size;
@@ -25,7 +25,10 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   try{await patchWalletSummary(uid,token,summary,previous);}catch(error){console.warn('Title wallet summary sync deferred',error?.message||error);}
  }
  async function read(uid,{includeWeekly=false}={}){
-  const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...TITLE_CONTENTS.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
+  // Defense titles derive from the wallet and already-loaded activity record.
+  // Do not add a new title_progress document read just for this game.
+  const progressApps=TITLE_CONTENTS.filter(x=>x.id!==DEFENSE_TITLE_APP&&x.id!==ONLINE_TITLE_APP);
+  const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...progressApps.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
   const rows=await response.json(),values=paths.map(p=>decodeFields(rows.find(r=>r.found?.name===prefix+p)?.found?.fields||{}));
@@ -43,7 +46,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    });
    if(response.ok){selection.weeklyEarnedIds=ids;}else console.warn('Weekly title award sync deferred',response.status);
   }
-  const state=titleState({activity:values[0],retry:values[1],selection,progress:Object.fromEntries(TITLE_CONTENTS.map((x,i)=>[x.id,values[i+3]])),wallet,weeklyEarnedIds:selection.weeklyEarnedIds,weeklyProgress:weekly.progress||{}});
+  const state=titleState({activity:values[0],retry:values[1],selection,progress:Object.fromEntries(progressApps.map((x,i)=>[x.id,values[i+3]])),wallet,weeklyEarnedIds:selection.weeklyEarnedIds,weeklyProgress:weekly.progress||{}});
   state.unlockedTitleCount=unlockedCount(state.titles);
   state.weeklyPeriod=weekly.week||'';
   state.weeklyProgress=weekly.progress||{};
@@ -77,7 +80,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    const value=await response.json();rows=Array.isArray(value)?value:[value];
   }
   const names=new Map(uids.map(uid=>[uid,validTitleName(decodeFields(rows.find(r=>r.found?.name===prefix+'user_titles/'+uid)?.found?.fields||{}).selectedId)]));
-  return leaders.map(({uid,...entry})=>({...entry,title:names.get(uid)||'称号なし'}));
+  return leaders.map(({uid,...entry})=>({...entry,uid,title:names.get(uid)||'称号なし'}));
  }
  async function readSelection(uid){
   const token=await accessToken(),walletResponse=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom',{headers:{Authorization:'Bearer '+token}});
@@ -104,7 +107,27 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   }
   const creative=Object.entries(creativeCatalog).find(([,titles])=>titles.some(title=>title.id===selectedId));
   if(creative){
-   const [appId]=creative,name=prefix+`title_progress/${uid}/activities/${appId}`,token=await accessToken();
+   const [appId]=creative;
+   if(appId===ONLINE_TITLE_APP){
+    // A single existing wallet read proves ownership; no additional progress document.
+    const token=await accessToken(),name=prefix+`users/${uid}/apps/english-playroom`;
+    const response=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom',{headers:{Authorization:'Bearer '+token}});
+    if(!response.ok)throw fail('オンライン対戦の称号を確認できませんでした。',502);
+    const wallet=decodeFields((await response.json()).fields||{});
+    const title=creativeTitles(appId,onlineBattleTitleProgress(wallet)).find(item=>item.id===selectedId);
+    if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);
+    return title.name;
+   }
+   if(appId===DEFENSE_TITLE_APP){
+    const token=await accessToken(),names=[prefix+`learning_activity/${uid}`,prefix+`users/${uid}/apps/english-playroom`];
+    const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:names})});
+    if(!response.ok)throw fail('称号を確認できませんでした。',502);
+    const rows=await response.json(),activity=decodeFields(rows.find(row=>row.found?.name===names[0])?.found?.fields||{}),wallet=decodeFields(rows.find(row=>row.found?.name===names[1])?.found?.fields||{});
+    const title=creativeTitles(appId,defenseTitleProgress(activity,wallet)).find(item=>item.id===selectedId);
+    if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);
+    return title.name;
+   }
+   const name=prefix+`title_progress/${uid}/activities/${appId}`,token=await accessToken();
    const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
    if(!response.ok)throw fail('称号を確認できませんでした。',502);
    const rows=await response.json(),progress=decodeFields(rows.find(row=>row.found?.name===name)?.found?.fields||{}),title=creativeTitles(appId,progress).find(item=>item.id===selectedId);

@@ -13,10 +13,16 @@ const compareEntries=(a,b)=>b.coinsToday-a.coinsToday||a.petName.localeCompare(b
 const cleanLeaders=leaders=>Array.isArray(leaders)?leaders.map(cleanEntry).filter(Boolean).sort(compareEntries).slice(0,3):[];
 const emptyBoard=today=>({schemaVersion:1,today,leaders:[]});
 const boardFor=(value,today)=>value?.today===today?{schemaVersion:1,today,leaders:cleanLeaders(value.leaders)}:emptyBoard(today);
-const publicTop3=leaders=>leaders.map(({petName,coinsToday})=>({petName,coinsToday}));
+const publicTop3=leaders=>leaders.map(({uid,petName,coinsToday})=>({uid,petName,coinsToday}));
+// The title decorator omits uids for other leaderboards. Restore them only for
+// the daily-coin board so a ranked pet can be opened without an extra lookup.
+async function viewableTop3(leaders,decorate){
+  const entries=decorate?await decorate(leaders):publicTop3(leaders);
+  return entries.map((entry,index)=>({...entry,uid:leaders[index]?.uid||''}));
+}
 
 async function publicBoard(today,leaders,decorate){
-  const top3=decorate?await decorate(leaders):publicTop3(leaders),result={today,top3,rankingAvailable:true};
+  const top3=await viewableTop3(leaders,decorate),result={today,top3,rankingAvailable:true};
   await publicRankingCache.setSection('dailyCoins',result);
   return result;
 }
@@ -104,7 +110,7 @@ export async function readDailyCoinBoard({
         try{
           const documents=await queryDailyCoinWallets(access,today);
           const leaders=rankWalletDocuments(documents,{today,decodeFields,earnedCoinsToday,validPetName});
-          return {top3:decorate?await decorate(leaders):publicTop3(leaders),rankingAvailable:true};
+          return {top3:await viewableTop3(leaders,decorate),rankingAvailable:true};
         }catch(error){log('Daily coin leaderboard ranking query failed',{status:error?.status||500,message:error?.message||'unknown'});return {top3:[],rankingAvailable:false};}
       })();
       if(rankingCache)rankingCache.pending={today,promise};
@@ -114,8 +120,8 @@ export async function readDailyCoinBoard({
     return {today,coinsToday,...ranking};
   }
 
-  const shared=await publicRankingCache.getSection('dailyCoins',{valid:value=>value?.today===today});
-  if(shared)return {today,coinsToday,top3:Array.isArray(shared.top3)?shared.top3:[],rankingAvailable:shared.rankingAvailable!==false};
+  const shared=await publicRankingCache.getSection('dailyCoins',{valid:value=>value?.today===today&&Array.isArray(value.top3)&&value.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0)});
+  if(shared?.today===today&&Array.isArray(shared.top3)&&shared.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0))return {today,coinsToday,top3:shared.top3,rankingAvailable:shared.rankingAvailable!==false};
 
   try{
     let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});

@@ -48,7 +48,7 @@ test('daily material rankings cache and current-day invalidation; closed days ar
  const prior=events.length;await rankings.userWeekly('v');assert.equal(events.length,prior);
  const res={};await rankings.handle({method:'GET',url:'/api/learning/material-rankings?appId=ateru'},res);
  assert.equal(res.status,200);assert.equal(res.value.leaders.length,2);
- assert.equal(res.value.leaders[0].uid,undefined);
+ assert.equal(res.value.leaders[0].uid,'u','pet-view action must receive the ranked user ID');
 });
 test('single top position is stable when counts tie',()=>{
  const rows=rankMaterialRows([{uid:'b',petName:'B',count:6},{uid:'a',petName:'A',count:6},{uid:'c',petName:'C',count:4}]);

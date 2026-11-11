@@ -42,7 +42,7 @@ function fixture(){
  }
  return {call,docs,count};
 }
-test('friend request and acceptance atomically update only two social documents',async()=>{
+test('friend request and acceptance atomically update only two existing profile documents',async()=>{
  const f=fixture();
  const sent=await f.call('alice','/request',{targetUid:'bob'});
  assert.equal(sent.status,200);assert.equal(f.count.reads,4);assert.equal(f.count.writes,2);
@@ -91,4 +91,51 @@ test('search supports nickname and pet names without Firestore list scanning',as
  assert.deepEqual((await f.call('alice','/search?q=%E3%83%9C%E3%83%96')).body.users.map(x=>x.uid),['bob']);
  assert.deepEqual((await f.call('alice','/search?q=%E3%81%BD%E3%81%A1')).body.users.map(x=>x.uid),['bob']);
  assert.equal(f.count.reads,0);
+});
+
+test('lazy migration preserves historical friends and pending applications without touching other profile fields',async()=>{
+ const f=fixture();
+ const aliceLegacy={friends:[],incoming:[],outgoing:[{uid:'bob',nickname:'ボブ',petName:'ぽち'}]};
+ const bobLegacy={friends:[],incoming:[{uid:'alice',nickname:'あかり',petName:'さくら'}],outgoing:[]};
+ f.docs.set('social_friends/alice',{fields:clone(aliceLegacy),updateTime:'v0'});
+ f.docs.set('social_friends/bob',{fields:clone(bobLegacy),updateTime:'v0'});
+ const first=await f.call('alice','');
+ assert.equal(first.status,200);
+ assert.deepEqual(first.body,aliceLegacy);
+ assert.equal(f.count.reads,2);
+ assert.equal(f.count.writes,1);
+ const alice=f.docs.get('users/alice/apps/english-playroom').fields;
+ assert.deepEqual(alice.socialFriends,{schemaVersion:1,...aliceLegacy});
+ assert.equal(alice.coins,999);
+ assert.deepEqual(alice.petShop.ownedItems,['frame1']);
+ const second=await f.call('alice','');
+ assert.equal(second.status,200);
+ assert.equal(f.count.reads,3);
+ assert.equal(f.count.writes,1);
+ const reply=await f.call('bob','/respond',{senderUid:'alice',accept:true});
+ assert.equal(reply.status,200);
+ assert.equal(f.count.writes,3);
+ const bob=f.docs.get('users/bob/apps/english-playroom').fields;
+ assert.equal(bob.coins,3);
+ assert.equal(bob.socialFriends.friends[0].uid,'alice');
+ assert.equal(f.docs.get('users/alice/apps/english-playroom').fields.socialFriends.friends[0].uid,'bob');
+ assert.equal(bob.socialFriends.incoming.length,0);
+ assert.equal(f.docs.get('users/alice/apps/english-playroom').fields.socialFriends.outgoing.length,0);
+ // The historical records are left untouched as a rollback backup.
+ assert.deepEqual(f.docs.get('social_friends/alice').fields,aliceLegacy);
+});
+test('new accounts initialize their empty social graph once and subsequent reads use one profile read',async()=>{
+ const f=fixture();
+ const first=await f.call('alice','');
+ assert.equal(first.status,200);
+ assert.deepEqual(first.body,{friends:[],incoming:[],outgoing:[]});
+ assert.equal(f.count.reads,2);
+ assert.equal(f.count.writes,1);
+ const second=await f.call('alice','');
+ assert.equal(second.status,200);
+ assert.equal(f.count.reads,3);
+ assert.equal(f.count.writes,1);
+ assert.deepEqual(f.docs.get('users/alice/apps/english-playroom').fields.socialFriends,{
+  schemaVersion:1,friends:[],incoming:[],outgoing:[]
+ });
 });

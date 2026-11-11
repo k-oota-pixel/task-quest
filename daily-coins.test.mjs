@@ -22,5 +22,10 @@ const docs=[
 const ranked=await readDailyCoinBoard({...common,queryDailyCoinWallets:async()=>docs,decodeFields:x=>x,earnedCoinsToday:data=>data.coinsToday});
 assert.equal(ranked.coinsToday,0);
 assert.equal(ranked.rankingAvailable,true);
-assert.deepEqual(ranked.top3,[{petName:'えま',coinsToday:18},{petName:'ルル',coinsToday:12},{petName:'もこ',coinsToday:9}]);
-console.log('Daily coin board: wallet total survives ranking failure; successful rankings return the sorted top three');
+assert.deepEqual(ranked.top3,[{uid:'b',petName:'えま',coinsToday:18},{uid:'c',petName:'ルル',coinsToday:12},{uid:'a',petName:'もこ',coinsToday:9}]);
+const decorated=await readDailyCoinBoard({...common,queryDailyCoinWallets:async()=>docs,decodeFields:x=>x,earnedCoinsToday:data=>data.coinsToday,
+  decorate:leaders=>leaders.map(({uid,...entry})=>({...entry,title:'がんばり屋'}))});
+assert.deepEqual(decorated.top3,[{petName:'えま',coinsToday:18,title:'がんばり屋',uid:'b'},
+  {petName:'ルル',coinsToday:12,title:'がんばり屋',uid:'c'},
+  {petName:'もこ',coinsToday:9,title:'がんばり屋',uid:'a'}]);
+console.log('Daily coin board: wallet total survives ranking failure; successful rankings return the sorted top three with viewable pet IDs');
