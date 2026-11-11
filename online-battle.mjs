@@ -1,5 +1,6 @@
 import {createSign,randomUUID} from 'node:crypto';
 import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard,onlineBattleRankingScanComplete} from './online-battle-standings.mjs';
+import {ONLINE_TITLE_APP,onlineBattleTitleProgress,nextOnlineBattleTitleStats,creativeTitles} from './title-model.mjs';
 
 const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
 const GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));
@@ -135,7 +136,7 @@ function profile(data,uid){
  const stats=petStats(data);
  return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0,coinsAtJoin:Math.max(0,Math.floor(number(data.coins))),battleInventory:normalizeInventory(data.petDungeonItems),spentItems:{}};
 }
-function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchId:'',pendingSettlement:null,matchEndedAt:0,updatedAt:Date.now()};}
+function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchId:'',pendingSettlement:null,titleAwards:{},matchEndedAt:0,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2).map(player=>{
@@ -154,11 +155,15 @@ function resetExpiredRoom(room,id,at){
  return fresh;
 }
 function createPendingSettlement(room,players=room.players,winnerUid=room.winnerUid){
+ const played=Boolean(winnerUid&&players?.length===2&&players.some(p=>p.uid===winnerUid));
  const entries=(players||[]).map(player=>({
   uid:String(player.uid||''),
   coins:player.uid===winnerUid?1:0,
+  played,
+  gradeKey:room.gradeKey,
+  won:played&&player.uid===winnerUid,
   items:Object.fromEntries(DUNGEON_ITEMS.map(item=>[item.id,Math.max(0,Math.floor(number(player.spentItems?.[item.id])))]).filter(([,count])=>count>0))
- })).filter(row=>row.uid&&(row.coins>0||Object.keys(row.items).length>0));
+ })).filter(row=>row.uid&&(row.played||row.coins>0||Object.keys(row.items).length>0));
  if(!entries.length)return null;
  const matchId=String(room.matchId||'legacy-'+room.roomId+'-'+room.updatedAt+'-'+room.seq).replace(/[^A-Za-z0-9-]/g,'-');
  return {id:matchId,roomId:room.roomId,entries,createdAt:Date.now()};
@@ -195,8 +200,8 @@ export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
  return {room,changed,reason};
 }
 function publicRoom(value,id,viewerUid=''){
- const {pendingSettlement,...room}=safeRoom(value,id);
- return {...room,players:room.players.map(player=>{
+ const {pendingSettlement,titleAwards,...room}=safeRoom(value,id);
+ return {...room,freshTitles:room.status==='finished'?(Array.isArray(titleAwards?.[viewerUid])?titleAwards[viewerUid]:[]):[],players:room.players.map(player=>{
   const {battleInventory,spentItems,coinsAtJoin,...safe}=player;
   return {...safe,petShop:player.petShop||{},...(player.uid===viewerUid?{inventory:battleInventory,coins:coinsAtJoin}:{})};
  })};
@@ -269,8 +274,26 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   return {update:{name:baseName(battle.projectId,statsPath(gradeKey,uid)),fields:encodeFields(standing)},updateMask:{fieldPaths:Object.keys(standing)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
  }
  function ledgerPath(id){return 'onlineBattleSettlements/'+encodeURIComponent(id);}
- function settlementWrites(settlement){
-  const writes=[{update:{name:baseName(projectId,ledgerPath(settlement.id)),fields:encodeFields({id:settlement.id,roomId:settlement.roomId,createdAt:settlement.createdAt})},currentDocument:{exists:false}}];
+ // Reuse the existing per-match ledger. Titles and coins are committed atomically
+ // to Firebase #1; no title document, per-attack write, or new Firebase #2 read.
+ function settlementWrites(settlement,wallets=new Map()){
+  const awards={},writes=[],titleStats=new Map();
+  for(const entry of settlement.entries){
+   if(!entry.played)continue;
+   if(!ONLINE_BATTLE_GRADES.includes(entry.gradeKey))throw error('対戦の級が正しくありません。',400);
+   const wallet=wallets.get(entry.uid);
+   if(!wallet?.updateTime)throw error('称号の保存先が見つかりません。',503);
+   const oldStats=field(wallet.value?.onlineBattleTitleStats);
+   const newStats=nextOnlineBattleTitleStats(oldStats,entry.gradeKey,Boolean(entry.won));
+   const oldIds=new Set(creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats})).filter(t=>t.unlocked).map(t=>t.id));
+   awards[entry.uid]=creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:newStats}))
+    .filter(t=>t.unlocked&&!oldIds.has(t.id))
+    .map(t=>({id:t.id,label:t.label,name:t.name,condition:t.condition}));
+   titleStats.set(entry.uid,newStats);
+  }
+  writes.push({update:{name:baseName(projectId,ledgerPath(settlement.id)),fields:encodeFields({
+   id:settlement.id,roomId:settlement.roomId,createdAt:settlement.createdAt,titleAwards:awards
+  })},currentDocument:{exists:false}});
   for(const entry of settlement.entries){
    const transforms=[];
    if(entry.coins)transforms.push({fieldPath:'coins',increment:encode(entry.coins)});
@@ -279,23 +302,47 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     const fieldPath='petDungeonItems.'+String.fromCharCode(96)+itemId+String.fromCharCode(96);
     transforms.push({fieldPath,increment:encode(-count)});
    }
-   if(transforms.length)writes.push({transform:{document:baseName(projectId,walletPath(entry.uid)),fieldTransforms:transforms},currentDocument:{exists:true}});
+   if(entry.played){
+    if((awards[entry.uid]||[]).length)transforms.push({fieldPath:'titleCountRevision',increment:encode(1)});
+    const wallet=wallets.get(entry.uid);
+    writes.push({
+     update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid))}},
+     updateMask:{fieldPaths:['onlineBattleTitleStats']},
+     ...(transforms.length?{updateTransforms:transforms}:{}),
+     currentDocument:{updateTime:wallet.updateTime}
+    });
+   }else if(transforms.length){
+    writes.push({transform:{document:baseName(projectId,walletPath(entry.uid)),fieldTransforms:transforms},currentDocument:{exists:true}});
+   }
   }
-  return writes;
+  return {writes,awards};
  }
  async function applySettlement(walletToken,settlement){
-  try{await commitAt(base,walletToken,settlementWrites(settlement),'対戦報酬・アイテムの精算を保存できませんでした。');}
-  catch(e){
-   const saved=await getDocAt(base,walletToken,ledgerPath(settlement.id),'精算記録を確認できませんでした。');
-   if(saved?.value?.id===settlement.id)return;
-   throw e;
+  for(let attempt=0;attempt<4;attempt++){
+   const players=settlement.entries.filter(entry=>entry.played);
+   const snapshots=await Promise.all(players.map(entry=>userWallet(walletToken,entry.uid)));
+   const wallets=new Map(players.map((entry,i)=>[entry.uid,snapshots[i]]));
+   const {writes,awards}=settlementWrites(settlement,wallets);
+   try{
+    await commitAt(base,walletToken,writes,'対戦報酬・称号・アイテムの精算を保存できませんでした。');
+    return awards;
+   }catch(e){
+    const saved=await getDocAt(base,walletToken,ledgerPath(settlement.id),'精算記録を確認できませんでした。');
+    if(saved?.value?.id===settlement.id)return field(saved.value.titleAwards);
+    if(e.retryable&&attempt<3)continue;
+    throw e;
+   }
   }
+  throw error('対戦報酬の保存が競合しました。',503);
  }
  async function settlePending(id,roomToken,walletToken,stored){
   const pending=stored?.value?.pendingSettlement;
   if(!pending)return false;
-  await applySettlement(walletToken,pending);
-  const room=safeRoom(stored.value,id);room.pendingSettlement=null;
+  const awards=await applySettlement(walletToken,pending);
+  const room=safeRoom(stored.value,id);
+  room.pendingSettlement=null;
+  room.titleAwards=awards;
+  room.lastSettledMatchId=pending.id;
   try{await commitAt(battle.base,roomToken,[roomWrite(id,room,stored)],'精算状態を保存できませんでした。');}
   catch(e){if(!e.retryable)throw e;}
   return true;
@@ -359,7 +406,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      players[index]={...players[index],ready:true};room.players=players;
      if(players.every(p=>p.ready)){
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;});
-      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.lastEvent={type:'start',at:now()};
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else if(operation==='miss'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -415,7 +462,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
       players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;});
-      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.lastEvent={type:'start',at:now()};
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
     room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
