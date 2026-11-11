@@ -8,7 +8,8 @@ export function createGoogleAccessToken({
  now=Date.now,
  logger=console,
  timeoutMs=10000,
- maxAttempts=2
+ maxAttempts=2,
+ scopes=['https://www.googleapis.com/auth/cloud-platform']
 }){
  let token='',expiresAt=0,inFlight=null;
  return async function getGoogleAccessToken(){
@@ -18,7 +19,7 @@ export function createGoogleAccessToken({
    const sa=serviceAccount(),issued=Math.floor(now()/1000);
    const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
    const unsigned=encode({alg:'RS256',typ:'JWT'})+'.'+encode({
-    iss:sa.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',
+    iss:sa.client_email,scope:scopes.join(' '),
     aud:'https://oauth2.googleapis.com/token',iat:issued,exp:issued+3600
    });
    const signer=createSign('RSA-SHA256');
