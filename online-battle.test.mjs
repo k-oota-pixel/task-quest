@@ -243,28 +243,70 @@ test('再戦は双方0コインでも可能で財布のread/writeがない',asyn
  assert.ok(result.commits.flat().every(write=>!write.update.name.includes('/users/')));
 });
 
-test('勝利時は0コインの勝者に正確に1コイン付与する',async()=>{
+test('勝利報酬はFirebase①のwallet readなしで一度だけ精算する',async()=>{
  const initial=room({
-  roomId:'4-1',status:'playing',players:[player('test-user',999_000),{...player('opponent',999_000),hp:1}]
+  roomId:'4-1',status:'playing',matchId:'match-one',
+  players:[player('test-user',999_000),{...player('opponent',999_000),hp:1}]
  });
  const result=await simulateCoinlessBattle('attack',initial);
  assert.equal(result.response.status,200);
  assert.equal(result.response.body.room.status,'finished');
  assert.equal(result.response.body.room.winnerUid,'test-user');
- assert.equal(result.reads.filter(name=>name==='wallet').length,1);
- const walletWrites=result.commits.flat().filter(write=>write.update.name.includes('/users/'));
- assert.equal(walletWrites.length,1);
- assert.equal(walletWrites[0].update.fields.coins.integerValue,'1');
+ assert.equal(result.reads.filter(name=>name==='wallet').length,0);
+ const writes=result.commits.flat();
+ const ledgers=writes.filter(write=>write.update?.name.includes('/onlineBattleSettlements/'));
+ assert.equal(ledgers.length,1);
+ assert.equal(ledgers[0].currentDocument.exists,false);
+ const wallets=writes.filter(write=>write.transform?.document.includes('/users/'));
+ assert.equal(wallets.length,1);
+ assert.equal(wallets[0].transform.fieldTransforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
 });
 
-test('相手が対戦中に退室した不戦勝でも1コイン付与する',async()=>{
+test('試合終了による不戦勝でもwallet readなしで報酬を精算する',async()=>{
  const initial=room({
-  roomId:'4-1',status:'playing',players:[player('test-user',999_000),player('opponent',999_000)]
+  roomId:'4-1',status:'playing',matchId:'forfeit-match',
+  players:[player('test-user',999_000),player('opponent',999_000)]
  });
  const result=await simulateCoinlessBattle('leave',initial,'opponent');
  assert.equal(result.response.status,200);
  assert.equal(result.response.body.room.winnerUid,'test-user');
- const walletWrites=result.commits.flat().filter(write=>write.update.name.includes('/users/'));
+ assert.equal(result.reads.filter(name=>name==='wallet').length,0);
+ const wallets=result.commits.flat().filter(write=>write.transform?.document.includes('/users/'));
+ assert.equal(wallets.length,1);
+ assert.equal(wallets[0].transform.document.endsWith('/users/test-user/apps/english-playroom'),true);
+ assert.equal(wallets[0].transform.fieldTransforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
+});
+
+test('アイテム消費は対戦中の①read/writeなし・終了時に一回だけ精算する',async()=>{
+ const initial=room({
+  roomId:'4-1',status:'playing',matchId:'items-match',
+  players:[{...player('test-user',999_000),hp:5,battleInventory:{bandage:1},spentItems:{bandage:1}},
+   {...player('opponent',999_000),hp:1}]
+ });
+ const result=await simulateCoinlessBattle('attack',initial);
+ assert.equal(result.response.status,200);
+ assert.equal(result.reads.filter(name=>name==='wallet').length,0);
+ const walletWrites=result.commits.flat().filter(write=>write.transform?.document.includes('/users/'));
  assert.equal(walletWrites.length,1);
- assert.equal(walletWrites[0].update.fields.coins.integerValue,'1');
+ const transforms=walletWrites[0].transform.fieldTransforms;
+ assert.equal(transforms.find(field=>field.fieldPath==='petDungeonItems.`bandage`').increment.integerValue,'-1');
+ assert.equal(transforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
+ const firstRoomWrite=result.commits.flat().find(write=>write.update?.name.endsWith('/onlineBattleRooms/room4-1'));
+ const savedPlayers=firstRoomWrite.update.fields.players.arrayValue.values;
+ assert.deepEqual(savedPlayers[0].mapValue.fields.spentItems.mapValue.fields,{},'精算後に次の試合へ持ち越さない');
+});
+
+test('タイムアウトで残ったプレイヤーの使用済アイテムを次戦へ持ち越さない',()=>{
+ const at=1_000_000;
+ const previous=room({
+  roomId:'4-1',status:'playing',matchId:'timeout-item-test',
+  players:[{...player('expired',at-ONLINE_BATTLE_JOIN_TTL_MS),spentItems:{bandage:2}},
+   {...player('survivor',at-1000),spentItems:{medicine:1}}]
+ });
+ const result=cleanupOnlineBattleRoom(previous,'4-1',at);
+ assert.equal(result.changed,true);
+ assert.equal(result.room.players.length,1);
+ assert.deepEqual(result.room.players[0].spentItems,{});
+ const entry=result.room.pendingSettlement.entries.find(e=>e.uid==='survivor');
+ assert.equal(entry.items.medicine,1);
 });
