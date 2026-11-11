@@ -243,7 +243,7 @@ test('再戦は双方0コインでも可能で財布のread/writeがない',asyn
  assert.ok(result.commits.flat().every(write=>!write.update.name.includes('/users/')));
 });
 
-test('勝利報酬はFirebase①のwallet readなしで一度だけ精算する',async()=>{
+test('勝利報酬はFirebase①のwalletを2件読み一度だけ精算する',async()=>{
  const initial=room({
   roomId:'4-1',status:'playing',matchId:'match-one',
   players:[player('test-user',999_000),{...player('opponent',999_000),hp:1}]
@@ -252,17 +252,17 @@ test('勝利報酬はFirebase①のwallet readなしで一度だけ精算する'
  assert.equal(result.response.status,200);
  assert.equal(result.response.body.room.status,'finished');
  assert.equal(result.response.body.room.winnerUid,'test-user');
- assert.equal(result.reads.filter(name=>name==='wallet').length,0);
+ assert.equal(result.reads.filter(name=>name==='wallet').length,2);
  const writes=result.commits.flat();
  const ledgers=writes.filter(write=>write.update?.name.includes('/onlineBattleSettlements/'));
  assert.equal(ledgers.length,1);
  assert.equal(ledgers[0].currentDocument.exists,false);
- const wallets=writes.filter(write=>write.transform?.document.includes('/users/'));
+ const wallets=writes.filter(write=>write.update?.name.includes('/users/')&&write.updateTransforms?.some(field=>field.fieldPath==='coins'));
  assert.equal(wallets.length,1);
- assert.equal(wallets[0].transform.fieldTransforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
+ assert.equal(wallets[0].updateTransforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
 });
 
-test('試合終了による不戦勝でもwallet readなしで報酬を精算する',async()=>{
+test('試合終了による不戦勝でもwalletを2件読み報酬を精算する',async()=>{
  const initial=room({
   roomId:'4-1',status:'playing',matchId:'forfeit-match',
   players:[player('test-user',999_000),player('opponent',999_000)]
@@ -270,11 +270,11 @@ test('試合終了による不戦勝でもwallet readなしで報酬を精算す
  const result=await simulateCoinlessBattle('leave',initial,'opponent');
  assert.equal(result.response.status,200);
  assert.equal(result.response.body.room.winnerUid,'test-user');
- assert.equal(result.reads.filter(name=>name==='wallet').length,0);
- const wallets=result.commits.flat().filter(write=>write.transform?.document.includes('/users/'));
+ assert.equal(result.reads.filter(name=>name==='wallet').length,2);
+ const wallets=result.commits.flat().filter(write=>write.update?.name.includes('/users/')&&write.updateTransforms?.some(field=>field.fieldPath==='coins'));
  assert.equal(wallets.length,1);
- assert.equal(wallets[0].transform.document.endsWith('/users/test-user/apps/english-playroom'),true);
- assert.equal(wallets[0].transform.fieldTransforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
+ assert.equal(wallets[0].update.name.endsWith('/users/test-user/apps/english-playroom'),true);
+ assert.equal(wallets[0].updateTransforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
 });
 
 test('アイテム消費は対戦中の①read/writeなし・終了時に一回だけ精算する',async()=>{
@@ -285,10 +285,10 @@ test('アイテム消費は対戦中の①read/writeなし・終了時に一回�
  });
  const result=await simulateCoinlessBattle('attack',initial);
  assert.equal(result.response.status,200);
- assert.equal(result.reads.filter(name=>name==='wallet').length,0);
- const walletWrites=result.commits.flat().filter(write=>write.transform?.document.includes('/users/'));
+ assert.equal(result.reads.filter(name=>name==='wallet').length,2);
+ const walletWrites=result.commits.flat().filter(write=>write.update?.name.includes('/users/')&&write.updateTransforms?.some(field=>field.fieldPath==='coins'));
  assert.equal(walletWrites.length,1);
- const transforms=walletWrites[0].transform.fieldTransforms;
+ const transforms=walletWrites[0].updateTransforms;
  assert.equal(transforms.find(field=>field.fieldPath==='petDungeonItems.`bandage`').increment.integerValue,'-1');
  assert.equal(transforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
  const firstRoomWrite=result.commits.flat().find(write=>write.update?.name.endsWith('/onlineBattleRooms/room4-1'));
@@ -310,3 +310,4 @@ test('タイムアウトで残ったプレイヤーの使用済アイテムを�
  const entry=result.room.pendingSettlement.entries.find(e=>e.uid==='survivor');
  assert.equal(entry.items.medicine,1);
 });
+
