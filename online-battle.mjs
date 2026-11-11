@@ -286,7 +286,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    if(!wallet?.updateTime)throw error('称号の保存先が見つかりません。',503);
    const oldStats=field(wallet.value?.onlineBattleTitleStats);
    const newStats=nextOnlineBattleTitleStats(oldStats,entry.gradeKey,Boolean(entry.won));
-   const oldIds=new Set(creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats})).filter(t=>t.unlocked).map(t=>t.id));
+   const oldIds=wallet._titleMigrated?new Set():new Set(creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats})).filter(t=>t.unlocked).map(t=>t.id));
    awards[entry.uid]=creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:newStats}))
     .filter(t=>t.unlocked&&!oldIds.has(t.id))
     .map(t=>({id:t.id,label:t.label,name:t.name,condition:t.condition}));
@@ -342,7 +342,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     .map(async entry=>{
      const snapshot=wallets.get(entry.uid);
      const initial=await baselineOnlineTitleStats(roomToken,entry);
-     wallets.set(entry.uid,{...snapshot,value:{...snapshot.value,onlineBattleTitleStats:initial}});
+     wallets.set(entry.uid,{...snapshot,_titleMigrated:true,value:{...snapshot.value,onlineBattleTitleStats:initial}});
     }));
    const {writes,awards}=settlementWrites(settlement,wallets);
    try{
