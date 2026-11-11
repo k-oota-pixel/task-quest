@@ -1,4 +1,4 @@
-import {titleState,TITLE_CONTENTS,RANKING_ONLY_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET,DEFENSE_TITLE_APP,defenseTitleProgress} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,RANKING_ONLY_CONTENTS,validTitleName,creativeTitles,creativeCatalog,activityTitles,WEEKLY_DAYS_TARGET,DEFENSE_TITLE_APP,defenseTitleProgress,ONLINE_TITLE_APP,onlineBattleTitleProgress} from './title-model.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
 const encodeInt=value=>({integerValue:String(Math.max(0,Math.floor(Number(value)||0)))});
 const unlockedCount=titles=>new Set((titles||[]).filter(t=>t?.unlocked&&typeof t.id==='string').map(t=>t.id)).size;
@@ -27,7 +27,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  async function read(uid,{includeWeekly=false}={}){
   // Defense titles derive from the wallet and already-loaded activity record.
   // Do not add a new title_progress document read just for this game.
-  const progressApps=TITLE_CONTENTS.filter(x=>x.id!==DEFENSE_TITLE_APP);
+  const progressApps=TITLE_CONTENTS.filter(x=>x.id!==DEFENSE_TITLE_APP&&x.id!==ONLINE_TITLE_APP);
   const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...progressApps.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
@@ -108,6 +108,16 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   const creative=Object.entries(creativeCatalog).find(([,titles])=>titles.some(title=>title.id===selectedId));
   if(creative){
    const [appId]=creative;
+   if(appId===ONLINE_TITLE_APP){
+    // A single existing wallet read proves ownership; no additional progress document.
+    const token=await accessToken(),name=prefix+`users/${uid}/apps/english-playroom`;
+    const response=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom',{headers:{Authorization:'Bearer '+token}});
+    if(!response.ok)throw fail('オンライン対戦の称号を確認できませんでした。',502);
+    const wallet=decodeFields((await response.json()).fields||{});
+    const title=creativeTitles(appId,onlineBattleTitleProgress(wallet)).find(item=>item.id===selectedId);
+    if(!title?.unlocked)throw fail('未解放の称号は選択できません。',400);
+    return title.name;
+   }
    if(appId===DEFENSE_TITLE_APP){
     const token=await accessToken(),names=[prefix+`learning_activity/${uid}`,prefix+`users/${uid}/apps/english-playroom`];
     const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:names})});
