@@ -22,6 +22,7 @@ function decodeFields(fields) {
 }
 function fakeFirestore(wallet, prefix) {
  const docs = new Map();
+ let settlementGate;
  const counts = { reads: 0, writes: 0 };
  const walletOperations = { reads: 0, writes: 0 };
  const primaryOperations = { reads: 0, writes: 0 };
@@ -47,6 +48,11 @@ function fakeFirestore(wallet, prefix) {
    return doc ? Response.json({fields: { fixture: doc.value }, updateTime: doc.updateTime}) : new Response(null, { status: 404 });
   }
   const { writes } = JSON.parse(options.body);
+  if(primary&&settlementGate&&writes.some(write=>pathOf(write.update?.name||write.transform.document).startsWith(prefix+'Settlements/'))){
+   const gate=settlementGate;
+   settlementGate=null;
+   await gate;
+  }
   for (const write of writes) {
    const current = docs.get(pathOf(write.update?.name || write.transform.document));
    const guard = write.currentDocument;
@@ -74,7 +80,12 @@ function fakeFirestore(wallet, prefix) {
   });
   return Response.json({ writeResults });
  };
- return { request, docs, counts, walletOperations, primaryOperations };
+ function pauseNextSettlement(){
+  let release;
+  settlementGate=new Promise(resolve=>{release=resolve;});
+  return release;
+ }
+ return { request, docs, counts, walletOperations, primaryOperations, pauseNextSettlement };
 }
 
 function fakeRealtime() {
@@ -214,9 +225,20 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  const outsider = await fetch(origin+roomPath+'/live',{headers:{Authorization:'c'}});
  assert.equal(outsider.status,403);
  await outsider.body.cancel();
+ async function lobbyBytes(){
+  const before=realtime.bytes.snapshots;
+  const response=await fetch(origin+'/api/online-battle/lobby/4',{headers:{Authorization:'a'}});
+  assert.equal(response.status,200);
+  await response.json();
+  return realtime.bytes.snapshots-before;
+ }
+ const emptyLobbyBytes=realtime.port?await lobbyBytes():null;
  const joined=await api('a','join');
  assert.equal(joined.status,200,joined.error);
+ const onePlayerLobbyBytes=realtime.port?await lobbyBytes():null;
  assert.equal((await api('b','join')).status,200);
+ const twoPlayerLobbyBytes=realtime.port?await lobbyBytes():null;
+ if(realtime.port)t.diagnostic(JSON.stringify({emptyLobbyBytes,onePlayerLobbyBytes,twoPlayerLobbyBytes}));
  assert.deepEqual(firestore.walletOperations,{reads:2,writes:0});
  const first = await live('a');
  t.after(first.stop);
@@ -276,7 +298,24 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  const rematch=await api('a');
  assert.notEqual(rematch.room.matchId,finished.room.matchId);
  assert.equal((await api('a','attack',{matchId:finished.room.matchId})).status,409);
- assert.equal((await api('b','leave')).room.winnerUid,'a');
+ const finalUpdates=await live('a');
+ t.after(finalUpdates.stop);
+ assert.equal((await finalUpdates.next()).status,'playing');
+ const releaseSettlement=firestore.pauseNextSettlement();
+ const leaving=api('b','leave');
+ try{
+  const result=await finalUpdates.next();
+  assert.equal(result.status,'finished');
+  assert.equal(result.winnerUid,'a');
+  assert.equal(result.settlementPending,true);
+  assert.equal(result.players[0].coins,1);
+  assert.equal(firestore.docs.get(wallet('a')).value.coins,1);
+ }finally{releaseSettlement();}
+ assert.equal((await leaving).room.winnerUid,'a');
+ const settled=await finalUpdates.next();
+ assert.equal(settled.settlementPending,false);
+ assert.equal(settled.players[0].coins,2);
+ finalUpdates.stop();
  assert.equal(firestore.docs.get(wallet('a')).value.coins,2);
  assert.deepEqual(firestore.walletOperations,{reads:6,writes:4});
  assert.deepEqual(firestore.primaryOperations,{reads:6,writes:6});

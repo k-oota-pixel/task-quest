@@ -199,9 +199,11 @@ export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
 }
 function publicRoom(value,id,viewerUid=''){
  const {pendingSettlement,titleAwards,...room}=safeRoom(value,id);
- return {...room,freshTitles:room.status==='finished'?(Array.isArray(titleAwards?.[viewerUid])?titleAwards[viewerUid]:[]):[],players:room.players.map(player=>{
+ const settlementPending=room.status==='finished'&&Boolean(pendingSettlement);
+ return {...room,settlementPending,freshTitles:room.status==='finished'?(Array.isArray(titleAwards?.[viewerUid])?titleAwards[viewerUid]:[]):[],players:room.players.map(player=>{
   const {battleInventory,spentItems,coinsAtJoin,...safe}=player;
-  return {...safe,petShop:player.petShop||{},...(player.uid===viewerUid?{inventory:battleInventory,coins:coinsAtJoin}:{})};
+  const coins=settlementPending&&player.uid===room.winnerUid?Math.max(0,coinsAtJoin-1):coinsAtJoin;
+  return {...safe,petShop:player.petShop||{},...(player.uid===viewerUid?{inventory:battleInventory,coins}:{})};
  })};
 }
 function lobbyState(room,id){
@@ -652,7 +654,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     const initial=await snapshot(id,roomToken,user.uid);
     if(!initial.players.some(player=>player.uid===user.uid))throw error('先にルームへ入室してください。',403);
     return await roomStore.stream(id,res,async value=>{
-     const room=value?.pendingSettlement?await snapshot(id,roomToken,user.uid):publicRoom(value||emptyRoom(id),id,user.uid);
+     const room=publicRoom(value||emptyRoom(id),id,user.uid);
      if(!room.players.some(player=>player.uid===user.uid))return {roomId:id,seq:room.seq,players:[]};
      return room;
     });
