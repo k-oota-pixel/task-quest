@@ -35,23 +35,40 @@ export function createPetFriends({base,projectId,accessToken,verifyUser,readJson
     const fields=encodeFields(value);
     return {update:{name:prefix+path,fields},updateMask:{fieldPaths:Object.keys(fields)},currentDocument:raw?.updateTime?{updateTime:raw.updateTime}:{exists:false}};
   }
+  // The canonical friendship graph lives alongside the already-watched pet profile.
+  // Legacy social_friends documents are read only once per account during migration.
   const social=raw=>cleanSocial(raw?decodeFields(raw.fields||{}):{});
+  const embedded=raw=>{
+    if(!raw)return null;
+    const value=decodeFields(raw.fields||{}).socialFriends;
+    return value&&value.schemaVersion===1?cleanSocial(value):null;
+  };
+  const asField=value=>({schemaVersion:1,...cleanSocial(value)});
+  async function readSocial(token,profileRaw,uid){
+    const stored=embedded(profileRaw);
+    if(stored)return stored;
+    return social(await read(token,socialPath(uid)));
+  }
   async function mutate(user,otherUid,action,accept=false){
     if(!UID.test(otherUid||'')||otherUid===user.uid)throw err('相手を正しく選択してください。');
     const token=await accessToken();
     for(let attempt=0;attempt<4;attempt++){
-      const [leftRaw,rightRaw]=await Promise.all([read(token,socialPath(user.uid)),read(token,socialPath(otherUid))]);
-      const left=social(leftRaw),right=social(rightRaw);
+      // These are the same two profile documents that already store coins and gifts.
+      const [leftRaw,rightRaw]=await Promise.all([
+        read(token,profilePath(user.uid)),read(token,profilePath(otherUid))
+      ]);
+      if(!leftRaw||!rightRaw)throw err('プロフィールが見つかりません。',404);
+      const [left,right]=await Promise.all([
+        readSocial(token,leftRaw,user.uid),readSocial(token,rightRaw,otherUid)
+      ]);
       if(action==='request'){
         if(includes(left.friends,otherUid))throw err('すでにおともだちです。',409);
         if(includes(left.incoming,otherUid))throw err('相手からの申請が届いています。承認してください。',409);
         if(includes(left.outgoing,otherUid))return {ok:true,alreadyRequested:true};
         if(left.outgoing.length>=maxPending||right.incoming.length>=maxPending)throw err('申請件数の上限に達しました。',409);
-        // Names are read only on a new request; subsequent list views use one social document.
-        const [ownRaw,otherRaw]=await Promise.all([read(token,profilePath(user.uid)),read(token,profilePath(otherUid))]);
-        if(!ownRaw||!otherRaw)throw err('相手のペット情報を見つけられませんでした。',404);
-        left.outgoing.push(names(decodeFields(otherRaw.fields||{}),otherUid));
-        right.incoming.push(names(decodeFields(ownRaw.fields||{}),user.uid));
+        // The names are in the two profile reads above; no additional profile reads.
+        left.outgoing.push(names(decodeFields(rightRaw.fields||{}),otherUid));
+        right.incoming.push(names(decodeFields(leftRaw.fields||{}),user.uid));
       }else if(action==='respond'){
         if(!includes(left.incoming,otherUid)||!includes(right.outgoing,user.uid))throw err('申請が見つかりません。最新の一覧を取得してください。',409);
         const incoming=left.incoming.find(x=>x.uid===otherUid),outgoing=right.outgoing.find(x=>x.uid===user.uid);
@@ -72,7 +89,12 @@ export function createPetFriends({base,projectId,accessToken,verifyUser,readJson
         right.outgoing=right.outgoing.filter(x=>x.uid!==user.uid);
       }else throw err('不正な操作です。');
       try{
-        await commit(token,[write(socialPath(user.uid),left,leftRaw),write(socialPath(otherUid),right,rightRaw)]);
+        // Both updates are masked to socialFriends, and remain one atomic commit.
+        // Other profile fields (coins, gift inbox, equipment) are never overwritten.
+        await commit(token,[
+          write(profilePath(user.uid),{socialFriends:asField(left)},leftRaw),
+          write(profilePath(otherUid),{socialFriends:asField(right)},rightRaw)
+        ]);
         return {ok:true};
       }catch(error){if(error.status===409&&attempt<3)continue;throw error;}
     }
@@ -84,8 +106,19 @@ export function createPetFriends({base,projectId,accessToken,verifyUser,readJson
       const url=new URL(req.url||'/', 'http://localhost');
       if(path==='/api/friends'){
         if(req.method!=='GET')throw err('GETのみ対応しています。',405);
-        const raw=await read(await accessToken(),socialPath(user.uid));
-        return send(res,200,{...social(raw)});
+        const token=await accessToken();
+        for(let attempt=0;attempt<4;attempt++){
+          const raw=await read(token,profilePath(user.uid));
+          if(!raw)throw err('プロフィールが見つかりません。',404);
+          const current=embedded(raw);
+          if(current)return send(res,200,current);
+          // Lazy one-time migration of historical friends and pending requests.
+          const previous=social(await read(token,socialPath(user.uid)));
+          try{
+            await commit(token,[write(profilePath(user.uid),{socialFriends:asField(previous)},raw)]);
+            return send(res,200,previous);
+          }catch(error){if(error.status===409&&attempt<3)continue;throw error;}
+        }
       }
       if(path==='/api/friends/search'){
         if(req.method!=='GET')throw err('GETのみ対応しています。',405);
