@@ -121,7 +121,7 @@ export async function readDailyCoinBoard({
   }
 
   const shared=await publicRankingCache.getSection('dailyCoins',{valid:value=>value?.today===today&&Array.isArray(value.top3)&&value.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0)});
-  if(shared)return {today,coinsToday,top3:Array.isArray(shared.top3)?shared.top3:[],rankingAvailable:shared.rankingAvailable!==false};
+  if(shared?.today===today&&Array.isArray(shared.top3)&&shared.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0))return {today,coinsToday,top3:shared.top3,rankingAvailable:shared.rankingAvailable!==false};
 
   try{
     let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
