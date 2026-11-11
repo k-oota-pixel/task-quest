@@ -1,3 +1,4 @@
+import {DEFENSE_TITLE_APP,defenseTitleProgress,creativeTitles} from './title-model.mjs';
 // Settle one typing-defense play with one atomic Firestore commit.
 // The client never contacts Firestore while the enemy is moving or a phase ends.
 const MAX_PHASES=25;
@@ -31,15 +32,20 @@ export function createDefenseSettlement({
   return {exists:true,fields:decodeFields(data.fields||{}),updateTime:data.updateTime||''};
  };
  const currentDocument=doc=>doc.exists?{updateTime:doc.updateTime}:{exists:false};
- const result=(plan,day,duplicate=false)=>({
+ const result=(plan,day,duplicate=false,freshTitles=[])=>({
   ok:true,duplicate,mode:plan.mode,clearedPhases:plan.clearedPhases,
-  completedStage:plan.stage,coinsAdded:duplicate?0:plan.coins,earnedCoins:plan.coins,day
+  completedStage:plan.stage,coinsAdded:duplicate?0:plan.coins,earnedCoins:plan.coins,day,freshTitles
  });
  async function settle(user,body){
   const plan=defenseSettlementPlan(body.mode,body.clearedPhases);
   if(!plan||!runIdValid(body.runId))throw fail('防衛ゲームのプレイ記録が不正です。',400);
+  // Older saved offline sessions have no miss/perfect data: never grant flawless awards for them.
+  const misses=body.misses===undefined?null:body.misses;
+  const perfectStages=body.perfectStages===undefined?0:body.perfectStages;
+  if((misses!==null&&(!Number.isInteger(misses)||misses<0||misses>6))||
+     !Number.isInteger(perfectStages)||perfectStages<0||perfectStages>plan.stage)
+   throw fail('防衛ゲームの称号記録が不正です。',400);
   const uid=user.uid,day=todayKey(),appId='pet-typing-defense-'+plan.mode;
-  if(!plan.coins&&!plan.stage)return result(plan,day);
   const walletPath='users/'+encodeURIComponent(uid)+'/apps/english-playroom';
   const activityPath='learning_activity/'+encodeURIComponent(uid);
   const receiptPath=walletPath+'/typingDefenseRewards/'+encodeURIComponent(body.runId);
@@ -65,6 +71,22 @@ export function createDefenseSettlement({
    ]);
    const oldDay=Math.min(5,integer(activity.fields?.dailyCounts?.[day]?.[appId]));
    const milestoneDelta=Math.max(0,plan.stage-oldDay);
+   const oldStats=wallet.fields.typingDefenseTitleStats||{};
+   const cleared=Number(plan.stage===5),flawless=Number(cleared&&misses===0);
+   const stats={
+    plays:integer(oldStats.plays)+1,
+    bestStage:Math.max(integer(oldStats.bestStage),plan.stage),
+    easyClears:integer(oldStats.easyClears)+Number(cleared&&plan.mode==='easy'),
+    normalClears:integer(oldStats.normalClears)+Number(cleared&&plan.mode==='normal'),
+    hardClears:integer(oldStats.hardClears)+Number(cleared&&plan.mode==='hard'),
+    totalClears:integer(oldStats.totalClears)+cleared,
+    perfectStages:Math.max(integer(oldStats.perfectStages),perfectStages),
+    flawlessClears:integer(oldStats.flawlessClears)+flawless,
+    hardFlawlessClears:integer(oldStats.hardFlawlessClears)+Number(flawless&&plan.mode==='hard')
+   };
+   const beforeTitles=new Set(creativeTitles(DEFENSE_TITLE_APP,defenseTitleProgress(activity.fields,wallet.fields)).filter(t=>t.unlocked).map(t=>t.id));
+   const newActivity={...activity.fields,[MODES[plan.mode]]:Math.max(integer(activity.fields[MODES[plan.mode]]),plan.stage)};
+   const freshTitles=creativeTitles(DEFENSE_TITLE_APP,defenseTitleProgress(newActivity,{...wallet.fields,typingDefenseTitleStats:stats})).filter(t=>t.unlocked&&!beforeTitles.has(t.id));
    const newCoins=integer(wallet.fields.coins)+plan.coins;
    const earned=wallet.fields.coinEarnedDate===day?
     integer(wallet.fields.coinsEarnedToday):
@@ -72,10 +94,14 @@ export function createDefenseSettlement({
    const walletWrite={
     update:{name:prefix+walletPath,fields:{
      coins:fieldInt(newCoins),coinsEarnedToday:fieldInt(earned+plan.coins),
-     coinEarnedDate:fieldString(day),coinSchemaVersion:fieldInt(1)
+     coinEarnedDate:fieldString(day),coinSchemaVersion:fieldInt(1),
+     typingDefenseTitleStats:{mapValue:{fields:Object.fromEntries(Object.entries(stats).map(([key,value])=>[key,fieldInt(value)]))}}
     }},
-    updateMask:{fieldPaths:['coins','coinsEarnedToday','coinEarnedDate','coinSchemaVersion']},
-    updateTransforms:[{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}],
+    updateMask:{fieldPaths:['coins','coinsEarnedToday','coinEarnedDate','coinSchemaVersion','typingDefenseTitleStats']},
+    updateTransforms:[
+     {fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'},
+     {fieldPath:'titleCountRevision',increment:fieldInt(1)}
+    ],
     currentDocument:currentDocument(wallet)
    };
    const writes=[{
@@ -107,7 +133,7 @@ export function createDefenseSettlement({
    });
    if(response.ok){
     await afterCommit({milestoneDelta,improvedBest:plan.stage>cappedStage(activity.fields?.[MODES[plan.mode]])});
-    return result(plan,day);
+    return result(plan,day,false,freshTitles);
    }
    const error=await response.json().catch(()=>({}));
    const code=String(error.error?.status||'');
