@@ -238,10 +238,14 @@ export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
  return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status,playerCount:count,updatedAt};
 }
 
-export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore=null}){
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore=null,battleConfig=null}){
  const error=failExternal||fail;
- const battle=battleDatabase({base,projectId,accessToken,request,error});
+ const battle=battleConfig||battleDatabase({base,projectId,accessToken,request,error});
+ if(roomStore?.mode==='production'&&(!battle.separated||battle.projectId===projectId)){
+  throw new Error('Realtime battles require a separate Firestore project for standings');
+ }
  const preview=Boolean(roomStore&&roomStore.mode!=='production');
+ const realtimeSettlements=new Map();
  const collection=name=>preview?'onlineBattlePreview'+name:'onlineBattle'+name;
  const walletPath=uid=>(preview?'onlineBattlePreviewUsers/':'users/')+encodeURIComponent(uid)+'/apps/english-playroom';
  const statsPath=(gradeKey,uid)=>collection('Stats')+'/'+gradeKey+'/players/'+encodeURIComponent(uid);
@@ -389,11 +393,25 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   if(roomStore){await roomStore.write(id,room,stored?.updateTime);return {};}
   return commitAt(battle.base,roomToken,writes);
  }
+ function resolveRealtimeSettlement(id,roomToken,walletToken,pending){
+  const existing=realtimeSettlements.get(id);
+  if(existing?.matchId===pending.id)return existing.result;
+  // One entry per room lets concurrent requests and a failed room update
+  // reuse a completed settlement. Firestore receipts still protect restarts.
+  const entry={matchId:pending.id,result:null};
+  entry.result=recordRealtimeStandings(roomToken,pending)
+   .then(settlement=>applySettlement(roomToken,walletToken,settlement))
+   .catch(error=>{
+    if(realtimeSettlements.get(id)===entry)realtimeSettlements.delete(id);
+    throw error;
+   });
+  realtimeSettlements.set(id,entry);
+  return entry.result;
+ }
  async function settlePending(id,roomToken,walletToken,stored){
   const pending=stored?.value?.pendingSettlement;
   if(!pending)return false;
-  const settlement=roomStore?await recordRealtimeStandings(roomToken,pending):pending;
-  const awards=await applySettlement(roomToken,walletToken,settlement);
+  const awards=await (roomStore?resolveRealtimeSettlement(id,roomToken,walletToken,pending):applySettlement(roomToken,walletToken,pending));
   const room=safeRoom(stored.value,id);
   room.pendingSettlement=null;
   room.titleAwards=awards;

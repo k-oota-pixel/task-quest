@@ -8,6 +8,8 @@ import { createRealtimeRoomStore, realtimeEvents } from './rtdb-room-store.mjs';
 const roomPath = '/api/online-battle/room/4-1';
 const projectId = 'demo-monstudy-battle';
 const base = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)';
+const battleProjectId = 'demo-monstudy-standings';
+const battleBase = 'https://firestore.googleapis.com/v1/projects/' + battleProjectId + '/databases/(default)';
 
 function decode(value) {
  if ('mapValue' in value) return decodeFields(value.mapValue.fields || {});
@@ -18,9 +20,12 @@ function decode(value) {
 function decodeFields(fields) {
  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, decode(value)]));
 }
-function fakeFirestore(wallet) {
+function fakeFirestore(wallet, prefix) {
  const docs = new Map();
  const counts = { reads: 0, writes: 0 };
+ const walletOperations = { reads: 0, writes: 0 };
+ const primaryOperations = { reads: 0, writes: 0 };
+ const isWallet = path => path === wallet('a') || path === wallet('b');
  for (const uid of ['a', 'b']) {
   docs.set(wallet(uid), {
    value: { nickname: uid, coins: 0, petStrengthLevelPoints: 15, petBaseStats: { hp: 15, mp: 11 }, petDungeonItems: { bandage: 2 }, onlineBattleTitleStats: {} },
@@ -30,10 +35,15 @@ function fakeFirestore(wallet) {
  const pathOf = name => name.split('/documents/')[1];
  let revision = 0;
  const request = async (url, options) => {
-  assert.ok(url.startsWith(base));
+  const primary=url.startsWith(base);
+  assert.ok(primary||url.startsWith(battleBase));
   if (!url.endsWith(':commit')) {
    counts.reads++;
-   const doc = docs.get(pathOf(url));
+   const path = pathOf(url);
+   assert.equal(primary,isWallet(path)||path.startsWith(prefix+'Settlements/'));
+   if(primary)primaryOperations.reads++;
+   if(isWallet(path))walletOperations.reads++;
+   const doc = docs.get(path);
    return doc ? Response.json({fields: { fixture: doc.value }, updateTime: doc.updateTime}) : new Response(null, { status: 404 });
   }
   const { writes } = JSON.parse(options.body);
@@ -46,6 +56,8 @@ function fakeFirestore(wallet) {
   }
   const writeResults = writes.map(write => {
    const key = pathOf(write.update?.name || write.transform.document);
+   assert.equal(primary,isWallet(key)||key.startsWith(prefix+'Settlements/'));
+   if(primary)primaryOperations.writes++;
    const value = { ...structuredClone(docs.get(key)?.value || {}), ...decodeFields(write.update?.fields || {}) };
    for (const field of write.updateTransforms || write.transform?.fieldTransforms || []) {
     const [parent, child] = field.fieldPath.split('.');
@@ -57,11 +69,12 @@ function fakeFirestore(wallet) {
    const updateTime = String(++revision);
    docs.set(key, { value, updateTime });
    counts.writes++;
+   if(isWallet(key))walletOperations.writes++;
    return { updateTime };
   });
   return Response.json({ writeResults });
  };
- return { request, docs, counts };
+ return { request, docs, counts, walletOperations, primaryOperations };
 }
 
 function fakeRealtime() {
@@ -158,7 +171,7 @@ for (const mode of ['preview', 'production']) {
 test(mode + ' storage: two players, contention, reconnect and exactly-once settlement', async t => {
  const prefix=mode==='preview'?'onlineBattlePreview':'onlineBattle';
  const wallet=uid=>(mode==='preview'?'onlineBattlePreviewUsers/':'users/')+uid+'/apps/english-playroom';
- const firestore = fakeFirestore(wallet);
+ const firestore = fakeFirestore(wallet,prefix);
  const emulatorPort=process.env.MONSTUDY_RTDB_EMULATOR_PORT;
  const realtime=emulatorPort?await emulatorRealtime(emulatorPort):fakeRealtime();
  let now = 1_000_000;
@@ -169,6 +182,7 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
   send: (res, status, body) => { res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(body)); },
   decodeFields: fields => fields.fixture,
   fetch: firestore.request, now: () => now,
+  battleConfig: {base:battleBase,projectId:battleProjectId,separated:true,accessToken:async()=> 'fixture'},
   roomStore: createRealtimeRoomStore({
    databaseUrl:'http://127.0.0.1:'+(realtime.port||9000),
    accessToken:async () => realtime.token||'fixture', request:realtime.request, emulatorNamespace:realtime.namespace, mode
@@ -199,6 +213,7 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  const joined=await api('a','join');
  assert.equal(joined.status,200,joined.error);
  assert.equal((await api('b','join')).status,200);
+ assert.deepEqual(firestore.walletOperations,{reads:2,writes:0});
  const first = await live('a');
  t.after(first.stop);
  assert.equal((await first.next()).status,'waiting');
@@ -247,6 +262,8 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  assert.equal(firestore.docs.get(wallet('b')).value.coins,0);
  assert.equal(firestore.docs.get(wallet('a')).value.petDungeonItems.bandage,1);
  assert.equal(firestore.docs.get(wallet('a')).value.onlineBattleTitleStats.games,1);
+ assert.deepEqual(firestore.walletOperations,{reads:4,writes:2});
+ assert.deepEqual(firestore.primaryOperations,{reads:4,writes:3});
  assert.equal(firestore.docs.get(prefix+'Stats/4/players/a').value.wins,1);
  assert.ok([...firestore.docs.keys()].every(path=>path.startsWith(prefix)||path===wallet('a')||path===wallet('b')));
  if(mode==='production')assert.ok([...firestore.docs.keys()].every(path=>!path.startsWith('onlineBattlePreview')));
@@ -257,6 +274,8 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  assert.equal((await api('a','attack',{matchId:finished.room.matchId})).status,409);
  assert.equal((await api('b','leave')).room.winnerUid,'a');
  assert.equal(firestore.docs.get(wallet('a')).value.coins,2);
+ assert.deepEqual(firestore.walletOperations,{reads:6,writes:4});
+ assert.deepEqual(firestore.primaryOperations,{reads:6,writes:6});
  now+=ONLINE_BATTLE_JOIN_TTL_MS;
  assert.equal((await api('a')).room.status,'open');
  t.diagnostic(JSON.stringify({rtdbBodyBytes:realtime.bytes,firestoreOperations:firestore.counts}));
