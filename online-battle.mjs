@@ -181,7 +181,7 @@ export function cleanupOnlineBattleRoom(value,id,at=Date.now()){
   const activePlayers=room.players.filter(player=>current-player.joinedAt<ONLINE_BATTLE_JOIN_TTL_MS);
   if(activePlayers.length!==room.players.length){
    if(room.status==='playing'&&!room.pendingSettlement)room.pendingSettlement=createPendingSettlement(room,room.players,'');
-   room.players=activePlayers.map(player=>({...player,ready:false,rematchReady:false,lastActionAt:0}));
+   room.players=activePlayers.map(player=>({...player,ready:false,rematchReady:false,lastActionAt:0,spentItems:{}}));
    room.status=room.players.length?'waiting':'open';
    room.winnerUid='';
    room.lastEvent=null;
@@ -422,6 +422,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    }
    if(previousStatus==='playing'&&room.status==='finished'){
     room.pendingSettlement=createPendingSettlement(room,previousPlayers,room.winnerUid);
+    // Freeze spent items into this match's ledger; do not charge them again on rematch.
+    room.players=room.players.map(player=>({...player,spentItems:{}}));
     const winner=room.players.find(player=>player.uid===room.winnerUid);
     if(winner)winner.coinsAtJoin=Math.max(0,Math.floor(number(winner.coinsAtJoin)))+1;
     const roomWriteIndex=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
