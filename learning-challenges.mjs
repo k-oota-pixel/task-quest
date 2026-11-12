@@ -1,6 +1,8 @@
 import {challengePeriods,challengeState,isChallengeContent} from './challenge-model.mjs';
 import {dailyStreak,previousDay} from './challenge-streak.mjs';
 const summaryVersion=1;
+const legacyLastDay='2026-11-12';
+const legacyLastWeek=challengePeriods(Date.parse(legacyLastDay+'T00:00:00+09:00')).week;
 const weekdayKey=day=>'d'+new Date(day+'T00:00:00Z').getUTCDay();
 const completedInDay=(activity,day)=>Object.keys(activity.dailyCounts?.[day]||{}).filter(id=>isChallengeContent(id)&&activity.dailyCounts[day][id]>0);
 const completedMap=ids=>({completed:Object.fromEntries(ids.map(id=>[id,true]))});
@@ -61,7 +63,8 @@ export function createLearningChallenges({base,projectId,accessToken,verifyUser,
    if(req.method==='POST'&&body.period!==period)throw fail('チャレンジの期間が変わりました。更新して確認してください。',409);
    const activity=await read(activityPath),dataActivity=activity?.data||{};
    const initialized=dataActivity.challengeSummary?.version===summaryVersion;
-   if(!initialized&&legacyRead?.day!==periods.day){
+   const migrateLegacy=!initialized&&(periods.week<=legacyLastWeek||historyDays[0]<=legacyLastDay);
+   if(migrateLegacy&&legacyRead?.day!==periods.day){
     const key=user.uid+'|'+periods.day;
     let pending=migrations.get(key);
     if(!pending){
@@ -70,14 +73,14 @@ export function createLearningChallenges({base,projectId,accessToken,verifyUser,
     }
     legacyRead={day:periods.day,summary:await pending};
    }
-   let summary=initialized?dataActivity.challengeSummary:legacyRead.summary;
+   let summary=initialized?dataActivity.challengeSummary:migrateLegacy?legacyRead.summary:{version:summaryVersion,dailyClaims:{}};
    const recovered=recoveredClaim?.period===period;
    if(recovered)summary=rememberClaim(summary,kind,period,recoveredClaim.data);
    const records=challengeRecords(dataActivity,summary,periods,historyDays);
    const state=challengeState(user.uid,periods,records,time);
    state.daily.streak=dailyStreak(user.uid,periods.day,state.daily.complete,records.dailyClaim,records.history);
    if(req.method==='GET'||state[kind].claimed){
-    if((!initialized||recovered)&&!(await commit([summaryWrite(summary,activity)])))continue;
+    if((migrateLegacy||recovered)&&!(await commit([summaryWrite(summary,activity)])))continue;
     return send(res,200,req.method==='GET'?state:{...state,awarded:0,alreadyClaimed:true});
    }
    const challenge=state[kind];
@@ -91,7 +94,7 @@ export function createLearningChallenges({base,projectId,accessToken,verifyUser,
    const writes=[summaryWrite(rememberClaim(summary,kind,period,{streakBonus}),activity),
     {update:{name:prefix+walletPath,fields},updateMask:{fieldPaths:Object.keys(fields)},currentDocument:wallet?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}]}];
    // The old server can still have a claim in flight during this rollout.
-   const legacyPeriod=kind==='daily'?period==='2026-11-12':period==='2026-11-09';
+   const legacyPeriod=kind==='daily'?period===legacyLastDay:period===legacyLastWeek;
    const receipt=claims+kind+'-'+period;
    if(legacyPeriod)writes.push({update:{name:prefix+receipt,fields:encodeFields({uid:user.uid,kind,period,reward,streakBonus})},
     currentDocument:{exists:false},updateTransforms:[{fieldPath:'claimedAt',setToServerValue:'REQUEST_TIME'}]});

@@ -17,7 +17,7 @@ test('four distinct contents complete a week',()=>{
 test('existing server activity within the period counts; old and excluded activity does not',()=>{
  const state=challengeState('u',periods,{activity:{contents:{ateru:{lastLearningAt:'2026-10-24T00:00:00Z'},'basic-quest':{lastLearningAt:'2026-10-20T00:00:00Z'},'word-wolf':{lastLearningAt:'2026-10-24T00:00:00Z'},'eiken-retry':{lastLearningAt:'2026-10-10T00:00:00Z'}}}},fixed);assert.equal(state.weekly.count,weeklyChallengeTasks('u',periods.week).filter(x=>['ateru','basic-quest'].includes(x.id)).length);
 });
-function harness({ready=true,conflict=false}={}){
+function harness({ready=true,conflict=false,time=fixed}={}){
  const docs=new Map(),prefix='projects/p/databases/(default)/documents/';let version=1,commits=0,awards=0;const reads=[];
  const put=(path,data)=>docs.set(path,{data,updateTime:String(++version)});const completed=Object.fromEntries(CHALLENGE_CONTENTS.map(x=>[x.id,'stamp']));
  if(ready){put('challenge_progress/self/periods/daily-'+periods.day,{completed});put('challenge_progress/self/periods/weekly-'+periods.week,{completed});}
@@ -31,7 +31,7 @@ function harness({ready=true,conflict=false}={}){
   for(const w of writes){const key=w.update.name.slice(prefix.length),old=docs.get(key)?.data||{},fields=Object.fromEntries(Object.entries(w.update.fields).map(([k,v])=>[k,decode(v)]));put(key,{...old,...fields});}
   return {ok:true,json:async()=>({})};
  };
- const handle=createLearningChallenges({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async req=>{if(req.signedOut)throw Object.assign(Error('login'),{status:401});return {uid:'self'};},decodeFields:x=>x,encodeFields,send:(r,status,body)=>Object.assign(r,{status,body}),fail:(m,status)=>Object.assign(Error(m),{status}),readJson:async req=>req.body,onAward:async()=>awards++,fetch,now:()=>fixed});
+ const handle=createLearningChallenges({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async req=>{if(req.signedOut)throw Object.assign(Error('login'),{status:401});return {uid:'self'};},decodeFields:x=>x,encodeFields,send:(r,status,body)=>Object.assign(r,{status,body}),fail:(m,status)=>Object.assign(Error(m),{status}),readJson:async req=>req.body,onAward:async()=>awards++,fetch,now:()=>time});
  const request=async(kind='daily',period=kind==='daily'?periods.day:periods.week)=>{const r={};await handle({method:'POST',headers:{'content-type':'application/json'},body:{kind,period,uid:'other',reward:9999}},r);return r;};return {request,handle,docs,reads,get commits(){return commits;},get awards(){return awards;}};
 }
 test('concurrent same-period claims pay exactly once and preserve unrelated wallet data',async()=>{
@@ -82,4 +82,10 @@ test('the first access preserves a legacy paid reward and prevents a second paym
  assert.equal(res.body.daily.streak.received,true);
  assert.equal(h.docs.get('users/self/apps/english-playroom').data.coins,11);
  assert.equal(h.awards,0);
+});
+
+test('after the rollout window, first-time visits read only activity and do not create a summary',async()=>{
+ const h=harness({time:Date.parse('2026-11-16T03:00:00Z')});
+ const res={};await h.handle({method:'GET'},res);
+ assert.equal(res.status,200);assert.deepEqual(h.reads,['learning_activity/self']);assert.equal(h.commits,0);
 });
