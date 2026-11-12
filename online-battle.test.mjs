@@ -5,6 +5,7 @@ import {
  createOnlineBattle,
  ONLINE_BATTLE_JOIN_TTL_MS,
  ONLINE_BATTLE_RESULT_TTL_MS,
+ onlineBattleMissDamage,
  projectOnlineBattleLobbyRoom
 } from './online-battle.mjs';
 
@@ -307,3 +308,53 @@ test('タイムアウトで残ったプレイヤーの使用済アイテムを�
  assert.equal(entry.items.medicine,1);
 });
 
+
+test('誤答は現在HPではなく最大HPの4分の1（端数切り上げ）を失う',async()=>{
+ assert.equal(onlineBattleMissDamage(10),3);
+ assert.equal(onlineBattleMissDamage(12),3);
+ assert.equal(onlineBattleMissDamage(13),4);
+ assert.equal(onlineBattleMissDamage(1),1);
+ const initial=room({
+  roomId:'4-1',status:'playing',matchId:'miss-quarter-test',
+  players:[{...player('test-user',999_000),stats:{hp:13,attack:1,defense:1,mp:6},hp:5},
+           {...player('opponent',999_000),hp:10}]
+ });
+ const result=await simulateCoinlessBattle('miss',initial);
+ assert.equal(result.response.status,200);
+ assert.equal(result.response.body.room.players[0].hp,1);
+ assert.equal(result.response.body.room.lastEvent.damage,4);
+ assert.equal(result.reads.length,0,'誤答ではFirestoreの読み込み不要');
+ assert.equal(result.commits.length,0,'決着前の誤答でFirestore書き込み不要');
+});
+
+test('問題対戦の4級は20部屋、単語対戦は従来どおり10部屋',async()=>{
+ const make=questionMode=>{
+  let roomReads=0;
+  const service=createOnlineBattle({
+   base:'https://firestore.googleapis.com/v1/projects/test/databases/(default)',
+   projectId:'test',accessToken:async()=> 'token',
+   verifyUser:async()=>({uid:'a'}),readJson:async()=>({}),
+   send:(res,status,payload)=>{res.status=status;res.body=payload;},
+   decodeFields:()=>({}),questionMode,
+   roomStore:{
+    mode:'production',
+    lobby:async()=>({}),
+    read:async()=>{roomReads++;return {value:null,updateTime:'null_etag'};},
+    write:async()=>{}
+   }
+  });
+  return {service,reads:()=>roomReads};
+ };
+ const question=make(true),word=make(false);
+ for(const [battle,count] of [[question,20],[word,10]]){
+  const lobby={};await battle.service.handle({method:'GET'},lobby,'/api/online-battle/lobby/4');
+  assert.equal(lobby.status,200);
+  assert.equal(lobby.body.lobby.rooms.length,count);
+  assert.equal(lobby.body.lobby.rooms.at(-1).roomNo,count);
+ }
+ const q20={};await question.service.handle({method:'GET'},q20,'/api/online-battle/room/4-20');
+ assert.equal(q20.status,200);
+ const w20={};await word.service.handle({method:'GET'},w20,'/api/online-battle/room/4-20');
+ assert.equal(w20.status,404);
+ assert.equal(word.reads(),0,'単語対戦の存在しない部屋をDBから読まない');
+});

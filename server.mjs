@@ -384,6 +384,20 @@ const onlineBattle=createOnlineBattle({
  base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
  verifyUser,readJson,send,fail,decodeFields,roomStore:liveRoomStore
 });
+// Separate RTDB subtree, but the same Firebase 1 project and settlement rules.
+const questionRoomStore=createRealtimeRoomStore({
+ databaseUrl:'https://eiken-retry-default-rtdb.asia-southeast1.firebasedatabase.app',
+ accessToken:createGoogleAccessToken({
+  serviceAccount:getServiceAccount,
+  scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+ }),
+ mode:'production',namespace:'onlineBattleQuestions'
+});
+const questionBattle=createOnlineBattle({
+ getAuthority:getTitleAuthority,questionMode:true,
+ base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
+ verifyUser,readJson,send,fail,decodeFields,roomStore:questionRoomStore
+});
 let realtimeConnection='pending';
 async function checkRealtimeBattleConnection(){
  try{
@@ -415,10 +429,17 @@ export const server=http.createServer(async(req,res)=>{
     });
   }
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
-  if(path==='/api/online-battle/transport'&&req.method==='GET'){
+  if((path==='/api/online-battle/transport'||path==='/api/online-battle-questions/transport')&&req.method==='GET'){
     return send(res,200,{realtime:true,connection:realtimeConnection,storage:'firebase-1-rtdb'});
   }
-  const realtimePrefix='/api/online-battle-realtime';
+  const questionRealtimePrefix='/api/online-battle-questions-realtime';
+   if(path.startsWith(questionRealtimePrefix+'/')){
+     return questionBattle.handle(req,res,'/api/online-battle'+path.slice(questionRealtimePrefix.length));
+   }
+   if(path.startsWith('/api/online-battle-questions/')){
+     return questionBattle.handle(req,res,'/api/online-battle'+path.slice('/api/online-battle-questions'.length));
+   }
+   const realtimePrefix='/api/online-battle-realtime';
   if(path.startsWith(realtimePrefix+'/')){
     return onlineBattle.handle(req,res,'/api/online-battle'+path.slice(realtimePrefix.length));
   }
@@ -428,7 +449,8 @@ export const server=http.createServer(async(req,res)=>{
       const authorization=String(req.headers.authorization||'');
       if(!authorization.startsWith('Bearer '))throw fail('GitHub Actions認証が必要です。',401);
       await verifyGithubOidcToken(authorization.slice(7));
-      return send(res,200,await onlineBattle.publishRankings());
+      const [word,questions]=await Promise.all([onlineBattle.publishRankings(),questionBattle.publishRankings()]);
+       return send(res,200,{...word,questions:questions.summary});
     }catch(e){return send(res,e.status||500,{error:e.message||'ランキング集計に失敗しました。'});}
   }
   // Cached clients may still use the original URL; both URLs use the same RTDB rooms.
