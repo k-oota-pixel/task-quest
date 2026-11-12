@@ -1,0 +1,25 @@
+name: Verify production battle cutover
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-battle-cutover.yml'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check Render production transport and RTDB connectivity
+        shell: bash
+        run: |
+          url=https://task-quest.onrender.com/api/online-battle/transport
+          for attempt in $(seq 1 22); do
+            result=$(curl --silent --show-error --fail --max-time 12 "$url" || true)
+            printf 'Attempt %s response %s\n' "$attempt" "$result"
+            if jq -e '.realtime == true and .connection == "success" and .storage == "firebase-1-rtdb"' <<< "$result" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 12
+          done
+          exit 1
