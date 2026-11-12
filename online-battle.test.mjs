@@ -183,7 +183,7 @@ test('0コインでも入室でき、入室時にコインを消費しない',as
  }
 });
 
-async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',questionMode=false,questionId=''){
+async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',questionMode=false,questionId='',getQuestionAccuracy=null){
  const reads=[],commits=[],roomWrites=[];
  let stored={value:structuredClone(initialRoom),updateTime:'room-1'};
  const fetch=async (url,options={})=>{
@@ -206,7 +206,7 @@ async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',qu
   readJson:async()=>({matchId:initialRoom.matchId,...(questionId?{questionId}:{})}),
   send:(res,status,payload)=>{res.status=status;res.body=payload;},
   decodeFields:fields=>fields.__testValue||{},
-  questionMode,fetch,
+  questionMode,getQuestionAccuracy,fetch,
   roomStore:{
    mode:'production',
    read:async()=>structuredClone(stored),
@@ -488,4 +488,42 @@ test('準1級の合算ランキングはオンライン対戦RTDBを読まない
  assert.equal(res.status,200);
  assert.equal(rtdbReads,0);
  assert.equal(res.body.rows[0].accuracy,66.7);
+});
+
+test('問題対戦は実際のサーバー認定正答率だけで攻撃加算し、Firestoreアクセスを追加しない',async()=>{
+ const questionId='2025-2-g4-q01',wrongId='2025-2-g4-q99';
+ const initial=room({
+  roomId:'4-1',gradeKey:'4',status:'playing',matchId:'accuracy-damage-match',
+  players:[{...player('test-user',999_000),stats:{hp:100,attack:9,defense:1,mp:6}},
+           {...player('opponent',999_000),stats:{hp:100,attack:9,defense:1,mp:6},hp:50}]
+ });
+ let snapshotGets=0;
+ const getQuestionAccuracy=async()=>{snapshotGets++;return {grades:{'4':{[questionId]:50,[wrongId]:null}}};};
+ const result=await simulateCoinlessBattle('attack',initial,'test-user',true,questionId,getQuestionAccuracy);
+ assert.equal(result.response.status,200);
+ assert.equal(result.response.body.room.lastEvent.baseDamage,10);
+ assert.equal(result.response.body.room.lastEvent.bonusPercent,10);
+ assert.equal(result.response.body.room.lastEvent.questionRate,50);
+ assert.equal(result.response.body.room.lastEvent.damage,11);
+ assert.equal(result.response.body.room.players[1].hp,39);
+ assert.equal(snapshotGets,1);
+ assert.equal(result.reads.length,0,'回答時のFirestore読取なし');
+ assert.equal(result.commits.length,0,'決着前のFirestore更新なし');
+ const missing=await simulateCoinlessBattle('attack',initial,'test-user',true,'2025-2-g4-q02',getQuestionAccuracy);
+ assert.equal(missing.response.body.room.lastEvent.bonusPercent,0,'捏造IDにデータなしボーナスを出さない');
+ const noData=await simulateCoinlessBattle('attack',initial,'test-user',true,wrongId,getQuestionAccuracy);
+ assert.equal(noData.response.body.room.lastEvent.bonusPercent,35);
+ assert.equal(noData.response.body.room.lastEvent.damage,14);
+});
+
+test('単語対戦のダメージに問題正答率ボーナスが混ざらない',async()=>{
+ const initial=room({
+  roomId:'4-1',gradeKey:'4',status:'playing',matchId:'word-damage-match',
+  players:[{...player('test-user',999_000),stats:{hp:100,attack:9,defense:1,mp:6}},
+   {...player('opponent',999_000),stats:{hp:100,attack:9,defense:1,mp:6},hp:50}]
+ });
+ const word=await simulateCoinlessBattle('attack',initial,'test-user',false,'2025-2-g4-q01',async()=>{throw Error('単語対戦では参照しない');});
+ assert.equal(word.response.status,200);
+ assert.equal(word.response.body.room.lastEvent.damage,10);
+ assert.equal(word.response.body.room.lastEvent.bonusPercent,undefined);
 });

@@ -29,6 +29,7 @@ import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import {createOnlineBattle} from './online-battle.mjs';
+import {createOnlineAccuracyProvider,buildOnlineAccuracySnapshot,ACCURACY_INDEX_URL} from './online-question-accuracy.mjs';
 import {createRealtimeRoomStore} from './rtdb-room-store.mjs';
 import {createTodayNewsGenerator,verifyGithubOidcToken} from './today-news.mjs';
 import {createContactMessage} from './contact-message.mjs';
@@ -393,8 +394,9 @@ const questionRoomStore=createRealtimeRoomStore({
  }),
  mode:'production',namespace:'onlineBattleQuestions'
 });
+const questionAccuracyProvider=createOnlineAccuracyProvider();
 const questionBattle=createOnlineBattle({
- getAuthority:getTitleAuthority,questionMode:true,
+ getAuthority:getTitleAuthority,questionMode:true,getQuestionAccuracy:()=>questionAccuracyProvider.get(),
  base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
  verifyUser,readJson,send,fail,decodeFields,roomStore:questionRoomStore
 });
@@ -442,6 +444,28 @@ export const server=http.createServer(async(req,res)=>{
    const realtimePrefix='/api/online-battle-realtime';
   if(path.startsWith(realtimePrefix+'/')){
     return onlineBattle.handle(req,res,'/api/online-battle'+path.slice(realtimePrefix.length));
+  }
+  if(path==='/api/online-battle/accuracy/export'){
+    try{
+      if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
+      const auth=String(req.headers.authorization||'');
+      if(!auth.startsWith('Bearer '))throw fail('GitHub Actions認証が必要です。',401);
+      await verifyGithubOidcToken(auth.slice(7));
+      const gradeKeys=['4','3','pre2','2'],token=await getGoogleAccessToken();
+      const [questionsResponse,firestoreResponse,...battleResults]=await Promise.all([
+        fetch(ACCURACY_INDEX_URL,{signal:AbortSignal.timeout(30000)}),
+        fetch(FIRESTORE_BASE+'/documents/analytics/retry-question-first-v1',{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(30000)}),
+        ...gradeKeys.map(grade=>questionBattle.questionStats(grade,Infinity))
+      ]);
+      if(!questionsResponse.ok)throw fail('問題一覧を取得できませんでした。',502);
+      if(firestoreResponse.status!==404&&!firestoreResponse.ok)throw fail('リトライ正答率を取得できませんでした。',502);
+      const index=await questionsResponse.json();
+      if(!Array.isArray(index)||index.length<100)throw fail('問題一覧が不足しています。',503);
+      const raw=firestoreResponse.status===404?{}:await firestoreResponse.json();
+      const fields=decodeFields(raw.fields||{}),items=fields.items&&typeof fields.items==='object'?Object.values(fields.items):[];
+      const byGrade=Object.fromEntries(gradeKeys.map((grade,i)=>[grade,battleResults[i].rows]));
+      return send(res,200,buildOnlineAccuracySnapshot(index,items,byGrade));
+    }catch(e){return send(res,e.status||500,{error:e.message||'正答率スナップショットを生成できませんでした。'});}
   }
   if(path==='/api/online-battle/rankings/daily'){
     try{

@@ -4,6 +4,7 @@ import {titleIdsTransform} from './title-collection.mjs';
 import {fixtureTitleAuthority} from './title-authority.mjs';
 import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard} from './online-battle-standings.mjs';
 import {ONLINE_TITLE_APP,onlineBattleTitleProgress,nextOnlineBattleTitleStats,creativeTitles} from './title-model.mjs';
+import {accuracyBonusDamage} from './online-question-accuracy.mjs';
 
 const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
 const GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));
@@ -206,7 +207,7 @@ export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
  return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status,playerCount:count,updatedAt};
 }
 
-export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore,getAuthority=fixtureTitleAuthority,questionMode=false}){
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore,getAuthority=fixtureTitleAuthority,questionMode=false,getQuestionAccuracy=null}){
  const error=failExternal||fail;
  if(!roomStore)throw new Error('Online battle requires Realtime Database storage');
  const preview=roomStore.mode==='preview';
@@ -354,6 +355,13 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};
  }
  async function act(id,uid,operation,body){
+  // The published snapshot is a cached static JSON file: NO Firebase read for
+  // individual answers, regardless of how many times the player attacks.
+  let questionAccuracy=null;
+  if(questionMode&&operation==='attack'&&typeof getQuestionAccuracy==='function'){
+   try{questionAccuracy=await getQuestionAccuracy();}
+   catch(e){console.warn('Daily question accuracy unavailable; no bonus',String(e?.message||e));}
+  }
   let joiningWallet;
   for(let attempt=0;attempt<6;attempt++){
    const stored=await roomStore.read(id);
@@ -447,8 +455,18 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      const attacker=players[index],targetIndex=index===0?1:0,defender=players[targetIndex],at=now();
      if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
      if(questionMode)recordOnlineBattleFirstAnswer(attacker,body?.questionId,room.gradeKey,true);
-     const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
-     defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
+     const baseDamage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
+     let damage=baseDamage,bonusPercent=0,questionRate;
+     if(questionMode&&validOnlineBattleQuestionId(body?.questionId,room.gradeKey)){
+      const rates=questionAccuracy?.grades?.[room.gradeKey]||null;
+      // A made-up question ID cannot claim the "no data" +35% tier.
+      if(rates&&Object.hasOwn(rates,body.questionId)){
+       questionRate=rates[body.questionId];
+       ({damage,bonusPercent}=accuracyBonusDamage(baseDamage,questionRate));
+      }
+     }
+     defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;
+     room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at,...(questionMode?{baseDamage,bonusPercent,...(questionRate!==undefined?{questionRate}:{})}:{})};
      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
     }else if(operation==='continue'){
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);

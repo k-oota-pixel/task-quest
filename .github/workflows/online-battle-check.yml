@@ -3,6 +3,8 @@ on:
   push:
     paths:
       - 'online-battle.mjs'
+      - 'online-question-accuracy.mjs'
+      - 'online-question-accuracy.test.mjs'
       - 'online-battle-standings.mjs'
       - 'online-battle-standings.test.mjs'
       - 'online-battle.test.mjs'
@@ -13,6 +15,8 @@ on:
   pull_request:
     paths:
       - 'online-battle.mjs'
+      - 'online-question-accuracy.mjs'
+      - 'online-question-accuracy.test.mjs'
       - 'online-battle.test.mjs'
       - 'rtdb-room-store.mjs'
       - 'realtime-preview.test.mjs'
@@ -29,4 +33,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --check server.mjs && node --test online-battle.test.mjs online-battle-standings.test.mjs realtime-preview.test.mjs
+      - run: node --check server.mjs && node --check online-question-accuracy.mjs && node --test online-battle.test.mjs online-question-accuracy.test.mjs online-battle-standings.test.mjs realtime-preview.test.mjs
