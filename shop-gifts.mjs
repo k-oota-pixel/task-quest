@@ -132,6 +132,27 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
     }
     throw error('開封処理をやり直してください。',409);
   }
+  // Save multiple unopened gifts with one wallet read and one atomic write.
+  async function openGiftsBatch(req,res,user){
+    if(req.method!=='POST')throw error('POSTのみ対応しています。',405);
+    const {giftIds}=await readJson(req,3072);
+    if(!Array.isArray(giftIds)||giftIds.length<1||giftIds.length>30||giftIds.some(id=>!UUID.test(id||'')))throw error('ギフト番号が正しくありません。');
+    const ids=new Set(giftIds),token=await accessToken();
+    for(let attempt=0;attempt<4;attempt++){
+      const raw=await read(token,userPath(user.uid));if(!raw)throw error('利用者が見つかりません。',404);
+      const inbox=list(docData(raw,decodeFields).giftInbox);let changed=false;
+      const next=inbox.map(item=>{
+        if(!ids.has(item.giftId)||item.opened)return item;
+        changed=true;return {...item,opened:true};
+      });
+      if(!changed)return send(res,200,{ok:true,alreadyOpened:true});
+      try{
+        await commit(token,[writeDoc(userPath(user.uid),{giftInbox:next,giftUnreadCount:unread(next,'opened')},raw)]);
+        return send(res,200,{ok:true,opened:next.filter(item=>ids.has(item.giftId)&&item.opened).length});
+      }catch(e){if(e.retryable&&attempt<3)continue;throw e;}
+    }
+    throw error('開封処理をやり直してください。',409);
+  }
   async function replyGift(req,res,user,{openOnReply=false}={}){
     if(req.method!=='POST')throw error('POSTのみ対応しています。',405);
     const {giftId,replyId}=await readJson(req,512);
@@ -191,6 +212,7 @@ export function createShopGifts({base,projectId,accessToken,verifyUser,readJson,
       if(!req.headers['content-type']?.startsWith('application/json'))throw error('JSONで送信してください。',415);
       if(path==='/api/shop/gifts/send')return await sendGift(req,res,user);
       if(path==='/api/shop/gifts/open')return await openGift(req,res,user);
+      if(path==='/api/shop/gifts/open-batch')return await openGiftsBatch(req,res,user);
       if(path==='/api/shop/gifts/reply')return await replyGift(req,res,user);
       if(path==='/api/shop/gifts/open-and-reply')return await replyGift(req,res,user,{openOnReply:true});
       if(path==='/api/shop/gifts/seen')return await seenReply(req,res,user);
