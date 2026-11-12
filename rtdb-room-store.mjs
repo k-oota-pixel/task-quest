@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-const ROOM_ID = /^(?:4|3|pre2|2)-(?:10|[1-9])$/;
+const ROOM_ID = /^(?:4-(?:20|1[0-9]|[1-9])|(?:3|pre2|2)-(?:10|[1-9]))$/;
 const GRADE = /^(?:4|3|pre2|2)$/;
 const firebaseHost = hostname => /\.(?:firebaseio\.com|firebasedatabase\.app)$/.test(hostname);
 
-export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fetch, emulatorNamespace, mode = 'preview' }) {
+export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fetch, emulatorNamespace, mode = 'preview', namespace = 'onlineBattle' }) {
  if (mode !== 'preview' && mode !== 'production') throw new Error('Invalid realtime battle mode');
- const root = mode === 'production' ? 'onlineBattle' : 'onlineBattlePreview';
+ if (!['onlineBattle', 'onlineBattleQuestions'].includes(namespace)) throw new Error('Invalid realtime battle namespace');
+ const root = mode === 'production' ? namespace : namespace + 'Preview';
  const database = new URL(databaseUrl);
  if (database.pathname !== '/' || database.username || database.password || database.search || database.hash ||
      !(database.protocol === 'https:' && firebaseHost(database.hostname) ||
