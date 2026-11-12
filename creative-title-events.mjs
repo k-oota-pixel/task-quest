@@ -4,6 +4,8 @@ import {creativeTitles,creativeCatalog} from './title-model.mjs';
 import {challengePeriods} from './challenge-model.mjs';
 import {dailyMaterialTransforms} from './material-rankings.mjs';
 import {creativeTitleCount,titleCountTransforms} from './title-count-summary.mjs';
+import {titleIdsTransform} from './title-collection.mjs';
+import {fixtureTitleAuthority} from './title-authority.mjs';
 const encode=v=>v===null?{nullValue:null}:typeof v==='boolean'?{booleanValue:v}:typeof v==='number'?{integerValue:String(Math.floor(v))}:typeof v==='string'?{stringValue:v}:Array.isArray(v)?{arrayValue:{values:v.map(encode)}}:{mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,x])=>[k,encode(x)]))}};
 const PET_FISHING_IDS=new Set(['salmon','eel','crab','shrimp','squid','octopus','oyster','jellyfish','shark','dolphin','whale','crysturtle','magmander','runegolem','abyssdragon','dark_mage','royal_guard','demon_king']);
 export function validateTitleEvent(b,fail){
@@ -59,7 +61,7 @@ function retryFirstStatsWrite(prefix,events){
 const titleCountWrite=(prefix,uid,updateTransforms)=>({
  update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms
 });
-function titleChanges(appId,previous,next){
+async function titleChanges(appId,previous,next,uid,getAuthority){
  const before=creativeTitles(appId,previous),after=creativeTitles(appId,next);
  const unlocked=new Set(before.filter(title=>title.unlocked).map(title=>title.id));
  const freshTitles=after.filter(title=>title.unlocked&&!unlocked.has(title.id));
@@ -67,7 +69,9 @@ function titleChanges(appId,previous,next){
  // Notebook titles also use cloud-saved history. Adventure floors can
  // come from the wallet even when the event progress has a lower floor.
  const adventure=appId==='word-tower'||appId==='eiken-dungeon';
- return {freshTitles,transforms:titleCountTransforms(delta,{invalidate:appId==='eiken-retry'||adventure&&Boolean(delta)})};
+ const transforms=titleCountTransforms(delta,{invalidate:appId==='eiken-retry'||adventure&&Boolean(delta)});
+ if(delta&&freshTitles.length)transforms.push(titleIdsTransform(freshTitles.map(title=>title.id),await getAuthority(),uid));
+ return {freshTitles,transforms};
 }
 const DIRECT_RANKING_APPS=new Set(['basic-grammar','grammar','today','pet-fishing','word-tower','eiken-dungeon','case-talk']);
 function directDailyCounts(appId,events){
@@ -79,7 +83,7 @@ function directDailyWrite(prefix,uid,appId,events,day){
  const counts=directDailyCounts(appId,events),transforms=dailyMaterialTransforms(counts,day);
  return transforms.length?[{update:{name:prefix+'learning_activity/'+uid,fields:{uid:{stringValue:uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms}]:[];
 }
-export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged=()=>{},fetch:request=fetch}){
+export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged=()=>{},getAuthority=fixtureTitleAuthority,fetch:request=fetch}){
  const prefix=`projects/${projectId}/databases/(default)/documents/`;
  const recentBatches=new Map(),requestWindows=new Map(),inFlight=new Set();
  async function applyBatch(user,body,res){
@@ -108,7 +112,7 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{});
    let next=previous;for(const event of events)next=applyTitleEvent(next,event,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
-   const {freshTitles,transforms}=titleChanges(body.appId,previous,next);
+   const {freshTitles,transforms}=await titleChanges(body.appId,previous,next,user.uid,getAuthority);
    const reward=grammarUnits[body.appId]?grammarRewardWrites({rows,previous:next,appId:body.appId,day,prefix,uid:user.uid,decodeFields}):{writes:[],coins:0};
    const retryStats=retryFirstStatsWrite(prefix,events);
    if(reward.writes.length)reward.writes[0].updateTransforms.push(...transforms);
@@ -136,7 +140,7 @@ export function createTitleEvents({base,projectId,accessToken,verifyUser,decodeF
    const rows=await response.json(),receiptDoc=rows.find(row=>row.found?.name===prefix+receipt)?.found;if(receiptDoc){const saved=decodeFields(receiptDoc.fields||{});return send(res,200,{ok:true,duplicate:true,freshTitles:[]});}
    const doc=rows.find(row=>row.found?.name===prefix+path)?.found,previous=decodeFields(doc?.fields||{}),next=applyTitleEvent(previous,e,day);
    if(JSON.stringify(next).length>650000)throw fail('称号記録の上限に達しました。',413);
-   const {freshTitles,transforms}=titleChanges(e.appId,previous,next);
+   const {freshTitles,transforms}=await titleChanges(e.appId,previous,next,user.uid,getAuthority);
    const commit=await request(base+'/documents:commit',{method:'POST',headers,body:JSON.stringify({writes:[{update:{name:prefix+receipt,fields:{day:encode(day),freshTitles:encode(freshTitles)}},currentDocument:{exists:false}},{update:{name:prefix+path,fields:encode(next).mapValue.fields},currentDocument:doc?{updateTime:doc.updateTime}:{exists:false}},...directDailyWrite(prefix,user.uid,e.appId,[e],day),...(transforms.length?[titleCountWrite(prefix,user.uid,transforms)]:[])]})});
    if(commit.ok){if(directDailyCounts(e.appId,[e]).size)onDailyCountsChanged([e.appId],day);return send(res,200,{ok:true,freshTitles});}const error=await commit.json?.().catch(()=>({}))||{};if(![409,412].includes(commit.status)&&!['ABORTED','ALREADY_EXISTS','FAILED_PRECONDITION'].includes(error.error?.status))throw fail('称号を保存できませんでした。',502);
   }

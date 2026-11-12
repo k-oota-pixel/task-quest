@@ -1,4 +1,6 @@
 import {runtimePublicRankingCache} from './public-ranking-cache.mjs';
+import {hasTitleCollection,walletTitleIds} from './title-collection.mjs';
+import {fixtureTitleAuthority} from './title-authority.mjs';
 
 const VERSION=1;
 const CACHE_SECTION='titleCounts';
@@ -29,7 +31,7 @@ const uidFromName=name=>{const match=String(name||'').match(/\/documents\/users\
 
 export function createTitleCountRankings({
  base,projectId,accessToken,activeIds,excludedIds=async()=>[],decodeFields,verifyUser,send,fail,
- fetch:request=globalThis.fetch,now=Date.now,rankingStore=runtimePublicRankingCache()
+ getAuthority=fixtureTitleAuthority,fetch:request=globalThis.fetch,now=Date.now,rankingStore=runtimePublicRankingCache()
 }){
  const url=base+'/documents/leaderboards/titleCounts',prefix=`projects/${projectId}/databases/(default)/documents/`;
  let stored=null,loading=null,changeChain=Promise.resolve();
@@ -52,17 +54,18 @@ export function createTitleCountRankings({
  }
  async function bootstrap(){
   const excluded=new Set(await excludedIds()),ids=[...new Set(await activeIds())].filter(id=>isUid(id)&&!excluded.has(id));
-  const token=await accessToken(),entries=[];
+  const [token,authority]=await Promise.all([accessToken(),getAuthority()]);
+  const entries=[];
   for(let start=0;start<ids.length;start+=200){
    const names=ids.slice(start,start+200).map(id=>prefix+'users/'+encodeURIComponent(id)+'/apps/english-playroom');
-   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','unlockedTitleCount']}}),signal:AbortSignal.timeout(20000)});
+   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:names,mask:{fieldPaths:['petName','unlockedTitleCount','titleCollectionVersion','titleCollectionProof','earnedTitleIds']}}),signal:AbortSignal.timeout(20000)});
    if(!response.ok)throw fail('称号ランキングの初期集計に失敗しました。',502);
    const rows=await response.json();
    for(const row of Array.isArray(rows)?rows:[]){
     const uid=uidFromName(row?.found?.name);
     if(!uid||excluded.has(uid))continue;
     const wallet=decodeFields(row.found.fields||{});
-    entries.push({uid,petName:wallet.petName,unlockedTitleCount:wallet.unlockedTitleCount});
+    entries.push({uid,petName:wallet.petName,unlockedTitleCount:hasTitleCollection(wallet,authority,uid)?walletTitleIds(wallet,authority,uid).size:wallet.unlockedTitleCount});
    }
   }
   return {schemaVersion:VERSION,updatedAt:new Date(now()).toISOString(),leaders:topTitleCounts(entries)};

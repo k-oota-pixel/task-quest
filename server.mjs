@@ -9,6 +9,7 @@ import {createDefenseSettlement} from './defense-settlement.mjs';
 import {creativeCatalog} from './title-model.mjs';
 import {createTitleEvents} from './creative-title-events.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
+import {createTitleAuthority} from './title-authority.mjs';
 import {createMaterialRankings} from './material-rankings.mjs';
 import {createTitleCountRankings} from './title-count-rankings.mjs';
 import {createMaterialUsage,createMaterialOpen,createMaterialActivity} from './material-usage.mjs';
@@ -222,12 +223,16 @@ const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});
 const handleMaterialUsage=createMaterialUsage({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
 const materialRankings=createMaterialRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,excludedIds:adminData.adminIds});
-const handleTitleEvents=createTitleEvents({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
-const titleCountRankings=createTitleCountRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
-const learningTitles=createLearningTitles({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish,weeklyProgress:materialRankings.userWeekly});
+const loadTitleAuthority=createTitleAuthority({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken});
+let titleCollectionReady=false;
+const getTitleAuthority=async()=>{const authority=await loadTitleAuthority();titleCollectionReady=true;return authority;};
+const handleTitleEvents=createTitleEvents({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
+const titleCountRankings=createTitleCountRankings({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
+const learningTitles=createLearningTitles({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish,weeklyProgress:materialRankings.userWeekly});
 const defenseBestRankings=createDefenseBestRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,decodeFields,decorate:learningTitles.decorate,send,fail});
-const handleLearningActivity=createLearningActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning,onDailyCountsChanged:materialRankings.changed,onDefenseStageSaved:defenseBestRankings.publish});
+const handleLearningActivity=createLearningActivity({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning,onDailyCountsChanged:materialRankings.changed,onDefenseStageSaved:defenseBestRankings.publish});
 const handleDefenseSettlement=createDefenseSettlement({
+ getAuthority:getTitleAuthority,
  base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,
  todayKey:japanDateKey,earnedCoinsToday,invalidate:adminData.invalidateLearning,
  onDailyCountsChanged:materialRankings.changed,onDefenseStageSaved:defenseBestRankings.publish,
@@ -371,6 +376,7 @@ const liveRoomStore=createRealtimeRoomStore({
  mode:'production'
 });
 const onlineBattle=createOnlineBattle({
+ getAuthority:getTitleAuthority,
  base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
  verifyUser,readJson,send,fail,decodeFields,roomStore:liveRoomStore
 });
@@ -465,7 +471,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.20',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.21',titleCollectionVersion:1,titleCollectionReady,titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
@@ -501,6 +507,7 @@ export const server=http.createServer(async(req,res)=>{
 if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>{
  console.log('Task Quest server ready');
  void checkRealtimeBattleConnection();
+ void getTitleAuthority().catch(error=>console.warn('Title collection initialization deferred',error.message));
 });
 
 

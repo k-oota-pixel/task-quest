@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {creativeTitleCount,titleCountTransforms} from './title-count-summary.mjs';
+import {titleIdsTransform} from './title-collection.mjs';
+import {fixtureTitleAuthority} from './title-authority.mjs';
 import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard} from './online-battle-standings.mjs';
 import {ONLINE_TITLE_APP,onlineBattleTitleProgress,nextOnlineBattleTitleStats,creativeTitles} from './title-model.mjs';
 
@@ -191,7 +193,7 @@ export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
  return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status,playerCount:count,updatedAt};
 }
 
-export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore}){
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore,getAuthority=fixtureTitleAuthority}){
  const error=failExternal||fail;
  if(!roomStore)throw new Error('Online battle requires Realtime Database storage');
  const preview=roomStore.mode==='preview';
@@ -217,7 +219,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  }
  // Store the ranking projection in the existing settlement receipt so a retry
  // after a successful Firestore commit can resume without applying rewards twice.
- function settlementWrites(settlement,wallets=new Map()){
+ async function settlementWrites(settlement,wallets){
   const awards={},writes=[],titleStats=new Map(),titleDeltas=new Map(),standings=[],standingDays=new Map();
   for(const entry of settlement.entries){
    if(!entry.played)continue;
@@ -255,6 +257,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    }
    if(entry.played){
     transforms.push(...titleCountTransforms(titleDeltas.get(entry.uid)));
+    if(awards[entry.uid]?.length)transforms.push(titleIdsTransform(awards[entry.uid].map(title=>title.id),await getAuthority(),entry.uid));
     const wallet=wallets.get(entry.uid);
     writes.push({
      update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid)),onlineBattleStandingDays:encode(standingDays.get(entry.uid))}},
@@ -273,7 +276,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    const players=settlement.entries.filter(entry=>entry.played);
    const snapshots=await Promise.all(players.map(entry=>userWallet(walletToken,entry.uid)));
    const wallets=new Map(players.map((entry,i)=>[entry.uid,snapshots[i]]));
-   const {writes,awards,standings}=settlementWrites(settlement,wallets);
+   const {writes,awards,standings}=await settlementWrites(settlement,wallets);
    try{
     await commitSettlement(walletToken,writes);
     return {awards,standings};

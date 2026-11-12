@@ -64,6 +64,10 @@ function fakeFirestore(wallet, prefix) {
    if(primary)primaryOperations.writes++;
    const value = { ...structuredClone(docs.get(key)?.value || {}), ...decodeFields(write.update?.fields || {}) };
    for (const field of write.updateTransforms || write.transform?.fieldTransforms || []) {
+    if(field.appendMissingElements){
+     value[field.fieldPath]=[...new Set([...(value[field.fieldPath]||[]),...field.appendMissingElements.values.map(decode)])];
+     continue;
+    }
     const [parent, child] = field.fieldPath.split('.');
     if (child) {
      const item = child.slice(1, -1);
@@ -290,6 +294,7 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  assert.equal(firestore.docs.get(wallet('b')).value.coins,0);
  assert.equal(firestore.docs.get(wallet('a')).value.petDungeonItems.bandage,1);
  assert.equal(firestore.docs.get(wallet('a')).value.onlineBattleTitleStats.games,1);
+ assert.ok(firestore.docs.get(wallet('a')).value.earnedTitleIds.some(token=>token.startsWith('creative:online-battle:02|')));
  assert.deepEqual(firestore.walletOperations,{reads:4,writes:2});
  assert.deepEqual(firestore.primaryOperations,{reads:4,writes:3});
  assert.equal((await roomStore.listStandings('4')).find(player=>player.uid==='a').wins,1);
