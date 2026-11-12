@@ -191,7 +191,62 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   }
  }
 
- return { mode, read, write, lobby, stream, verifyConnection, saveStanding, listStandings, readRanking, writeRanking };
+
+ // Stream one grade's room list rather than polling every five seconds. Firebase
+ // sends an initial root snapshot, then child put/patch events for changed rooms.
+ async function streamLobby(grade, downstream, project) {
+  if (!GRADE.test(grade)) throw new Error('Invalid battle grade');
+  const controller = new AbortController();
+  const close = () => controller.abort();
+  downstream.once('close', close);
+  const timeout = setTimeout(close, 60_000);
+  let rooms = Object.create(null);
+  try {
+   const upstream = await send(url(grade), {
+    headers: { Accept: 'text/event-stream' },
+    signal: controller.signal
+   });
+   check(upstream);
+   downstream.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store, no-transform'
+   });
+   downstream.flushHeaders();
+   for await (const event of realtimeEvents(upstream.body)) {
+    if (event.type === 'cancel' || event.type === 'auth_revoked') break;
+    if (!['put', 'patch'].includes(event.type)) continue;
+    const path = event.payload?.path;
+    const value = event.payload?.data;
+    if (typeof path !== 'string') continue;
+    if (path === '/') {
+     if (event.type === 'put') rooms = value && typeof value === 'object' ? {...value} : Object.create(null);
+     else if (value && typeof value === 'object') {
+      for (const [key, item] of Object.entries(value)) {
+       if (item === null) delete rooms[key];
+       else rooms[key] = item;
+      }
+     }
+    } else {
+     const key = path.slice(1);
+     // Each room is stored as one serialized JSON string, not nested fields.
+     if (!ROOM_ID.test(key) || !key.startsWith(grade + '-')) continue;
+     if (value === null) delete rooms[key];
+     else rooms[key] = value;
+    }
+    const data = project(rooms);
+    if (!downstream.write('event: lobby\\ndata: ' + JSON.stringify(data) + '\\n\\n')) break;
+   }
+  } catch (error) {
+   if (!downstream.headersSent && !downstream.destroyed) throw error;
+  } finally {
+   clearTimeout(timeout);
+   controller.abort();
+   downstream.removeListener('close', close);
+   if (!downstream.writableEnded && !downstream.destroyed && downstream.headersSent) downstream.end();
+  }
+ }
+
+ return { mode, read, write, lobby, stream, streamLobby, verifyConnection, saveStanding, listStandings, readRanking, writeRanking };
 }
 
 export async function* realtimeEvents(body) {
