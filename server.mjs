@@ -494,6 +494,18 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/material-open')return handleMaterialOpen(req,res);
   if(path==='/api/material-activity')return handleMaterialActivity(req,res);
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
+  if(path==='/api/admin/online-battle-question-stats'){
+    try{
+      if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
+      await verifyAdmin(req);
+      const query=new URL(req.url,'http://localhost').searchParams;
+      const grades={'4級':'4','3級':'3','準2級':'pre2','2級':'2'};
+      const grade=grades[String(query.get('grade')||'4級')];
+      if(!grade)throw fail('級を確認してください。',400);
+      const requested=Number(query.get('limit')||20),limit=[10,20,30,50,100].includes(requested)?requested:20;
+      return send(res,200,await questionBattle.questionStats(grade,limit));
+    }catch(e){return send(res,e.status||500,{error:e.message||'対戦問題の正解率を取得できませんでした。'});}
+  }
   if(path==='/api/admin/retry-question-stats')return handleRetryQuestionStats(req,res);
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);

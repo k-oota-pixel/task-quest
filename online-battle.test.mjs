@@ -6,6 +6,7 @@ import {
  ONLINE_BATTLE_JOIN_TTL_MS,
  ONLINE_BATTLE_RESULT_TTL_MS,
  onlineBattleMissDamage,
+ validOnlineBattleQuestionId,
  projectOnlineBattleLobbyRoom
 } from './online-battle.mjs';
 
@@ -181,7 +182,7 @@ test('0コインでも入室でき、入室時にコインを消費しない',as
  }
 });
 
-async function simulateCoinlessBattle(operation,initialRoom,actor='test-user'){
+async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',questionMode=false,questionId=''){
  const reads=[],commits=[],roomWrites=[];
  let stored={value:structuredClone(initialRoom),updateTime:'room-1'};
  const fetch=async (url,options={})=>{
@@ -201,10 +202,10 @@ async function simulateCoinlessBattle(operation,initialRoom,actor='test-user'){
   projectId:'online-battle-test',
   accessToken:async()=> 'fake-token',
   verifyUser:async()=>({uid:actor}),
-  readJson:async()=>({matchId:initialRoom.matchId}),
+  readJson:async()=>({matchId:initialRoom.matchId,...(questionId?{questionId}:{})}),
   send:(res,status,payload)=>{res.status=status;res.body=payload;},
   decodeFields:fields=>fields.__testValue||{},
-  fetch,
+  questionMode,fetch,
   roomStore:{
    mode:'production',
    read:async()=>structuredClone(stored),
@@ -357,4 +358,54 @@ test('問題対戦の4級は20部屋、単語対戦は従来どおり10部屋',a
  const w20={};await word.service.handle({method:'GET'},w20,'/api/online-battle/room/4-20');
  assert.equal(w20.status,404);
  assert.equal(word.reads(),0,'単語対戦の存在しない部屋をDBから読まない');
+});
+
+test('問題IDは級ごとに正しいリトライノート形式だけを集計する',()=>{
+ assert.equal(validOnlineBattleQuestionId('2025-2-g4-q01','4'),true);
+ assert.equal(validOnlineBattleQuestionId('2020-2-pre2-q11','pre2'),true);
+ assert.equal(validOnlineBattleQuestionId('2025-2-g4-q01','3'),false);
+ assert.equal(validOnlineBattleQuestionId('__proto__','4'),false);
+});
+
+test('問題対戦の解答結果は既存RTDBルーム更新に同梱、Firestore read/write追加なし',async()=>{
+ const questionId='2025-2-g4-q01';
+ const initial=room({
+  roomId:'4-1',gradeKey:'4',status:'playing',matchId:'accuracy-match',
+  players:[player('test-user',999_000),{...player('opponent',999_000),hp:10}]
+ });
+ const first=await simulateCoinlessBattle('attack',initial,'test-user',true,questionId);
+ assert.equal(first.response.status,200);
+ assert.equal(first.reads.length,0);
+ assert.equal(first.commits.length,0);
+ assert.equal(first.roomWrites.length,1);
+ assert.equal(first.roomWrites[0].players[0].battleQuestionFirst[questionId],1);
+ assert.equal('battleQuestionFirst' in first.response.body.room.players[0],false,'他人に初回回答履歴を公開しない');
+ // Repeated attempts for the same question in the same match must not replace
+ // its originally wrong answer with a later correct answer.
+ const alreadyWrong=structuredClone(initial);
+ alreadyWrong.players[0].battleQuestionFirst={[questionId]:0};
+ const repeat=await simulateCoinlessBattle('attack',alreadyWrong,'test-user',true,questionId);
+ assert.equal(repeat.roomWrites[0].players[0].battleQuestionFirst[questionId],0);
+});
+
+test('管理者向け初回正答率は保存済みRTDB成績から1回だけ読み込み集計する',async()=>{
+ let calls=0;
+ const service=createOnlineBattle({
+  base:'https://firestore.googleapis.com/v1/projects/test/databases/(default)',
+  projectId:'test',accessToken:async()=> 'token',verifyUser:async()=>({uid:'u'}),
+  readJson:async()=>({}),send:()=>{},decodeFields:()=>({}),questionMode:true,
+  fetch:async()=>{throw Error('Firestore must not be accessed for accuracy stats');},
+  roomStore:{mode:'production',listStandings:async grade=>{calls++;assert.equal(grade,'4');return [
+   {uid:'a',questionFirst:{'2025-2-g4-q01':1,'2025-2-g4-q02':0}},
+   {uid:'b',questionFirst:{'2025-2-g4-q01':0,'2025-2-g4-q02':0}},
+   {uid:'c',questionFirst:{'2025-2-g4-q01':1,'2025-2-g3-q02':1}}
+  ];}}
+ });
+ const response=await service.questionStats('4',10);
+ assert.equal(calls,1);
+ assert.equal(response.total,2);
+ assert.deepEqual(response.rows.map(q=>({id:q.id,attempts:q.attempts,correct:q.correct,accuracy:q.accuracy})),[
+  {id:'2025-2-g4-q02',attempts:2,correct:0,accuracy:0},
+  {id:'2025-2-g4-q01',attempts:3,correct:2,accuracy:66.7}
+ ]);
 });
