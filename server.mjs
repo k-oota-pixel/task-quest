@@ -1,5 +1,6 @@
 import {taskModels,callTaskGemini} from './task-gemini.mjs';
 import {callVocabularyGemini,normalizeVocabularyRequest} from './vocabulary-gemini.mjs';
+import {createWeeklyTitleSettlement} from './weekly-title-settlement.mjs';
 import {createCodeAuth} from './code-auth.mjs';
 import {createRequestVerifier,isAdministrator} from './request-auth.mjs';
 import {createAdminPetNameReset} from './admin-pet-name-reset.mjs';
@@ -100,7 +101,8 @@ function applyCors(req,res){if(req.headers.origin===GITHUB_ORIGIN){res.setHeader
 function getServiceAccount(){let raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON||'';if(!raw&&process.env.FIREBASE_SERVICE_ACCOUNT_B64){try{raw=Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64,'base64').toString('utf8');}catch{}}if(!raw)throw fail('管理画面のFirebase管理設定が未完了です。',503);let sa;try{sa=JSON.parse(raw);}catch{throw fail('管理画面のFirebase管理設定を確認してください。',503);}if(!sa?.client_email||!sa?.private_key)throw fail('管理画面のFirebase管理設定を確認してください。',503);return sa;}
 const getGoogleAccessToken=createGoogleAccessToken({serviceAccount:getServiceAccount});
 const {verifyUser:verifyRawUser,checkApp}=createSecurityGate();
-const verifyUser=createRequestVerifier({verifyRawUser,admission:user=>codeAuth.admission(user),fail});
+const verifyAdmittedUser=createRequestVerifier({verifyRawUser,admission:user=>codeAuth.admission(user),fail});
+const verifyUser=async req=>{const user=await verifyAdmittedUser(req);void weeklyTitleSettlement.run();return user;};
 async function verifyAdmin(req, verify=verifyUser){if(!ADMIN_EMAIL)throw fail('管理者メールアドレスが未設定です。',503);const user=await verify(req);if(!isAdministrator(user,ADMIN_EMAIL))throw fail('このアカウントには管理権限がありません。',403);return user;}
 
 function decodeFirestoreValue(v){if(!v||typeof v!=='object')return null;if('nullValue'in v)return null;if('stringValue'in v)return v.stringValue;if('booleanValue'in v)return !!v.booleanValue;if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return Number(v.doubleValue);if('timestampValue'in v)return v.timestampValue;if('referenceValue'in v)return v.referenceValue;if('bytesValue'in v)return v.bytesValue;if('geoPointValue'in v)return v.geoPointValue;if('arrayValue'in v)return (v.arrayValue.values||[]).map(decodeFirestoreValue);if('mapValue'in v){const out={};for(const [k,val]of Object.entries(v.mapValue.fields||{}))out[k]=decodeFirestoreValue(val);return out;}return null;}
@@ -227,6 +229,7 @@ const materialRankings=createMaterialRankings({base:FIRESTORE_BASE,projectId:FIR
 const loadTitleAuthority=createTitleAuthority({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken});
 let titleCollectionReady=false;
 const getTitleAuthority=async()=>{const authority=await loadTitleAuthority();titleCollectionReady=true;return authority;};
+const weeklyTitleSettlement=createWeeklyTitleSettlement({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,decodeFields,getAuthority:getTitleAuthority,completedWeek:materialRankings.completedWeek});
 const handleTitleEvents=createTitleEvents({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
 const titleCountRankings=createTitleCountRankings({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
 const learningTitles=createLearningTitles({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish,weeklyProgress:materialRankings.userWeekly});
@@ -404,6 +407,7 @@ export const server=http.createServer(async(req,res)=>{
     console.info(JSON.stringify({event:'auth_http',route:path,phase:'received'}));
     res.once('finish',()=>{
       completed=true;
+      if(res.statusCode===200)void weeklyTitleSettlement.run();
       console.info(JSON.stringify({event:'auth_http',route:path,phase:'completed',status:res.statusCode,elapsedMs:Date.now()-start}));
     });
     res.once('close',()=>{
@@ -472,7 +476,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.21',titleCollectionVersion:1,titleCollectionReady,titleSummaryVersion:1,weeklyTitleArchiveVersion:1,coinRankingOptimizationVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.21',titleCollectionVersion:1,titleCollectionReady,titleSummaryVersion:1,weeklyTitleArchiveVersion:1,weeklyTitleAutomaticAwardVersion:1,coinRankingOptimizationVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});

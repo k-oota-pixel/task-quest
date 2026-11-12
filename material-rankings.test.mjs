@@ -85,3 +85,17 @@ test('typing defense normal and hard share daily ranking infrastructure and unlo
  assert.equal(weekly.find(x=>x.id==='weekly:'+ids[1]).unlocked,true);
  assert.equal(weekly.find(x=>x.id==='weekly:'+ids[1]).name,weeklyTitleName(ids[1]));
 });
+
+test('a completed week includes Sunday with one saved document per day',async()=>{
+ const reads=[],winners=Object.fromEntries([...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].map(app=>[app.id,'']));
+ const rankings=createMaterialRankings({base:'https://db',projectId:'p',accessToken:async()=>'token',decodeFields:x=>x,fail,
+  now:()=>Date.parse('2026-11-16T01:00:00+09:00'),fetch:async url=>{
+   const day=url.match(/coin-day-(\d{4}-\d{2}-\d{2})$/)?.[1];
+   assert.ok(day,url);reads.push(day);
+   return {ok:true,json:async()=>({fields:{today:day,materialWinners:{...winners,ateru:['09','10','11','15'].includes(day.slice(-2))?'u':''},
+    leaders:day.endsWith('-15')?[{uid:'u'}]:[]}})};
+  }});
+ const totals=await rankings.completedWeek('2026-11-09');
+ assert.deepEqual({...totals.u},{ateru:4,coins:1});
+ assert.deepEqual(reads,['09','10','11','12','13','14','15'].map(day=>'2026-11-'+day));
+});
