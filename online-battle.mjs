@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {creativeTitleCount,titleCountTransforms} from './title-count-summary.mjs';
 import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard} from './online-battle-standings.mjs';
 import {ONLINE_TITLE_APP,onlineBattleTitleProgress,nextOnlineBattleTitleStats,creativeTitles} from './title-model.mjs';
 
@@ -217,7 +218,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  // Store the ranking projection in the existing settlement receipt so a retry
  // after a successful Firestore commit can resume without applying rewards twice.
  function settlementWrites(settlement,wallets=new Map()){
-  const awards={},writes=[],titleStats=new Map(),standings=[],standingDays=new Map();
+  const awards={},writes=[],titleStats=new Map(),titleDeltas=new Map(),standings=[],standingDays=new Map();
   for(const entry of settlement.entries){
    if(!entry.played)continue;
    if(!ONLINE_BATTLE_GRADES.includes(entry.gradeKey))throw error('対戦の級が正しくありません。',400);
@@ -225,8 +226,11 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    if(!wallet?.updateTime)throw error('称号の保存先が見つかりません。',503);
    const oldStats=field(wallet.value?.onlineBattleTitleStats);
    const newStats=nextOnlineBattleTitleStats(oldStats,entry.gradeKey,Boolean(entry.won));
-   const oldIds=new Set(creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats})).filter(t=>t.unlocked).map(t=>t.id));
-   awards[entry.uid]=creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:newStats}))
+   const beforeTitles=creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats}));
+   const afterTitles=creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:newStats}));
+   const oldIds=new Set(beforeTitles.filter(t=>t.unlocked).map(t=>t.id));
+   titleDeltas.set(entry.uid,creativeTitleCount(ONLINE_TITLE_APP,afterTitles)-creativeTitleCount(ONLINE_TITLE_APP,beforeTitles));
+   awards[entry.uid]=afterTitles
     .filter(t=>t.unlocked&&!oldIds.has(t.id))
     .map(t=>({id:t.id,label:t.label,name:t.name,condition:t.condition}));
    titleStats.set(entry.uid,newStats);
@@ -250,7 +254,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     transforms.push({fieldPath,increment:encode(-count)});
    }
    if(entry.played){
-    if((awards[entry.uid]||[]).length)transforms.push({fieldPath:'titleCountRevision',increment:encode(1)});
+    transforms.push(...titleCountTransforms(titleDeltas.get(entry.uid)));
     const wallet=wallets.get(entry.uid);
     writes.push({
      update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid)),onlineBattleStandingDays:encode(standingDays.get(entry.uid))}},
