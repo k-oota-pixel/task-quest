@@ -1,4 +1,4 @@
-name: Verify production ranking read changes
+name: Verify automatic weekly titles in production
 on:
   pull_request:
     paths:
@@ -20,8 +20,9 @@ jobs:
             home=$(curl --silent --show-error --fail --max-time 12 "$home_url?ranking-check=$attempt-$GITHUB_RUN_ID" || true)
             ready=false
             web=false
-            if jq -e '.weeklyTitleArchiveVersion == 1 and .coinRankingOptimizationVersion == 1' <<< "$status" >/dev/null 2>&1; then ready=true; fi
-            if grep -Fq 'id="heading-vocabulary-grammar">語彙文法学習</h2><span>6教材' <<< "$home" && ! grep -Fq 'href="./vocabulary/"' <<< "$home"; then web=true; fi
+            if jq -e '.weeklyTitleAutomaticAwardVersion == 1' <<< "$status" >/dev/null 2>&1; then ready=true; fi
+            module=$(curl --silent --show-error --fail --max-time 12 "${home_url}learning-titles.js?v=2.4.87" || true)
+            if grep -Fq 'learning-titles.js?v=2.4.87' <<< "$home" && grep -Fq '翌週に称号が自動で付与されます' <<< "$module"; then web=true; fi
             printf 'Attempt %s server=%s frontend=%s\n' "$attempt" "$ready" "$web"
             if [[ "$ready" == true && "$web" == true ]]; then exit 0; fi
             sleep 12
