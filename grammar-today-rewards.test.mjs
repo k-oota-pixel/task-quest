@@ -12,7 +12,7 @@ function fixture(){
  const docs=new Map();let reads=0,commits=0,revision=0,conflict=false,body;
  const prefix='projects/p/databases/(default)/documents/';
  const handle=createTitleEvents({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'learner'}),readJson:async()=>body,decodeFields:f=>decode({mapValue:{fields:f}}),fail,send:(r,status,data)=>Object.assign(r,{status,data}),fetch:async(url,o)=>{
-  const b=JSON.parse(o.body);
+  if(o.method!=='POST')return {ok:false,status:404};const b=JSON.parse(o.body);
   if(url.endsWith('batchGet')){reads++;return {ok:true,json:async()=>b.documents.map(name=>docs.has(name)?{found:docs.get(name)}:{missing:name})};}
   if(conflict){conflict=false;return {ok:false,status:409};}
   for(const w of b.writes){const d=docs.get(w.update.name);if(w.currentDocument?.exists===false&&d||w.currentDocument?.updateTime&&w.currentDocument.updateTime!==d?.updateTime)return {ok:false,status:409};}
