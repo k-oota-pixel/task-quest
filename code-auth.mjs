@@ -153,7 +153,12 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     }
     throw fail('ページが見つかりません。',404);
    }
-   if(route==='/api/account/session'){const user=await verifyUser(req),session=await admission(user);return send(res,200,{...session,admin:isAdmin(user)===true&&!session.resetRequired});}
+   if(route==='/api/account/session'){
+    const user=await verifyUser(req);
+    const session=await admission(user).catch(error=>{onAdmissionChanged(user.uid);throw error;});
+    if(session.resetRequired)onAdmissionChanged(user.uid);
+    return send(res,200,{...session,admin:isAdmin(user)===true&&!session.resetRequired});
+   }
    if(route==='/api/account/password'){
     throttle(req);const user=await verifyUser(req),account=await state(user.uid);if(!account)throw fail('コードの紐づけが必要です。',400);
     if(!await passwordMatches(body.currentPassword,account.value))throw fail('現在のパスワードが違います。',403);
