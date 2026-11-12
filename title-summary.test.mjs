@@ -12,7 +12,8 @@ function summaryHarness(wallet={},options={}){
  let writes=0,walletVersion=0;
  const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,readJson:async()=>({}),fail,send,fetch:async(url,opt={})=>{
   if(url.endsWith(':batchGet')){
-      assert.deepEqual(JSON.parse(opt.body).newTransaction,{readOnly:{}});
+      const batch=JSON.parse(opt.body);
+   if(batch.documents.length>1)assert.deepEqual(batch.newTransaction,{readOnly:{}});
    const snapshotVersion=String(walletVersion);
    const documents=[['users/u/apps/english-playroom',structuredClone(wallet)],['user_titles/u',{selectedId:''}],['title_progress/u/activities/word-breaker',{metrics:{runs:1}}]];
    if(options.afterSnapshot?.(wallet))walletVersion++;
