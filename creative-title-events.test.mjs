@@ -58,7 +58,7 @@ test('replayed title milestones already present in the wallet do not announce or
    throw Error('Unexpected request '+url);
   }});
  const firstResult={};await api({method:'POST'},firstResult);
- assert.equal(firstResult.status,200);
+ assert.equal(firstResult.status,200,JSON.stringify(firstResult.data));
  assert.deepEqual(firstResult.data.freshTitles,[]);
  assert.equal(walletReads,1);assert.equal(walletWrites,0);
  event={...first,eventId:'event-0002'};
