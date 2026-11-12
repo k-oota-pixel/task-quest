@@ -94,9 +94,12 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyDe
     });
   }
   function learningTime(value){const ms=typeof value==='number'?value:Date.parse(value||'');return Number.isFinite(ms)&&ms>0?ms:null;}
+  // Existing activity docs already contain per-material timestamps; no extra reads for older users.
+  function lastLearningApp(fields={}){if(typeof fields.lastLearningAppId==='string'&&fields.lastLearningAppId)return fields.lastLearningAppId;
+    let latest=0,id=null;for(const [key,entry] of Object.entries(fields.contents||{})){const at=learningTime(entry?.lastLearningAt)||0;if(at>latest){latest=at;id=key;}}return id;}
   function cursor(value){if(!value)return {phase:'recent'};try{const c=JSON.parse(Buffer.from(value,'base64url').toString());if(c.phase==='recent'&&typeof c.at==='string'&&typeof c.name==='string'&&c.name.startsWith('projects/'+projectId+'/databases/(default)/documents/learning_activity/'))return c;if(c.phase==='unrecorded'&&Number.isSafeInteger(c.offset)&&c.offset>=0)return c;}catch{}throw fail('ページ情報が不正です。',400);}
   const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
-  async function activity(uid){return cached('activity:'+uid,async()=>{const token=await accessToken(),r=await request(base+'/documents/learning_activity/'+encodeURIComponent(uid),{headers:{Authorization:'Bearer '+token}});if(r.status===404)return {lastLearningAt:null,lastLearningAppId:null};const body=await r.json();if(!r.ok)throw fail('学習日時を取得できませんでした。',502);const fields=decodeFields(body.fields||{});return {lastLearningAt:learningTime(fields.lastLearningAt),lastLearningAppId:typeof fields.lastLearningAppId==='string'?fields.lastLearningAppId:null};});}
+  async function activity(uid){return cached('activity:'+uid,async()=>{const token=await accessToken(),r=await request(base+'/documents/learning_activity/'+encodeURIComponent(uid),{headers:{Authorization:'Bearer '+token}});if(r.status===404)return {lastLearningAt:null,lastLearningAppId:null};const body=await r.json();if(!r.ok)throw fail('学習日時を取得できませんでした。',502);const fields=decodeFields(body.fields||{});return {lastLearningAt:learningTime(fields.lastLearningAt),lastLearningAppId:lastLearningApp(fields)};});}
   async function unrecorded(){return cached('unrecorded',async()=>{
     const rows=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery:{from:[{collectionId:'learning_activity'}],select:{fields:[{fieldPath:'uid'}]}}})});
     const known=new Set(rows.filter(r=>r.document).map(r=>decodeFields(r.document.fields||{}).uid));
@@ -109,7 +112,7 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyDe
       if(c.at)query.startAt={values:[{timestampValue:c.at},{referenceValue:c.name}],before:false};
       const result=await json(base+'/documents:runQuery',{method:'POST',body:JSON.stringify({structuredQuery:query})});
       const documents=result.filter(r=>r.document).map(r=>r.document),more=documents.length>6;
-      rows=documents.slice(0,6).map(doc=>{const d=decodeFields(doc.fields||{});return {uid:d.uid,lastLearningAt:learningTime(d.lastLearningAt),lastLearningAppId:typeof d.lastLearningAppId==='string'?d.lastLearningAppId:null};});
+      rows=documents.slice(0,6).map(doc=>{const d=decodeFields(doc.fields||{});return {uid:d.uid,lastLearningAt:learningTime(d.lastLearningAt),lastLearningAppId:lastLearningApp(d)};});
       if(more){const last=documents[5];nextPageToken=encode({phase:'recent',at:decodeFields(last.fields).lastLearningAt,name:last.name});}
       else {const waiting=await unrecorded(),room=6-rows.length;rows.push(...waiting.slice(0,room).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null})));if(waiting.length>room)nextPageToken=encode({phase:'unrecorded',offset:room});}
     }else{const waiting=await unrecorded();rows=waiting.slice(c.offset,c.offset+6).map(u=>({uid:u.localId,lastLearningAt:null,createdAt:u.createdAt||null}));if(waiting.length>c.offset+6)nextPageToken=encode({phase:'unrecorded',offset:c.offset+6});}
