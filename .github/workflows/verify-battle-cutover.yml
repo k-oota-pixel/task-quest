@@ -1,4 +1,4 @@
-name: Verify automatic weekly titles in production
+name: Verify learner read optimizations in production
 on:
   pull_request:
     paths:
@@ -10,21 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
-      - name: Check deployed server and homepage
-        shell: bash
+      - name: Verify deployed learner API versions
         run: |
-          status_url=https://task-quest.onrender.com/api/status
-          home_url=https://k-oota-pixel.github.io/english-playroom/
           for attempt in $(seq 1 30); do
-            status=$(curl --silent --show-error --fail --max-time 12 "$status_url" || true)
-            home=$(curl --silent --show-error --fail --max-time 12 "$home_url?ranking-check=$attempt-$GITHUB_RUN_ID" || true)
-            ready=false
-            web=false
-            if jq -e '.weeklyTitleAutomaticAwardVersion == 1' <<< "$status" >/dev/null 2>&1; then ready=true; fi
-            module=$(curl --silent --show-error --fail --max-time 12 "${home_url}learning-titles.js?v=2.4.87" || true)
-            if grep -Fq 'learning-titles.js?v=2.4.87' <<< "$home" && grep -Fq '翌週に称号が自動で付与されます' <<< "$module"; then web=true; fi
-            printf 'Attempt %s server=%s frontend=%s\n' "$attempt" "$ready" "$web"
-            if [[ "$ready" == true && "$web" == true ]]; then exit 0; fi
+            status=$(curl --silent --show-error --fail --max-time 12 https://task-quest.onrender.com/api/status || true)
+            if jq -e '.authReadOptimizationVersion == 2 and .challengeReadOptimizationVersion == 1' <<< "$status" >/dev/null 2>&1; then
+              printf 'Both read optimizations are live\n'
+              exit 0
+            fi
             sleep 12
           done
           exit 1
