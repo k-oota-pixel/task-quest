@@ -1,4 +1,5 @@
 import {taskModels,callTaskGemini} from './task-gemini.mjs';
+import {callVocabularyGemini,normalizeVocabularyRequest} from './vocabulary-gemini.mjs';
 import {createCodeAuth} from './code-auth.mjs';
 import {createRequestVerifier,isAdministrator} from './request-auth.mjs';
 import {createAdminPetNameReset} from './admin-pet-name-reset.mjs';
@@ -41,6 +42,9 @@ if(fs.existsSync(dir+'.env'))for(const line of fs.readFileSync(dir+'.env','utf8'
 
 const tasks=JSON.parse(fs.readFileSync(dir+'tasks.json','utf8'));
 const key=process.env.GEMINI_API_KEY,model=process.env.GEMINI_MODEL||'gemini-2.5-flash';
+const vocabularyKey=process.env.VOCAB_GEMINI_API_KEY;
+const vocabularyModels=[process.env.VOCAB_GEMINI_MODEL||model,process.env.VOCAB_GEMINI_FALLBACK_MODEL||'gemini-2.5-flash-lite'];
+const vocabularyWindows=new Map();let vocabularyDaily=0,vocabularyDay='',vocabularyActive=0;
 const petKey=process.env.PET_GEMINI_API_KEY||'',backupKey=process.env.TASK_QUEST_BACKUP_GEMINI_API_KEY||petKey,petModel=process.env.PET_GEMINI_MODEL||'gemini-2.5-flash';
 const backupModel=process.env.TASK_QUEST_BACKUP_GEMINI_MODEL||(process.env.TASK_QUEST_BACKUP_GEMINI_API_KEY?'gemini-3.5-flash-lite':petModel);
 const petWindows=new Map();let petDaily=0,petDay='',petActive=0;
@@ -264,6 +268,35 @@ const PET_TOPICS=Object.freeze({
 });
 function petTopic(id){return PET_TOPICS[id]||PET_TOPICS.school;}
 function cleanPetMessage(value,max=500){return String(value??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,'').trim().slice(0,max);}
+async function handleVocabularyGemini(req,res){
+  try{
+    if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
+    if(!req.headers['content-type']?.startsWith('application/json'))throw fail('JSONで送信してください。',415);
+    if(!vocabularyKey)throw fail('英単語帳のAI用APIキーが未設定です。',503);
+    const user=await verifyUser(req),body=await readJson(req,20000),request=normalizeVocabularyRequest(body);
+    const today=new Date().toISOString().slice(0,10);
+    if(vocabularyDay!==today){vocabularyDay=today;vocabularyDaily=0;vocabularyWindows.clear();}
+    const now=Date.now();
+    for(const [uid,window] of vocabularyWindows)if(now-window.start>=60000)vocabularyWindows.delete(uid);
+    const window=vocabularyWindows.get(user.uid)||{start:now,count:0};
+    if(window.count>=30||vocabularyActive>=4)return send(res,429,{error:'AIの利用が混み合っています。少し待ってからもう一度お試しください。'});
+    if(vocabularyDaily>=Number(process.env.VOCAB_GEMINI_DAILY_LIMIT||200))return send(res,429,{error:'本日の英単語帳AIの利用上限に達しました。'});
+    window.count++;vocabularyWindows.set(user.uid,window);vocabularyDaily++;vocabularyActive++;
+    try{
+      const result=await callVocabularyGemini({apiKey:vocabularyKey,models:vocabularyModels,request});
+      if(!result.ok){
+        console.error('Vocabulary Gemini request failed',{status:result.status,reason:result.reason,model:result.model||null});
+        const status=result.status===429?429:result.status===503||result.status===504?503:502;
+        const message=result.status===429?'Geminiの利用上限に達しました。少し待ってからお試しください。'
+          :result.status===400||result.status===403?'英単語帳のGeminiキー・モデル設定を確認してください。'
+          :result.status===503||result.status===504?'AIが一時的に混み合っています。少し待ってからお試しください。'
+          :'AIの文章を作成できませんでした。少し待ってからお試しください。';
+        return send(res,status,{error:message});
+      }
+      return send(res,200,{text:result.text});
+    }finally{vocabularyActive=Math.max(0,vocabularyActive-1);}
+  }catch(error){return send(res,error.status||502,{error:error.message||'AIの文章を作成できませんでした。'});}
+}
 async function handlePetChat(req,res){
   try{
     if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
@@ -440,7 +473,7 @@ export const server=http.createServer(async(req,res)=>{
     return send(res,409,{error:'対戦方式を切り替えています。少し待ってから対戦画面を開き直してください。'});
   }
   if(path.startsWith('/api/online-battle'))return onlineBattle.handle(req,res,path);
-  if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest"].includes(path)){
+  if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest","/api/vocabulary/gemini"].includes(path)){
     try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
   }
   if(req.method==='GET'&&['/firebase-security.js','/app-check-config.js'].includes(path)){
@@ -458,6 +491,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/admin/search-user')return adminUserIndex.lookup(req,res);
   if(path==='/api/contact-message')return handleContactMessage(req,res);
   if(path==='/api/pet-chat')return handlePetChat(req,res);
+  if(path==='/api/vocabulary/gemini')return handleVocabularyGemini(req,res);
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/pre2-interview-grade')return handlePre2Interview(req,res);
   if(path==='/api/learning/challenges')return handleLearningChallenges(req,res);
@@ -479,7 +513,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.19',titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
