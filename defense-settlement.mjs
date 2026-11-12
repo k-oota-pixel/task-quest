@@ -1,4 +1,6 @@
 import {creativeTitleCount,titleCountTransforms} from './title-count-summary.mjs';
+import {titleIdsTransform} from './title-collection.mjs';
+import {fixtureTitleAuthority} from './title-authority.mjs';
 import {DEFENSE_TITLE_APP,defenseTitleProgress,creativeTitles} from './title-model.mjs';
 // Settle one typing-defense play with one atomic Firestore commit.
 // The client never contacts Firestore while the enemy is moving or a phase ends.
@@ -21,7 +23,7 @@ export function defenseSettlementPlan(mode,clearedPhases){
 export function createDefenseSettlement({
  base,projectId,accessToken,verifyUser,send,fail,readJson,decodeFields,
  todayKey,earnedCoinsToday,invalidate=()=>{},onDailyCountsChanged=()=>{},
- onDefenseStageSaved=async()=>{},publishCoinBoard=async()=>{},fetch:request=globalThis.fetch
+ onDefenseStageSaved=async()=>{},publishCoinBoard=async()=>{},getAuthority=fixtureTitleAuthority,fetch:request=globalThis.fetch
 }){
  const prefix='projects/'+projectId+'/databases/(default)/documents/';
  const root=base+'/documents/';
@@ -105,7 +107,8 @@ export function createDefenseSettlement({
     updateTransforms:[
      {fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'},
      // A zero-stage run did not read legacy activity-based defense records.
-     ...titleCountTransforms(titleDelta,{invalidate:!plan.stage&&Boolean(titleDelta)})
+     ...titleCountTransforms(titleDelta,{invalidate:!plan.stage&&Boolean(titleDelta)}),
+     ...(freshTitles.length?[titleIdsTransform(freshTitles.map(title=>title.id),await getAuthority(),uid)]:[])
     ],
     currentDocument:currentDocument(wallet)
    };

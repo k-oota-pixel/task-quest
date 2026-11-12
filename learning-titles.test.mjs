@@ -2,6 +2,7 @@ import './title-summary.test.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {titleState,activityTitles,TITLE_CONTENTS,creativeTitles,creativeCatalog,validTitleName} from './title-model.mjs';
 import {createLearningTitles} from './learning-titles.mjs';
+import {fixtureTitleAuthority} from './title-authority.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import catalog from './retry-title-catalog.json' with {type:'json'};
 test('creative title catalogs replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,21);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,id==='word-tower'?18:15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
@@ -12,14 +13,22 @@ test('retry titles and selected title migrate using distinct answered questions,
  assert.equal(titleState({retry,selection:{selectedId:''}}).selectedTitle,'');assert.ok(!JSON.stringify(state).includes('badge'));
 });
 const fail=(message,status)=>Object.assign(Error(message),{status});
-test('selection validates earned titles, clears selection and mirrors the selected title into the learner wallet',async()=>{
- let selectedId='creative:ateru:1',selectionWrites=0,summaryWrites=0;const docs=[{found:{name:'projects/p/databases/(default)/documents/title_progress/u/activities/ateru',fields:{metrics:{runs:1}}}},{found:{name:'projects/p/databases/(default)/documents/learning_activity/u',fields:{contents:{ateru:{titleCount:1}}}}}];
- const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,readJson:async()=>({selectedId}),fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt={})=>{if(opt.method==='PATCH'){const fields=JSON.parse(opt.body).fields;if(url.includes('/user_titles/')){selectionWrites++;assert.equal(fields.selectedId.stringValue,selectedId);}else if(url.includes('/apps/english-playroom')){summaryWrites++;assert.equal(fields.selectedTitleId.stringValue,selectedId);}return {ok:true};}return {ok:true,json:async()=>docs};}});
- let r={};await api.handle({method:'POST'},r);assert.equal(r.status,200);assert.equal(selectionWrites,1);assert.equal(summaryWrites,1);
- selectedId='creative:ateru:15';r={};await api.handle({method:'POST'},r);assert.equal(r.status,400);assert.equal(selectionWrites,1);assert.equal(summaryWrites,1);
- selectedId='';r={};await api.handle({method:'POST'},r);assert.equal(r.status,200);assert.equal(r.body.selectedTitle,'');assert.equal(selectionWrites,2);assert.equal(summaryWrites,2);
- docs.push({found:{name:'projects/p/databases/(default)/documents/user_titles/u',fields:{selectedId:'creative:ateru:1',selectedTitle:'古い表示名'}}});
- assert.deepEqual(await api.decorate([{uid:'u',petName:'もこ',coinsToday:3}]),[{petName:'もこ',coinsToday:3,uid:'u',title:'見習い探偵、出動！'}]);
+test('selection verifies signed ownership and stores only in the wallet',async()=>{
+ const authority=await fixtureTitleAuthority();
+ let selectedId='creative:ateru:1',writes=0;
+ const wallet={titleCollectionVersion:1,titleCollectionProof:authority.marker('u'),
+  earnedTitleIds:[authority.award('u',selectedId),authority.award('other','creative:ateru:15')]};
+ const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,readJson:async()=>({selectedId}),fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt={})=>{
+  assert.ok(url.includes('/users/u/apps/english-playroom'));
+  if(opt.method==='PATCH'){writes++;const fields=JSON.parse(opt.body).fields;
+   for(const [key,value] of Object.entries(fields))wallet[key]=value.stringValue;
+   return {ok:true};
+  }
+  return {ok:true,json:async()=>({fields:wallet})};
+ }});
+ let r={};await api.handle({method:'POST'},r);assert.equal(r.status,200);assert.equal(writes,1);assert.ok(authority.verifySelection('u',wallet));
+ selectedId='creative:ateru:15';r={};await api.handle({method:'POST'},r);assert.equal(r.status,400);assert.equal(writes,1);
+ selectedId='';r={};await api.handle({method:'POST'},r);assert.equal(r.status,200);assert.equal(r.body.selectedTitle,'');assert.equal(writes,2);
 });
 test('leaderboard titles accept streamed Firestore batchGet results',async()=>{
  const prefix='projects/p/databases/(default)/documents/';
@@ -42,8 +51,8 @@ test('full title read returns and mirrors unlocked title count',async()=>{
  const state=await api.read('u');assert.ok(state.unlockedTitleCount>=1);assert.equal(Number(mirrored.unlockedTitleCount.integerValue),state.unlockedTitleCount);
 });
 test('milestone notification uses the atomic increment result rather than a later racing read',async()=>{
- let calls=0,milestone=10;const api=createLearningActivity({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId:'eiken-retry'}),invalidate(){},fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt)=>{calls++;const writes=JSON.parse(opt.body).writes;const activity=writes.find(w=>w.update.name.endsWith('/learning_activity/u'));assert.equal(activity.updateTransforms[2].increment.integerValue,'1');return {ok:true,json:async()=>({writeResults:writes.map(w=>({transformResults:w===activity?[{},{},{integerValue:String(milestone)}]:[]}))})};}});
- const r={};await api({method:'POST',headers:{'content-type':'application/json'}},r);assert.equal(calls,1);assert.equal(r.body.freshTitles[0].id,'eiken-retry:10');for(const n of [1,50,100]){milestone=n;const unlocked={};await api({method:'POST',headers:{'content-type':'application/json'}},unlocked);assert.equal(unlocked.body.freshTitles[0].id,'eiken-retry:'+n);}
+ let calls=0,milestone=10;const api=createLearningActivity({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId:'eiken-retry'}),invalidate(){},fail,send:(r,status,body)=>Object.assign(r,{status,body}),fetch:async(url,opt)=>{calls++;const writes=JSON.parse(opt.body).writes;const activity=writes.find(w=>w.update.name.endsWith('/learning_activity/u'));if(!activity){assert.ok(writes[0].updateTransforms[0].appendMissingElements.values.length);return {ok:true};}assert.equal(activity.updateTransforms[2].increment.integerValue,'1');return {ok:true,json:async()=>({writeResults:writes.map(w=>({transformResults:w===activity?[{},{},{integerValue:String(milestone)}]:[]}))})};}});
+ const r={};await api({method:'POST',headers:{'content-type':'application/json'}},r);assert.equal(calls,2);assert.equal(r.body.freshTitles[0].id,'eiken-retry:10');for(const n of [1,50,100]){milestone=n;const unlocked={};await api({method:'POST',headers:{'content-type':'application/json'}},unlocked);assert.equal(unlocked.body.freshTitles[0].id,'eiken-retry:'+n);}
 });
 
 test('master titles remain locked until all titles in their content group are unlocked',()=>{
@@ -66,25 +75,27 @@ test('weekly titles stay locked without a durable award and unlock for four rank
  assert.equal(earned.selectedTitle,'黄金の四冠王');
  assert.equal(validTitleName('weekly:coins'),'黄金の四冠王');
 });
-test('weekly standings load only when explicitly requested; completed badge persisted once',async()=>{
- const prefix='projects/p/databases/(default)/documents/';
- let weeklyCalls=0,awardWrites=0,saved=[];
+test('weekly standings load only on request and awards persist in the wallet once',async()=>{
+ const authority=await fixtureTitleAuthority();
+ let weeklyCalls=0,awardWrites=0;
+ const wallet={titleCollectionVersion:1,titleCollectionProof:authority.marker('u'),earnedTitleIds:[]};
  const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,readJson:async()=>({}),fail,send:(res,status,body)=>Object.assign(res,{status,body}),
   weeklyProgress:async()=>{weeklyCalls++;return {week:'2026-11-02',progress:{coins:4,ateru:4}};},
   fetch:async(url,opt={})=>{
-   if(url.endsWith(':batchGet'))return {ok:true,json:async()=>[{found:{name:prefix+'user_titles/u',fields:{selectedId:'',weeklyEarnedIds:saved}}},{found:{name:prefix+'users/u/apps/english-playroom',fields:{unlockedTitleCount:0}}}]};
-   if(opt.method==='PATCH'){
-    const fields=JSON.parse(opt.body).fields;
-    if(url.includes('/user_titles/')){awardWrites++;saved=fields.weeklyEarnedIds.arrayValue.values.map(v=>v.stringValue);}
+   if(url.endsWith('/apps/english-playroom'))return {ok:true,json:async()=>({fields:wallet})};
+   if(url.endsWith(':commit')){
+    awardWrites++;
+    const [write]=JSON.parse(opt.body).writes;assert.ok(write.update.name.endsWith('/apps/english-playroom'));
+    wallet.earnedTitleIds.push(...write.updateTransforms[0].appendMissingElements.values.map(value=>value.stringValue));
     return {ok:true};
    }
    throw Error('Unexpected URL '+url);
   }});
- let res={};await api.handle({method:'GET',url:'/api/learning/titles'},res);
+ let res={};await api.handle({method:'GET',url:'/api/learning/titles?view=collection'},res);
  assert.equal(res.status,200);assert.equal(weeklyCalls,0);assert.equal(awardWrites,0);
  res={};await api.handle({method:'GET',url:'/api/learning/titles?view=weekly'},res);
  assert.equal(res.status,200);assert.equal(weeklyCalls,1);assert.equal(awardWrites,1);
- assert.deepEqual(saved.sort(),['weekly:ateru','weekly:coins'].sort());
+ assert.deepEqual(wallet.earnedTitleIds.map(token=>authority.verifyAward('u',token)).sort(),['weekly:ateru','weekly:coins']);
  assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').unlocked,true);
  res={};await api.handle({method:'GET',url:'/api/learning/titles?view=weekly'},res);
  assert.equal(awardWrites,1);
