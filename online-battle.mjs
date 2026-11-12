@@ -484,6 +484,20 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     const data=snapshot?.value||{};
     return send(res,200,{gradeKey,grade:GRADE_BY_KEY[gradeKey].grade,asOfDate:data.asOfDate||'',leaders:Array.isArray(data.leaders)?data.leaders:[]});
    }
+   const lobbyLive=path.match(/^\/api\/online-battle\/lobby\/(4|3|pre2|2)\/live$/);
+   if(req.method==='GET'&&lobbyLive){
+    const gradeKey=lobbyLive[1],config=GRADE_BY_KEY[gradeKey];
+    return await roomStore.streamLobby(gradeKey,res,raw=>{
+     const current=now();
+     const rooms=Array.from({length:10},(_,index)=>{
+      const id=gradeKey+'-'+(index+1),value=raw[id];
+      let state=null;
+      try{state=typeof value==='string'?lobbyState(JSON.parse(value),id):null;}catch{}
+      return projectOnlineBattleLobbyRoom(state,id,current);
+     });
+     return {lobby:{gradeKey,grade:config.grade,rooms,updatedAt:current}};
+    });
+   }
    const lobbyMatch=path.match(/^\/api\/online-battle\/lobby\/(4|3|pre2|2)$/);
    if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(lobbyMatch[1])});
    const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
