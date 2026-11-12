@@ -98,3 +98,23 @@ test('weekly standings show progress without awarding during the current week',a
  assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').done,4);
  assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').unlocked,false);
 });
+
+
+test('expanded title group reads only that progress document, with no writes',async()=>{
+ const prefix='projects/p/databases/(default)/documents/';
+ const requested=[],methods=[];
+ const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'t',
+  verifyUser:async()=>({uid:'u'}),decodeFields:fields=>fields,
+  send:(res,status,body)=>Object.assign(res,{status,body}),fail,
+  fetch:async(url,o={})=>{
+   methods.push(o.method||'GET');
+   if(url.endsWith(':batchGet')){const docs=JSON.parse(o.body).documents;requested.push(...docs);return {ok:true,json:async()=>docs.map(name=>({found:{name,fields:{metrics:{runs:4,score:12}}}}))};}
+   throw Error('Unexpected write or document read: '+url);
+  }});
+ const r={};await api.handle({method:'GET',url:'/api/learning/titles?view=app-progress&appId=word-breaker'},r);
+ assert.equal(r.status,200);
+ assert.deepEqual(requested,[prefix+'title_progress/u/activities/word-breaker']);
+ assert.equal(r.body.appId,'word-breaker');
+ assert.ok(r.body.titles.some(title=>Number.isFinite(title.done)&&title.done>0));
+ assert.deepEqual(methods,['POST']);
+});
