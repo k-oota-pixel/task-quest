@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defenseSettlementPlan,createDefenseSettlement} from './defense-settlement.mjs';
 
-function harness(){
+function harness({defenseStats}={}){
  const traffic=[],notifications=[];
  let conflict=false,receipt=null,dayValue='2026-11-09';
  const fetch=async(url,options={})=>{
@@ -17,7 +17,7 @@ function harness(){
   }
   const fields=url.includes('/learning_activity/')?
    {dailyCounts:{'2026-11-09':{'pet-typing-defense-normal':0}}}:
-   {coins:100,coinsEarnedToday:3,coinEarnedDate:dayValue};
+   {coins:100,coinsEarnedToday:3,coinEarnedDate:dayValue,typingDefenseTitleStats:defenseStats};
   return {ok:true,status:200,json:async()=>({fields,updateTime:url.includes('/learning_activity/')?'v2':'v1'})};
  };
  const handler=createDefenseSettlement({
@@ -52,16 +52,21 @@ test('seven phases complete in one transaction with two reads and three writes',
  assert.equal(writes[0].currentDocument.exists,false);
  assert.equal(writes[1].update.fields.coins.integerValue,'107');
  assert.equal(writes[1].update.fields.coinsEarnedToday.integerValue,'10');
+ assert.equal(writes[1].updateTransforms.find(x=>x.fieldPath==='unlockedTitleCount').increment.integerValue,'2');
  assert.ok(writes[2].updateTransforms.some(x=>x.fieldPath==='typingDefenseBestNormal'&&x.maximum.integerValue==='1'));
  assert.ok(writes[2].updateTransforms.some(x=>x.fieldPath.includes('dailyCounts.')&&x.maximum.integerValue==='1'));
  assert.equal(h.notifications.filter(x=>x[0]==='coins').length,1);
  assert.equal(h.notifications.filter(x=>x[0]==='stage').length,1);
 });
-test('no progress is a zero-cost settlement',async()=>{
- const h=harness(),res={};
+test('a no-stage run with no new title records the play without invalidating the summary',async()=>{
+ const h=harness({defenseStats:{plays:1}}),res={};
  await h.handler({method:'POST',body:{runId:'td-session-test-0002',mode:'easy',clearedPhases:4}},res);
  assert.equal(res.status,200);assert.equal(res.body.coinsAdded,0);
- assert.equal(h.traffic.length,0);
+ assert.equal(h.traffic.filter(x=>x.method==='GET').length,1);
+ const {writes}=h.traffic.find(x=>x.method==='POST').body;
+ assert.equal(writes.length,2);
+ assert.equal(writes[1].update.fields.typingDefenseTitleStats.mapValue.fields.plays.integerValue,'2');
+ assert.equal(writes[1].updateTransforms.some(x=>/titleCount/i.test(x.fieldPath)),false);
 });
 test('duplicate request checks receipt and avoids paying twice',async()=>{
  const h=harness();h.conflict(true,{mode:'hard',clearedPhases:25});

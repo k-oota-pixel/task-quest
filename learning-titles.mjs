@@ -7,7 +7,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  // Revision tokens preserve invalidations arriving while a full count is being read.
  const revisionOf=wallet=>Math.max(0,Math.floor(Number(wallet.titleCountRevision)||0));
  const titleCountInvalidation=(prefix,uid)=>({update:{name:prefix+`users/${uid}/apps/english-playroom`,fields:{}},updateMask:{fieldPaths:[]},updateTransforms:[{fieldPath:'titleCountRevision',increment:{integerValue:'1'}}]});
- async function patchWalletSummary(uid,token,summary,previous={}){
+ async function patchWalletSummary(uid,token,summary,previous={},snapshot){
   const fields={};
   if(typeof summary.selectedId==='string'&&previous.selectedTitleId!==summary.selectedId)fields.selectedTitleId=encode(summary.selectedId);
   if(typeof summary.selectedTitle==='string'&&previous.selectedTitle!==summary.selectedTitle)fields.selectedTitle=encode(summary.selectedTitle);
@@ -18,21 +18,36 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   }
   const names=Object.keys(fields);if(!names.length)return;
   const params=new URLSearchParams(names.map(name=>['updateMask.fieldPaths',name]));
+  if(snapshot){
+   if(snapshot.updateTime)params.set('currentDocument.updateTime',snapshot.updateTime);
+   else if(!snapshot.found)params.set('currentDocument.exists','false');
+  }
   const response=await request(base+'/documents/users/'+encodeURIComponent(uid)+'/apps/english-playroom?'+params,{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields})});
-  if(!response.ok)throw fail('称号の集約情報を保存できませんでした。',502);
+  if(!response.ok){
+   const error=fail('称号の集約情報を保存できませんでした。',502);
+   error.titleSummaryConflict=Boolean(snapshot&&[409,412].includes(response.status));
+   throw error;
+  }
  }
  async function mirrorWalletSummary(uid,token,summary,previous={}){
   try{await patchWalletSummary(uid,token,summary,previous);}catch(error){console.warn('Title wallet summary sync deferred',error?.message||error);}
  }
- async function read(uid,{includeWeekly=false}={}){
+ async function read(uid,options={}){
+  for(let attempt=0;attempt<3;attempt++){
+   try{return await readOnce(uid,options);}
+   catch(error){if(!error.titleSummaryConflict||attempt===2)throw error;}
+  }
+ }
+ async function readOnce(uid,{includeWeekly=false}={}){
   // Defense titles derive from the wallet and already-loaded activity record.
   // Do not add a new title_progress document read just for this game.
   const progressApps=TITLE_CONTENTS.filter(x=>x.id!==DEFENSE_TITLE_APP&&x.id!==ONLINE_TITLE_APP);
   const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...progressApps.map(x=>`title_progress/${uid}/activities/${x.id}`),`users/${uid}/apps/english-playroom`];
-  const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p)})});
+  const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p),newTransaction:{readOnly:{}}})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
   const rows=await response.json(),values=paths.map(p=>decodeFields(rows.find(r=>r.found?.name===prefix+p)?.found?.fields||{}));
   const wallet=values.at(-1),selection=values[2];
+  const walletDoc=rows.find(row=>row.found?.name===prefix+paths.at(-1))?.found;
   let weekly={progress:{}};
   if(includeWeekly){try{weekly=await weeklyProgress(uid);}catch(error){console.warn('Weekly title progress unavailable',error?.message||error);}}
   const earned=new Set(Array.isArray(selection.weeklyEarnedIds)?selection.weeklyEarnedIds.filter(x=>typeof x==='string'&&x.startsWith('weekly:')):[]);
@@ -56,13 +71,11 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    const migrated=await request(base+'/documents/user_titles/'+encodeURIComponent(uid)+'?currentDocument.exists=false',{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({fields:{selectedId:encode(state.selectedId),selectedTitle:encode(state.selectedTitle)}})});
    if(!migrated.ok&&![409,412].includes(migrated.status))throw fail('以前の称号を引き継げませんでした。再試行してください。',502);
   }
-  await patchWalletSummary(uid,token,state,wallet);
-  if(Number(wallet.unlockedTitleCount)!==state.unlockedTitleCount){
-   // Published as a candidate only after the existing summary has been saved.
-   // A leaderboard failure should never prevent the learner from viewing titles.
-   try{await onTitleCountChanged({uid,petName:wallet.petName||'',unlockedTitleCount:state.unlockedTitleCount});}
-   catch(error){console.warn('Title leaderboard update deferred',error?.message||error);}
-  }
+  await patchWalletSummary(uid,token,state,wallet,{found:Boolean(walletDoc),updateTime:walletDoc?.updateTime});
+  // Fast awards may have updated the wallet before the title list was opened.
+  // The ranking service skips unchanged leaderboards.
+  try{await onTitleCountChanged({uid,petName:wallet.petName||'',unlockedTitleCount:state.unlockedTitleCount});}
+  catch(error){console.warn('Title leaderboard update deferred',error?.message||error);}
   return state;
  }
  async function decorate(leaders){

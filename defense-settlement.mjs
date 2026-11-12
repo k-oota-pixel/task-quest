@@ -1,3 +1,4 @@
+import {creativeTitleCount,titleCountTransforms} from './title-count-summary.mjs';
 import {DEFENSE_TITLE_APP,defenseTitleProgress,creativeTitles} from './title-model.mjs';
 // Settle one typing-defense play with one atomic Firestore commit.
 // The client never contacts Firestore while the enemy is moving or a phase ends.
@@ -84,9 +85,12 @@ export function createDefenseSettlement({
     flawlessClears:integer(oldStats.flawlessClears)+flawless,
     hardFlawlessClears:integer(oldStats.hardFlawlessClears)+Number(flawless&&plan.mode==='hard')
    };
-   const beforeTitles=new Set(creativeTitles(DEFENSE_TITLE_APP,defenseTitleProgress(activity.fields,wallet.fields)).filter(t=>t.unlocked).map(t=>t.id));
+   const beforeTitles=creativeTitles(DEFENSE_TITLE_APP,defenseTitleProgress(activity.fields,wallet.fields));
+   const beforeIds=new Set(beforeTitles.filter(t=>t.unlocked).map(t=>t.id));
    const newActivity={...activity.fields,[MODES[plan.mode]]:Math.max(integer(activity.fields[MODES[plan.mode]]),plan.stage)};
-   const freshTitles=creativeTitles(DEFENSE_TITLE_APP,defenseTitleProgress(newActivity,{...wallet.fields,typingDefenseTitleStats:stats})).filter(t=>t.unlocked&&!beforeTitles.has(t.id));
+   const afterTitles=creativeTitles(DEFENSE_TITLE_APP,defenseTitleProgress(newActivity,{...wallet.fields,typingDefenseTitleStats:stats}));
+   const freshTitles=afterTitles.filter(t=>t.unlocked&&!beforeIds.has(t.id));
+   const titleDelta=creativeTitleCount(DEFENSE_TITLE_APP,afterTitles)-creativeTitleCount(DEFENSE_TITLE_APP,beforeTitles);
    const newCoins=integer(wallet.fields.coins)+plan.coins;
    const earned=wallet.fields.coinEarnedDate===day?
     integer(wallet.fields.coinsEarnedToday):
@@ -100,7 +104,8 @@ export function createDefenseSettlement({
     updateMask:{fieldPaths:['coins','coinsEarnedToday','coinEarnedDate','coinSchemaVersion','typingDefenseTitleStats']},
     updateTransforms:[
      {fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'},
-     {fieldPath:'titleCountRevision',increment:fieldInt(1)}
+     // A zero-stage run did not read legacy activity-based defense records.
+     ...titleCountTransforms(titleDelta,{invalidate:!plan.stage&&Boolean(titleDelta)})
     ],
     currentDocument:currentDocument(wallet)
    };
