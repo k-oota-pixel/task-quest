@@ -230,7 +230,7 @@ test('対戦開始は双方0コインでも可能で財布のread/writeがない
 
 test('再戦は双方0コインでも可能で財布のread/writeがない',async()=>{
  const initial=room({
-  roomId:'4-1',status:'finished',matchEndedAt:990_000,
+  roomId:'4-1',status:'finished',matchId:'rematch-fixture',matchEndedAt:990_000,
   players:[player('test-user',999_000),{...player('opponent',999_000),rematchReady:true}]
  });
  const result=await simulateCoinlessBattle('continue',initial);
