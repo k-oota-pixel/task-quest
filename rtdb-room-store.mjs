@@ -234,7 +234,7 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
      else rooms[key] = value;
     }
     const data = project(rooms);
-    if (!downstream.write('event: lobby\\ndata: ' + JSON.stringify(data) + '\\n\\n')) break;
+    if (!downstream.write('event: lobby\ndata: ' + JSON.stringify(data) + '\n\n')) break;
    }
   } catch (error) {
    if (!downstream.headersSent && !downstream.destroyed) throw error;
