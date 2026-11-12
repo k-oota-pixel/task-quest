@@ -113,26 +113,40 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
   if(!response.ok)throw fail('確定した教材順位を保存できませんでした。',502);
   return winners;
  }
+ async function readClosedDays(days){
+  const totals=Object.create(null),token=days.length?await accessToken():null;
+  const add=(uid,app)=>{if(uid)(totals[uid]||=Object.create(null))[app]=(totals[uid][app]||0)+1;};
+  let latest;
+  for(const day of days){
+   const path='leaderboards/coin-day-'+day,archived=await readRankDocument(path,token);
+   const winners=await fillMaterialWinners(day,path,archived,token);
+   for(const app of APPS)add(winners[app],app);
+   let coin=archived;
+   if(coin.today!==day){
+    latest??=await readRankDocument('leaderboards/daily-coins',token);
+    coin=latest;
+    // The coin board might have rolled over between the archive and live reads.
+    if(latest.today>day&&day===days.at(-1)&&day===jstDayBefore(challengePeriods(now()).day,1)){
+     coin=await readRankDocument(path,token);
+    }
+   }
+   if(coin.today===day&&Array.isArray(coin.leaders)){
+    for(const uid of new Set(coin.leaders.map(row=>row.uid)))add(uid,'coins');
+   }
+  }
+  return totals;
+ }
+ async function completedWeek(week){
+  if(!validDay(week)||week>=challengePeriods(now()).week)throw fail('週が確定していません。',400);
+  return readClosedDays(Array.from({length:7},(_,i)=>jstDayBefore(week,-i)));
+ }
  async function weeklySnapshot(){
   const period=challengePeriods(now()),revision=archiveRevision,cached=weekdaySnapshot;
   if(cached?.day===period.day&&cached.revision===revision)return cached;
   if(weekdayPending?.day===period.day&&weekdayPending.revision===revision)return weekdayPending.promise;
   const promise=(async()=>{
    const days=Array.from({length:7},(_,i)=>jstDayBefore(period.week,-i)).filter(day=>day<period.day);
-   const totals=Object.create(null),token=days.length?await accessToken():null;
-   const add=(uid,app)=>{if(uid)(totals[uid]||=Object.create(null))[app]=(totals[uid][app]||0)+1;};
-   let latest;
-   for(const day of days){
-    const path='leaderboards/coin-day-'+day,archived=await readRankDocument(path,token);
-    const winners=await fillMaterialWinners(day,path,archived,token);
-    for(const app of APPS)add(winners[app],app);
-    // The previous day's coin board may still be active before the first
-    // new-day award archives it. Do not persist an assumed empty result.
-    const coin=archived.today===day?archived:(latest??=await readRankDocument('leaderboards/daily-coins',token));
-    if(coin.today===day&&Array.isArray(coin.leaders)){
-     for(const uid of new Set(coin.leaders.map(row=>row.uid)))add(uid,'coins');
-    }
-   }
+   const totals=await readClosedDays(days);
    const summary={week:period.week,day:period.day,revision,totals};
    if(archiveRevision===revision)weekdaySnapshot=summary;
    return summary;
@@ -154,5 +168,5 @@ export function createMaterialRankings({base,projectId,accessToken,decodeFields,
    return send(res,200,{day,appId:app,updatedAt:board.updatedAt,leaders:rowsToPublic(board.leaders)});
   }catch(error){return send(res,error.status||503,{error:error.message||'教材ランキングを取得できませんでした。'});}
  }
- return {handle,getBoard,userWeekly,changed,coinArchiveChanged};
+ return {handle,getBoard,userWeekly,completedWeek,changed,coinArchiveChanged};
 }

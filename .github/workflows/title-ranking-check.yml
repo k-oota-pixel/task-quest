@@ -6,6 +6,8 @@ on:
       - 'title-model.mjs'
       - 'material-rankings.mjs'
       - 'material-rankings.test.mjs'
+      - 'weekly-title-settlement.mjs'
+      - 'weekly-title-settlement.test.mjs'
       - 'learning-activity.mjs'
       - 'creative-title-events.mjs'
       - 'daily-coins.mjs'
@@ -25,6 +27,8 @@ on:
       - 'title-model.mjs'
       - 'material-rankings.mjs'
       - 'material-rankings.test.mjs'
+      - 'weekly-title-settlement.mjs'
+      - 'weekly-title-settlement.test.mjs'
       - 'learning-activity.mjs'
       - 'creative-title-events.mjs'
       - 'daily-coins.mjs'
@@ -49,5 +53,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test title-summary.test.mjs defense-settlement.test.mjs daily-coins.test.mjs material-rankings.test.mjs
+      - run: node --test title-summary.test.mjs defense-settlement.test.mjs daily-coins.test.mjs material-rankings.test.mjs weekly-title-settlement.test.mjs
       - run: node --test title-count-rankings.test.mjs learning-titles.test.mjs

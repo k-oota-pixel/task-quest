@@ -75,7 +75,7 @@ test('weekly titles stay locked without a durable award and unlock for four rank
  assert.equal(earned.selectedTitle,'黄金の四冠王');
  assert.equal(validTitleName('weekly:coins'),'黄金の四冠王');
 });
-test('weekly standings load only on request and awards persist in the wallet once',async()=>{
+test('weekly standings show progress without awarding during the current week',async()=>{
  const authority=await fixtureTitleAuthority();
  let weeklyCalls=0,awardWrites=0;
  const wallet={titleCollectionVersion:1,titleCollectionProof:authority.marker('u'),earnedTitleIds:[]};
@@ -94,9 +94,7 @@ test('weekly standings load only on request and awards persist in the wallet onc
  let res={};await api.handle({method:'GET',url:'/api/learning/titles?view=collection'},res);
  assert.equal(res.status,200);assert.equal(weeklyCalls,0);assert.equal(awardWrites,0);
  res={};await api.handle({method:'GET',url:'/api/learning/titles?view=weekly'},res);
- assert.equal(res.status,200);assert.equal(weeklyCalls,1);assert.equal(awardWrites,1);
- assert.deepEqual(wallet.earnedTitleIds.map(token=>authority.verifyAward('u',token)).sort(),['weekly:ateru','weekly:coins']);
- assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').unlocked,true);
- res={};await api.handle({method:'GET',url:'/api/learning/titles?view=weekly'},res);
- assert.equal(awardWrites,1);
+ assert.equal(res.status,200);assert.equal(weeklyCalls,1);assert.equal(awardWrites,0);
+ assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').done,4);
+ assert.equal(res.body.titles.find(t=>t.id==='weekly:coins').unlocked,false);
 });

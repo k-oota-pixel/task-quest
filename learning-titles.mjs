@@ -1,4 +1,4 @@
-import {titleState,TITLE_CONTENTS,RANKING_ONLY_CONTENTS,validTitleName,WEEKLY_DAYS_TARGET,DEFENSE_TITLE_APP,ONLINE_TITLE_APP} from './title-model.mjs';
+import {titleState,TITLE_CONTENTS,validTitleName,DEFENSE_TITLE_APP,ONLINE_TITLE_APP} from './title-model.mjs';
 import {awardTitleIds,collectionTitleState,hasTitleCollection,titleCollectionVersion,walletTitleIds} from './title-collection.mjs';
 import {titleCountTransforms} from './title-count-summary.mjs';
 import {fixtureTitleAuthority} from './title-authority.mjs';
@@ -109,13 +109,6 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
    let weekly={progress:{}};
    try{weekly=await weeklyProgress(uid);}catch(error){console.warn('Weekly title progress unavailable',error?.message||error);}
    const authority=await getAuthority();
-   const ids=walletTitleIds(wallet,authority,uid);
-   const added=Object.entries(weekly.progress||{}).filter(([app,days])=>Number(days)>=WEEKLY_DAYS_TARGET&&(app==='coins'||[...TITLE_CONTENTS,...RANKING_ONLY_CONTENTS].some(item=>item.id===app)))
-    .map(([app])=>'weekly:'+app).filter(id=>!ids.has(id));
-   if(added.length){
-    await recordAwards(uid,token,added,titleCountTransforms(0,{invalidate:true}));
-    wallet={...wallet,earnedTitleIds:[...wallet.earnedTitleIds,...added.map(id=>authority.award(uid,id))]};
-   }
    state=collectionTitleState(wallet,authority,uid,{weeklyPeriod:weekly.week||'',weeklyProgress:weekly.progress||{}});
   }
   if(legacy&&snapshot){
