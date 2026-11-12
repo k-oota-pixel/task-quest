@@ -7,7 +7,7 @@ import {ONLINE_TITLE_APP,onlineBattleTitleProgress,nextOnlineBattleTitleStats,cr
 
 const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
 const GRADE_BY_KEY=Object.freeze(Object.fromEntries(GRADE_CONFIG.map(entry=>[entry.key,entry])));
-const ROOM_IDS=Object.freeze(GRADE_CONFIG.flatMap(entry=>Array.from({length:10},(_,index)=>`${entry.key}-${index+1}`)));
+const ROOM_IDS=Object.freeze(GRADE_CONFIG.flatMap(entry=>Array.from({length:entry.key==='4'?20:10},(_,index)=>`${entry.key}-${index+1}`)));
 const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const [gradeKey,roomNoText]=id.split('-');const config=GRADE_BY_KEY[gradeKey]||GRADE_CONFIG[0];return [id,{gradeKey,grade:config.grade,roomNo:Number(roomNoText)||1,noItems:false}]})));
 export const ONLINE_BATTLE_JOIN_TTL_MS=15*60*1000;
 export const ONLINE_BATTLE_RESULT_TTL_MS=2*60*1000;
@@ -26,6 +26,7 @@ const DUNGEON_ITEMS=Object.freeze([
  {id:'yoteizan-water',name:'ようていざんのみず',icon:'🏔️',kind:'mp',amount:20}
 ]);
 const MATCH_OPERATIONS=new Set(['attack','miss','magic','item','continue']);
+export const onlineBattleMissDamage=maxHp=>Math.max(1,Math.ceil(Math.max(1,Number(maxHp)||1)/4));
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const field=v=>v&&typeof v==='object'?v:{};
 const number=(v,fallback=0)=>Number.isFinite(Number(v))?Number(v):fallback;
@@ -193,10 +194,13 @@ export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
  return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status,playerCount:count,updatedAt};
 }
 
-export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore,getAuthority=fixtureTitleAuthority}){
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore,getAuthority=fixtureTitleAuthority,questionMode=false}){
  const error=failExternal||fail;
  if(!roomStore)throw new Error('Online battle requires Realtime Database storage');
  const preview=roomStore.mode==='preview';
+ const roomsFor=grade=>questionMode&&grade==='4'?20:10;
+ const isAllowedRoom=id=>{const match=String(id).match(/^(4|3|pre2|2)-(\d{1,2})$/);return !!match&&Number(match[2])>=1&&Number(match[2])<=roomsFor(match[1]);};
+ const standingDaysField=questionMode?'onlineBattleQuestionStandingDays':'onlineBattleStandingDays';
  const realtimeSettlements=new Map();
  const walletPath=uid=>(preview?'onlineBattlePreviewUsers/':'users/')+encodeURIComponent(uid)+'/apps/english-playroom';
  async function getDoc(token,path,message){
@@ -220,7 +224,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
  // Store the ranking projection in the existing settlement receipt so a retry
  // after a successful Firestore commit can resume without applying rewards twice.
  async function settlementWrites(settlement,wallets){
-  const awards={},writes=[],titleStats=new Map(),titleDeltas=new Map(),standings=[],standingDays=new Map();
+  const awards={},writes=[],titleStats=new Map(),titleDeltas=new Map(),standings=[],standingDays=new Map(),standingTotals=new Map();
   for(const entry of settlement.entries){
    if(!entry.played)continue;
    if(!ONLINE_BATTLE_GRADES.includes(entry.gradeKey))throw error('対戦の級が正しくありません。',400);
@@ -236,12 +240,14 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     .filter(t=>t.unlocked&&!oldIds.has(t.id))
     .map(t=>({id:t.id,label:t.label,name:t.name,condition:t.condition}));
    titleStats.set(entry.uid,newStats);
-   const days=field(wallet.value?.onlineBattleStandingDays);
-   const prior=field(oldStats.byGrade?.[entry.gradeKey]);
+   const days=field(wallet.value?.[standingDaysField]);
+   const totals=field(wallet.value?.onlineBattleQuestionStandingTotals);
+   const prior=questionMode?field(totals[entry.gradeKey]):field(oldStats.byGrade?.[entry.gradeKey]);
    const player=settlement.rankingPlayers?.find(player=>player.uid===entry.uid)||profile(wallet.value,entry.uid);
    const standing=nextOnlineBattleStanding({...prior,...field(days[entry.gradeKey])},player,Boolean(entry.won),settlement.endedAt||settlement.createdAt);
    const {lastGameDay,todayGames,todayWins}=standing;
    standingDays.set(entry.uid,{...days,[entry.gradeKey]:{lastGameDay,todayGames,todayWins}});
+   if(questionMode)standingTotals.set(entry.uid,{...totals,[entry.gradeKey]:{games:standing.games,wins:standing.wins}});
    standings.push({gradeKey:entry.gradeKey,standing});
   }
   writes.push({update:{name:baseName(projectId,ledgerPath(settlement.id)),fields:encodeFields({
@@ -260,8 +266,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     if(awards[entry.uid]?.length)transforms.push(titleIdsTransform(awards[entry.uid].map(title=>title.id),await getAuthority(),entry.uid));
     const wallet=wallets.get(entry.uid);
     writes.push({
-     update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid)),onlineBattleStandingDays:encode(standingDays.get(entry.uid))}},
-     updateMask:{fieldPaths:['onlineBattleTitleStats','onlineBattleStandingDays']},
+     update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid)),[standingDaysField]:encode(standingDays.get(entry.uid)),...(questionMode?{onlineBattleQuestionStandingTotals:encode(standingTotals.get(entry.uid))}:{})}},
+     updateMask:{fieldPaths:['onlineBattleTitleStats',standingDaysField,...(questionMode?['onlineBattleQuestionStandingTotals']:[])]},
      ...(transforms.length?{updateTransforms:transforms}:{}),
      currentDocument:{updateTime:wallet.updateTime}
     });
@@ -332,7 +338,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   const config=GRADE_BY_KEY[gradeKey];if(!config)throw error('級が見つかりません。',404);
   const value=await roomStore.lobby(gradeKey,lobbyState);
   const current=now();
-  const rooms=Array.from({length:10},(_,index)=>projectOnlineBattleLobbyRoom(value['room'+(index+1)],`${gradeKey}-${index+1}`,current));
+  const rooms=Array.from({length:roomsFor(gradeKey)},(_,index)=>projectOnlineBattleLobbyRoom(value['room'+(index+1)],`${gradeKey}-${index+1}`,current));
   return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};
  }
  async function act(id,uid,operation,body){
@@ -384,7 +390,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],at=now();
      if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
-     attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-1);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage:1,at};
+     const damage=onlineBattleMissDamage(attacker.stats.hp);
+      attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage,at};
      if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;}
     }else if(operation==='magic'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -489,7 +496,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     const gradeKey=lobbyLive[1],config=GRADE_BY_KEY[gradeKey];
     return await roomStore.streamLobby(gradeKey,res,raw=>{
      const current=now();
-     const rooms=Array.from({length:10},(_,index)=>{
+     const rooms=Array.from({length:roomsFor(gradeKey)},(_,index)=>{
       const id=gradeKey+'-'+(index+1),value=raw[id];
       let state=null;
       try{state=typeof value==='string'?lobbyState(JSON.parse(value),id):null;}catch{}
@@ -500,8 +507,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    }
    const lobbyMatch=path.match(/^\/api\/online-battle\/lobby\/(4|3|pre2|2)$/);
    if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(lobbyMatch[1])});
-   const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
-   const live=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))\/live$/);
+   const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:20|1[0-9]|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
+   const live=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:20|1[0-9]|[1-9]))\/live$/);
+   if((match&&!isAllowedRoom(match[1]))||(live&&!isAllowedRoom(live[1])))throw error('対戦ルームが見つかりません。',404);
    if(req.method==='GET'&&live){
     const id=live[1];
     const initial=await snapshot(id,user.uid);
