@@ -21,10 +21,28 @@ async function viewableTop3(leaders,decorate){
   return entries.map((entry,index)=>({...entry,uid:leaders[index]?.uid||''}));
 }
 
-async function publicBoard(today,leaders,decorate){
-  const top3=await viewableTop3(leaders,decorate),result={today,top3,rankingAvailable:true};
-  await publicRankingCache.setSection('dailyCoins',result);
+async function getPublicBoard(rankingStore,today){
+  const value=await rankingStore.getSection('dailyCoins');
+  return value?.today===today&&value.rankingAvailable===true&&Array.isArray(value.top3)&&
+    value.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0)?value:null;
+}
+async function publicBoard(today,leaders,decorate,rankingStore,previous,refreshTitles=false){
+  if(!refreshTitles&&previous&&sameLeaders(previous.top3,leaders))return previous;
+  const known=new Map(refreshTitles?[]:(previous?.top3||[]).map(entry=>[entry.uid,entry.title]));
+  const missing=leaders.filter(entry=>!known.has(entry.uid));
+  if(decorate&&missing.length){
+    for(const entry of await viewableTop3(missing,decorate))known.set(entry.uid,entry.title);
+  }
+  const top3=publicTop3(leaders).map(entry=>known.get(entry.uid)===undefined?entry:{...entry,title:known.get(entry.uid)});
+  const result={today,top3,rankingAvailable:true,titlesCheckedAt:refreshTitles||!previous?Date.now():previous.titlesCheckedAt||0};
+  await rankingStore.setSection('dailyCoins',result);
   return result;
+}
+function serializeRanking(cache,task){
+  if(!cache)return task();
+  const pending=(cache.updateChain||Promise.resolve()).then(task,task);
+  cache.updateChain=pending.catch(()=>{});
+  return pending;
 }
 
 function uidFromDocumentName(name){
@@ -51,15 +69,9 @@ function mergeCandidate(leaders,candidate){
   return cleanLeaders(next);
 }
 const sameLeaders=(a,b)=>JSON.stringify(cleanLeaders(a))===JSON.stringify(cleanLeaders(b));
-function rememberViewer(cache,uid,today,leaders){
-  if(!cache)return;
-  if(!(cache.viewerSnapshots instanceof Map))cache.viewerSnapshots=new Map();
-  if(cache.viewerSnapshotsDay!==today){cache.viewerSnapshots.clear();cache.viewerSnapshotsDay=today;}
-  cache.viewerSnapshots.set(uid,{today,leaders:cleanLeaders(leaders)});
-  while(cache.viewerSnapshots.size>10000)cache.viewerSnapshots.delete(cache.viewerSnapshots.keys().next().value);
-}
 function loadOrBootstrap(options){
   const {access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache}=options;
+  if(rankingCache?.stored?.today===today)return Promise.resolve(rankingCache.stored.document);
   if(rankingCache?.bootstrapPending?.today===today)return rankingCache.bootstrapPending.promise;
   const promise=Promise.resolve().then(async()=>{
     const stored=await readSummary(access);
@@ -73,11 +85,14 @@ function loadOrBootstrap(options){
       if(raced)return raced;
       throw error;
     }
+  }).then(document=>{
+    if(rankingCache)rankingCache.stored={today,document};
+    return document;
   });
   if(rankingCache)rankingCache.bootstrapPending={today,promise};
   return promise.finally(()=>{if(rankingCache?.bootstrapPending?.promise===promise)rankingCache.bootstrapPending=null;});
 }
-async function commitCandidate({access,today,candidate,stored,readSummary,writeSummary,bootstrap}){
+async function commitCandidate({access,today,candidate,stored,readSummary,writeSummary,bootstrap,rankingCache}){
   let current=stored;
   for(let attempt=0;attempt<3;attempt++){
     if(!current)current=await bootstrap();
@@ -85,10 +100,12 @@ async function commitCandidate({access,today,candidate,stored,readSummary,writeS
     if(sameLeaders(board.leaders,leaders))return {stored:current,leaders:board.leaders,changed:false};
     try{
       const written=await writeSummary(access,next,current.updateTime||'',current.value);
+      if(rankingCache)rankingCache.stored={today,document:written};
       return {stored:written,leaders,changed:true};
     }catch(error){
       if(!error?.retryable||attempt===2)throw error;
       current=await readSummary(access);
+      if(rankingCache)rankingCache.stored=current?{today,document:current}:null;
     }
   }
   throw new Error('daily leaderboard update retry limit reached');
@@ -96,7 +113,7 @@ async function commitCandidate({access,today,candidate,stored,readSummary,writeS
 
 export async function readDailyCoinBoard({
   uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
-  readSummary,writeSummary,rankingCache=null,forceRankingRefresh=false,decorate=null,
+  readSummary,writeSummary,rankingCache=null,forceRankingRefresh=false,decorate=null,rankingStore=publicRankingCache,
   log=(...args)=>console.error(...args)
 }){
   const mine=await getUserDoc(access,uid);
@@ -120,23 +137,20 @@ export async function readDailyCoinBoard({
     return {today,coinsToday,...ranking};
   }
 
-  const shared=await publicRankingCache.getSection('dailyCoins',{valid:value=>value?.today===today&&Array.isArray(value.top3)&&value.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0)});
-  if(shared?.today===today&&Array.isArray(shared.top3)&&shared.top3.every(entry=>typeof entry.uid==='string'&&entry.uid.length>0))return {today,coinsToday,top3:shared.top3,rankingAvailable:shared.rankingAvailable!==false};
-
   try{
-    let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
-    let leaders=boardFor(stored.value,today).leaders;
-    const candidate=cleanEntry({uid,petName:mine.petName,coinsToday});
-    if(candidate){
-      const next=mergeCandidate(leaders,candidate);
-      if(!sameLeaders(leaders,next)){
-        const result=await commitCandidate({access,today,candidate,stored,readSummary,writeSummary,
-          bootstrap:()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache})});
-        stored=result.stored;leaders=result.leaders;
+    const ranking=await serializeRanking(rankingCache,async()=>{
+      const shared=await getPublicBoard(rankingStore,today);
+      if(shared){
+        const stale=Date.now()-(shared.titlesCheckedAt||0)>=RANKING_CACHE_TTL_MS;
+        if(forceRankingRefresh&&stale&&decorate)return publicBoard(today,shared.top3,decorate,rankingStore,shared,true);
+        return shared;
       }
-    }
-    rememberViewer(rankingCache,uid,today,leaders);
-    const ranking=await publicBoard(today,leaders,decorate);
+      const candidate=cleanEntry({uid,petName:mine.petName,coinsToday});
+      const bootstrap=()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
+      const stored=await bootstrap();
+      const leaders=candidate?(await commitCandidate({access,today,candidate,stored,readSummary,writeSummary,bootstrap,rankingCache})).leaders:boardFor(stored.value,today).leaders;
+      return publicBoard(today,leaders,decorate,rankingStore,null);
+    });
     return {today,coinsToday,top3:ranking.top3,rankingAvailable:true};
   }catch(error){
     log('Daily coin leaderboard summary failed',{status:error?.status||500,message:error?.message||'unknown'});
@@ -146,29 +160,22 @@ export async function readDailyCoinBoard({
 
 export async function publishDailyCoinBoard({
   uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
-  readSummary,writeSummary,rankingCache=null,decorate=null
+  readSummary,writeSummary,rankingCache=null,decorate=null,rankingStore=publicRankingCache,walletData
 }){
-  const data=await getUserDoc(access,uid);
+  // Only server settlement handlers supply walletData. Browser notifications
+  // still read the saved wallet rather than accepting a claimed score.
+  const data=walletData??await getUserDoc(access,uid);
   const candidate=cleanEntry({uid,petName:data.petName,coinsToday:earnedCoinsToday(data,today)});
   if(!candidate)return {updated:false,top3:[]};
-
-  const snapshot=rankingCache?.viewerSnapshots instanceof Map?rankingCache.viewerSnapshots.get(uid):null;
-  if(snapshot?.today===today&&sameLeaders(mergeCandidate(snapshot.leaders,candidate),snapshot.leaders)){
-    const ranking=await publicBoard(today,snapshot.leaders,decorate);
-    return {updated:false,top3:ranking.top3};
-  }
-
-  let stored=await loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
-  const current=boardFor(stored.value,today);
-  let leaders=current.leaders;
-  const next=mergeCandidate(leaders,candidate);
-  let updated=false;
-  if(!sameLeaders(leaders,next)){
-    const result=await commitCandidate({access,today,candidate,stored,readSummary,writeSummary,
-      bootstrap:()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache})});
-    stored=result.stored;leaders=result.leaders;updated=result.changed;
-  }
-  rememberViewer(rankingCache,uid,today,leaders);
-  const ranking=await publicBoard(today,leaders,decorate);
-  return {updated,top3:ranking.top3};
+  return serializeRanking(rankingCache,async()=>{
+    const shared=await getPublicBoard(rankingStore,today);
+    if(shared&&sameLeaders(mergeCandidate(shared.top3,candidate),shared.top3)){
+      return {updated:false,top3:shared.top3};
+    }
+    const bootstrap=()=>loadOrBootstrap({access,today,readSummary,writeSummary,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,rankingCache});
+    const stored=await bootstrap();
+    const {leaders,changed}=await commitCandidate({access,today,candidate,stored,readSummary,writeSummary,bootstrap,rankingCache});
+    const ranking=await publicBoard(today,leaders,decorate,rankingStore,shared);
+    return {updated:changed,top3:ranking.top3};
+  });
 }

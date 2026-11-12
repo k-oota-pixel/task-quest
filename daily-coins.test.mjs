@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readDailyCoinBoard} from './daily-coins.mjs';
+import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 
 const common={
   uid:'learner',access:'token',today:'2026-10-21',
@@ -29,3 +29,24 @@ assert.deepEqual(decorated.top3,[{petName:'えま',coinsToday:18,title:'がん�
   {petName:'ルル',coinsToday:12,title:'がんばり屋',uid:'c'},
   {petName:'もこ',coinsToday:9,title:'がんばり屋',uid:'a'}]);
 console.log('Daily coin board: wallet total survives ranking failure; successful rankings return the sorted top three with viewable pet IDs');
+
+const counts={wallet:0,summary:0,write:0,decorated:[]};
+let saved={value:{today:common.today,leaders:ranked.top3},updateTime:'first'};
+let publicBoard={today:'2026-10-20',top3:ranked.top3,rankingAvailable:true};
+const options={...common,rankingCache:{},rankingStore:{
+  getSection:async()=>publicBoard,
+  setSection:async(key,value)=>{publicBoard=value;}
+},getUserDoc:async()=>{counts.wallet++;return {petName:'めい',coinEarnedDate:common.today,coinsEarnedToday:1};},
+  readSummary:async()=>{counts.summary++;return saved;},
+  writeSummary:async(access,value)=>{counts.write++;saved={value,updateTime:'next'};return saved;},
+  decorate:async entries=>{counts.decorated.push(entries.map(entry=>entry.uid));return entries.map(entry=>({...entry,title:'称号'}));}
+};
+const award=(uid,petName,coinsEarnedToday)=>publishDailyCoinBoard({...options,uid,walletData:{petName,coinsEarnedToday,coinEarnedDate:common.today}});
+assert.equal((await award('d','めい',1)).updated,false);
+assert.deepEqual(counts,{wallet:0,summary:1,write:0,decorated:[['b','c','a']]});
+assert.equal((await award('d','めい',2)).updated,false);
+assert.equal((await award('a','もこ',10)).updated,true);
+assert.equal((await award('d','めい',11)).updated,true);
+assert.deepEqual(counts,{wallet:0,summary:1,write:2,decorated:[['b','c','a'],['d']]});
+assert.equal((await publishDailyCoinBoard(options)).updated,false);
+assert.equal(counts.wallet,1,'browser notifications must verify the saved wallet');

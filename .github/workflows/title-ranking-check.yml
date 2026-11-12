@@ -9,6 +9,8 @@ on:
       - 'learning-activity.mjs'
       - 'creative-title-events.mjs'
       - 'daily-coins.mjs'
+      - 'daily-coins.test.mjs'
+      - 'learning-challenges.mjs'
       - 'learning-titles.mjs'
       - 'title-count-rankings.mjs'
       - 'title-count-rankings.test.mjs'
@@ -26,6 +28,8 @@ on:
       - 'learning-activity.mjs'
       - 'creative-title-events.mjs'
       - 'daily-coins.mjs'
+      - 'daily-coins.test.mjs'
+      - 'learning-challenges.mjs'
       - 'learning-titles.mjs'
       - 'title-count-rankings.mjs'
       - 'title-count-rankings.test.mjs'
@@ -45,5 +49,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test title-summary.test.mjs defense-settlement.test.mjs
-      - run: node --test title-count-rankings.test.mjs material-rankings.test.mjs learning-titles.test.mjs
+      - run: node --test title-summary.test.mjs defense-settlement.test.mjs daily-coins.test.mjs material-rankings.test.mjs
+      - run: node --test title-count-rankings.test.mjs learning-titles.test.mjs
