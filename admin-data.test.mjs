@@ -4,7 +4,7 @@ import {createAdminData} from './admin-data.mjs';
 function fixture(verifyDetailAdmin){
  let time=100000,summaries=0,queries=0,codeQueries=0,codeRequested=0,authReads=0,details=0,authorized=true;
  const stamp=i=>new Date(1700000000000+i*1000).toISOString();
- const records=Array.from({length:20},(_,i)=>({name:'projects/test/databases/(default)/documents/learning_activity/u'+i,fields:{uid:'u'+i,lastLearningAt:stamp(i),lastLearningAppId:'listening-training'}})).reverse();
+ const records=Array.from({length:20},(_,i)=>({name:'projects/test/databases/(default)/documents/learning_activity/u'+i,fields:{uid:'u'+i,lastLearningAt:stamp(i),...(i===18?{contents:{'listening-training':{lastLearningAt:stamp(i)}}}:{lastLearningAppId:'listening-training'})}})).reverse();
  const api=createAdminData({base:'https://firestore.test/db',projectId:'test',accessToken:async()=> 'access',verifyAdmin:async()=>{if(!authorized)throw Object.assign(Error('forbidden'),{status:403});},verifyDetailAdmin,send:(res,status,body)=>Object.assign(res,{status,body}),fail:(m,status)=>Object.assign(Error(m),{status}),decodeFields:x=>x,normalizeNickname:x=>String(x||''),validNickname:x=>!!x,now:()=>time,fetch:async(url,opt)=>{
   const u=new URL(url);
   if(u.hostname==='identitytoolkit.googleapis.com'){authReads++;return {ok:true,json:async()=>({users:Array.from({length:22},(_,i)=>({localId:'u'+i,email:'private',lastLoginAt:String(3000-i),createdAt:String(1000-i)}))})};}
