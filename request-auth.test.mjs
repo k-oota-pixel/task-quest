@@ -66,14 +66,14 @@ test('gift requests cache admission for 60 seconds but validate Firebase token e
  assert.equal(raw,3);
  assert.equal(reads,1);
  await verify({url:'/api/shop/rename'});
- assert.equal(reads,2); // unrelated APIs still verify admission each time
+ assert.equal(reads,1); // ordinary learner APIs share the short-lived result
  await verify({url:'/api/shop/gifts/send',version:2});
- assert.equal(reads,3); // different account version
+ assert.equal(reads,2); // different account version
  await verify({url:'/api/shop/gifts/send',uid:'other'});
- assert.equal(reads,4); // different account
+ assert.equal(reads,3); // different account
  now+=SHOP_GIFT_ADMISSION_TTL_MS;
  await verify({url:'/api/shop/gifts/seen'});
- assert.equal(reads,5); // expired result is refreshed
+ assert.equal(reads,4); // expired result is refreshed
 });
 test('gift registration denial is never cached and new requests can retry',async()=>{
  let reads=0,allowed=false;
@@ -85,4 +85,19 @@ test('gift registration denial is never cached and new requests can retry',async
  await assert.rejects(verify({url:'/api/shop/gifts/send'}),{status:403});
  allowed=true;await verify({url:'/api/shop/gifts/send'});
  assert.equal(reads,2);
+});
+
+test('parallel material, title and coin calls share one read; an account reset invalidates it',async()=>{
+ let checks=0,reads=0,resetRequired=false,clock=10_000;
+ const verify=createRequestVerifier({
+  verifyRawUser:async()=>{checks++;return {uid:'student',provider:'custom',codeVersion:2};},
+  admission:async()=>{reads++;return {resetRequired};},fail,now:()=>clock
+ });
+ const urls=['/api/learning/activity','/api/learning/titles','/api/coins/leaderboard'];
+ await Promise.all(urls.map(url=>verify({url})));
+ assert.equal(checks,3);assert.equal(reads,1);
+ clock+=60_000;await verify({url:urls[0]});assert.equal(reads,2);
+ resetRequired=true;verify.invalidateAdmission('student');
+ await assert.rejects(verify({url:urls[1]}),{status:403});
+ assert.equal(reads,3);
 });

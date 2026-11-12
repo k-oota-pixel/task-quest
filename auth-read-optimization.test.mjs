@@ -21,18 +21,22 @@ globalThis.fetch=async(url,options={})=>{
 };
 const claims=Buffer.from(JSON.stringify({aud:'eiken-retry',iss:'https://securetoken.google.com/eiken-retry',sub:'student',codeVersion:3,firebase:{sign_in_provider:'custom'}})).toString('base64url');
 const headers={'Content-Type':'application/json',Authorization:'Bearer header.'+claims+'.accepted'};
-test('real API routing performs one admission read per request and rechecks resets on the next request',async()=>{
+test('real API routing shares learner admission and keeps explicit session and administrator checks fresh',async()=>{
  const {server}=await import('./server.mjs');await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
  async function call(path,{method='POST',body={},signedIn=true}={}){reads=[];authCalls=0;const response=await nativeFetch(base+path,{method,headers:signedIn?headers:{'Content-Type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify(body)})});const data=await response.json();return {status:response.status,data,readCount:reads.length,authCalls};}
  try{
-  for(const path of ['/api/pet-chat','/api/learning/activity']){const r=await call(path,{body:{appId:'invalid-test'}});assert.equal(r.status,400,path);assert.equal(r.readCount,1,path);assert.equal(r.authCalls,1,path);}
+  for(const [index,path] of ['/api/pet-chat','/api/learning/activity'].entries()){
+   const r=await call(path,{body:{appId:'invalid-test'}});
+   assert.equal(r.status,400,path);assert.equal(r.readCount,index===0?1:0,path);assert.equal(r.authCalls,1,path);
+  }
   let r=await call('/api/account/session');assert.equal(r.status,200);assert.equal(r.data.admin,false);assert.equal(r.readCount,1);
   r=await call('/api/admin/session',{method:'GET'});assert.equal(r.status,403);assert.equal(r.readCount,1);
   email='teacher@example.test';r=await call('/api/account/session');assert.equal(r.data.admin,true);assert.equal(r.readCount,1);
   r=await call('/api/admin/session',{method:'GET'});assert.equal(r.status,200);assert.equal(r.readCount,1);
   emailVerified=false;r=await call('/api/account/session');assert.equal(r.data.admin,false);r=await call('/api/admin/session',{method:'GET'});assert.equal(r.status,403);
-  emailVerified=true;resetRequired=true;r=await call('/api/pet-chat');assert.equal(r.status,403);assert.equal(r.readCount,1);
+  emailVerified=true;resetRequired=true;
   r=await call('/api/account/session');assert.equal(r.data.resetRequired,true);assert.equal(r.data.admin,false);assert.equal(r.readCount,1);
+  r=await call('/api/pet-chat');assert.equal(r.status,403);assert.equal(r.readCount,1);
   resetRequired=false;accountVersion=4;r=await call('/api/pet-chat');assert.equal(r.status,401);assert.equal(r.readCount,1);
   accountVersion=3;disabled=true;r=await call('/api/pet-chat');assert.equal(r.status,401);assert.equal(r.readCount,0);
   disabled=false;r=await call('/api/pet-chat',{signedIn:false});assert.equal(r.status,401);assert.equal(r.readCount,0);

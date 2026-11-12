@@ -33,7 +33,7 @@ export function customToken(sa,uid,reset=false,version=0){
  const unsigned=enc({alg:'RS256',typ:'JWT'})+'.'+enc({iss:sa.client_email,sub:sa.client_email,aud:'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',iat:now,exp:now+3600,uid,claims:{codeAccount:true,codeVersion:version,passwordResetRequired:reset}});
  return unsigned+'.'+createSign('RSA-SHA256').update(unsigned).end().sign(sa.private_key,'base64url');
 }
-export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,onAccountCreated=async()=>{},onDirectoryChanged=async()=>{},issuedHashes=preissued,issuedCodes=configuredCodes}){
+export function createCodeAuth({base,projectId,accessToken,serviceAccount,verifyUser,verifyAdmin,isAdmin=()=>false,readJson,send,fail,encodeFields,decodeFields,fetchImpl=fetch,onAccountCreated=async()=>{},onDirectoryChanged=async()=>{},onAdmissionChanged=()=>{},issuedHashes=preissued,issuedCodes=configuredCodes}){
  const prefix='projects/'+projectId+'/databases/(default)/documents/';
  async function request(url,options={}){
   const access=await accessToken(),response=await fetchImpl(url,{...options,headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},signal:AbortSignal.timeout(20000)});
@@ -148,17 +148,24 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
      const temporaryPassword=randomBytes(9).toString('base64url'),record=await passwordRecord(temporaryPassword),version=Number(account.value.version||0)+1;
      const updated={...account.value,...record,resetRequired:true,version,temporaryUntil:Date.now()+86400000};
      await commit([write('code_accounts',digest(account.value.loginId),updated,account),updateExisting('account_uids',account.value.uid,{idKey:digest(account.value.loginId),loginId:account.value.loginId,version,resetRequired:true})]);
+     onAdmissionChanged(account.value.uid);
      return send(res,200,{loginId:account.value.loginId,temporaryPassword,expiresHours:24});
     }
     throw fail('ページが見つかりません。',404);
    }
-   if(route==='/api/account/session'){const user=await verifyUser(req),session=await admission(user);return send(res,200,{...session,admin:isAdmin(user)===true&&!session.resetRequired});}
+   if(route==='/api/account/session'){
+    const user=await verifyUser(req);
+    const session=await admission(user).catch(error=>{onAdmissionChanged(user.uid);throw error;});
+    if(session.resetRequired)onAdmissionChanged(user.uid);
+    return send(res,200,{...session,admin:isAdmin(user)===true&&!session.resetRequired});
+   }
    if(route==='/api/account/password'){
     throttle(req);const user=await verifyUser(req),account=await state(user.uid);if(!account)throw fail('コードの紐づけが必要です。',400);
     if(!await passwordMatches(body.currentPassword,account.value))throw fail('現在のパスワードが違います。',403);
     if(body.currentPassword===body.password)throw fail('現在のパスワードとは異なるものにしてください。',400);
     const record=await passwordRecord(body.password),version=Number(account.value.version||0),updated={...account.value,...record,resetRequired:false,temporaryUntil:0};
     await commit([write('code_accounts',digest(account.value.loginId),updated,account),updateExisting('account_uids',user.uid,{idKey:digest(account.value.loginId),loginId:account.value.loginId,version,resetRequired:false})]);
+    onAdmissionChanged(user.uid);
     return send(res,200,{token:customToken(serviceAccount(),user.uid,false,version)});
    }
    throttle(req);
@@ -186,6 +193,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     const record=await passwordRecord(body.password);
     const writes=[write('registration_codes',codeKey,{...unused.value,used:true,uid},stored),write('code_accounts',idKey,{uid,loginId,codeName:code,...record,resetRequired:false,createdAt:new Date().toISOString()}),write('account_uids',uid,{idKey,loginId,version:0,resetRequired:false})];
     await commit(writes);
+    onAdmissionChanged(uid);
     await onAccountCreated(uid,{codeName:code,loginId}).catch(error=>console.warn('Admin search index sync deferred',{reason:error.message}));
     return send(res,200,{token:customToken(serviceAccount(),uid)});
    }finally{active--;}
