@@ -62,11 +62,11 @@ test('defeating the floor 100 Demon Lord unlocks all three endgame titles',()=>{
  push({kind:'defeat',noDamage:false});
  titles=creativeTitles('word-tower',state);for(const id of [16,17,18]){const title=titles.find(t=>t.id===`creative:word-tower:${id}`);assert.equal(title.unlocked,true);assert.equal(title.done,1);assert.equal(title.need,1);}
 });
-test('title reads include the existing wallet and expose the thirty-three adventure titles',async()=>{
+test('title reads include the existing wallet and expose the adventure title catalogs',async()=>{
  let requested=[];
  const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'t',verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,fail,send:(res,status,body)=>Object.assign(res,{status,body}),fetch:async(url,o)=>{if(url.endsWith(':batchGet'))requested=JSON.parse(o.body).documents;return {ok:true,json:async()=>[{found:{name:'projects/p/databases/(default)/documents/users/u/apps/english-playroom',fields:{wordTowerBest:25}}}]};}});
  const r={};await api.handle({method:'GET'},r);assert.equal(r.status,200);assert.ok(requested.some(x=>x.endsWith('/apps/english-playroom')));
- assert.equal(r.body.titles.filter(t=>['word-tower','eiken-dungeon'].includes(t.appId)).length,33);
+ assert.equal(r.body.titles.filter(t=>['word-tower','eiken-dungeon'].includes(t.appId)).length,37);
  assert.equal(r.body.titles.find(t=>t.id==='creative:word-tower:11').unlocked,true);
 });
 test('adventure event validation rejects absent identity, invalid floors and missing answer/defeat conditions',()=>{
