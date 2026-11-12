@@ -1,4 +1,4 @@
-name: Verify production title-count update
+name: Verify production title collection
 on:
   pull_request:
     paths:
@@ -8,16 +8,23 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Check the deployed title API version
+      - name: Check the production server and pet strength module
         shell: bash
         run: |
-          url=https://task-quest.onrender.com/api/status
-          for attempt in $(seq 1 22); do
-            result=$(curl --silent --show-error --fail --max-time 12 "$url" || true)
-            printf 'Attempt %s title API version %s\n' "$attempt" "$(jq -r '.titleVersion' <<< "$result" 2>/dev/null || true)"
-            if jq -e '.titleVersion == "1.10.20"' <<< "$result" >/dev/null 2>&1; then
+          status_url=https://task-quest.onrender.com/api/status
+          home_url=https://k-oota-pixel.github.io/english-playroom/
+          for attempt in $(seq 1 35); do
+            status=$(curl --silent --show-error --fail --max-time 12 "$status_url" || true)
+            home=$(curl --silent --show-error --fail --max-time 10 "$home_url?title-collection-check=$attempt" || true)
+            ready=false
+            web=false
+            if jq -e '.titleVersion == "1.10.21" and .titleCollectionReady == true' <<< "$status" >/dev/null 2>&1; then ready=true; fi
+            if grep -q 'pet-strength.js?v=2.4.86' <<< "$home"; then web=true; fi
+            printf 'Attempt %s server=%s frontend=%s\n' "$attempt" "$ready" "$web"
+            if [[ "$ready" == true && "$web" == true ]]; then
+              curl --silent --show-error --fail --max-time 10 "${home_url}title-ownership.js?v=1" | grep -q 'export function collectedTitleCount'
               exit 0
             fi
             sleep 12
