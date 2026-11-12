@@ -336,3 +336,29 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  t.diagnostic(JSON.stringify({rtdbBodyBytes:realtime.bytes,firestoreOperations:firestore.counts}));
 });
 }
+
+test('問題別初回正答は既存の成績read/writeで保存し、再精算では二重保存しない',async()=>{
+ let saved=null,version=0,reads=0,writes=0;
+ const request=async(target,options={})=>{
+  assert.match(String(target),/onlineBattleQuestions\/standings\/4\//);
+  if(options.method==='PUT'){
+   assert.equal(options.headers['If-Match'],'"'+version+'"');
+   saved=JSON.parse(options.body);version++;writes++;
+   return Response.json(saved);
+  }
+  reads++;
+  return Response.json(saved,{headers:{etag:'"'+version+'"'}});
+ };
+ const store=createRealtimeRoomStore({
+  databaseUrl:'https://test.firebasedatabase.app',accessToken:async()=> 'fixture',
+  mode:'production',namespace:'onlineBattleQuestions',request
+ });
+ const q1='2025-2-g4-q01',q2='2025-2-g4-q02';
+ await store.saveStanding('4',{uid:'u',games:1,wins:0},{[q1]:0});
+ await store.saveStanding('4',{uid:'u',games:2,wins:1},{[q1]:1,[q2]:1});
+ await store.saveStanding('4',{uid:'u',games:2,wins:1},{[q2]:0});
+ assert.equal(reads,3,'既存の成績取得と同じ1試合1GET');
+ assert.equal(writes,2,'既存の成績保存と同じ1試合1PUT、重複精算は0');
+ assert.equal(saved.games,2);
+ assert.deepEqual(saved.questionFirst,{[q1]:0,[q2]:1},'最初の回答を保持');
+});
