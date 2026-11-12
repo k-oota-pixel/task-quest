@@ -220,7 +220,7 @@ const adminUserIndex=createAdminUserIndex({base:FIRESTORE_BASE,projectId:FIREBAS
 const shopGifts=createShopGifts({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
 const petFriends=createPetFriends({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
 const adminMessagePages=createAdminMessagePages({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,encodeFields:encodeFirestoreFields,decodeFields,getProfiles:uids=>adminData.messageSenderProfiles(uids)});
-const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail});
+const handleRetryQuestionStats=createRetryQuestionStats({base:FIRESTORE_BASE,accessToken:getGoogleAccessToken,verifyAdmin,decodeFields,send,fail,getQuestionBattleStats:gradeKey=>questionBattle.questionStats(gradeKey,Infinity)});
 const handleAdminPetNameReset=createAdminPetNameReset({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,verifyAdmin,accessToken:getGoogleAccessToken,readJson,send,fail,invalidate:uid=>{adminData.invalidate(uid);void adminUserIndex.sync(uid).catch(error=>console.warn('Admin index sync deferred',error.message));}});
 const handleMaterialOpen=createMaterialOpen({send,fail});
 const handleMaterialActivity=createMaterialActivity({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,readJson,send,fail});

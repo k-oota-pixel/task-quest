@@ -9,6 +9,7 @@ import {
  validOnlineBattleQuestionId,
  projectOnlineBattleLobbyRoom
 } from './online-battle.mjs';
+import {createRetryQuestionStats,mergeRetryAndBattleQuestionStats} from './retry-question-stats.mjs';
 
 function player(uid,joinedAt){
  return {
@@ -408,4 +409,83 @@ test('管理者向け初回正答率は保存済みRTDB成績から1回だけ読
   {id:'2025-2-g4-q02',attempts:2,correct:0,accuracy:0},
   {id:'2025-2-g4-q01',attempts:3,correct:2,accuracy:66.7}
  ]);
+});
+
+test('リトライ＋問題対戦の正答率は回答数・正解数を合算して算出する',()=>{
+ const data=mergeRetryAndBattleQuestionStats([
+  {id:'2025-2-g4-q01',grade:'4級',attempts:10,correct:6},
+  {id:'2025-2-g4-q02',grade:'4級',attempts:3,correct:0},
+  {id:'2025-2-g3-q01',grade:'3級',attempts:2,correct:2}
+ ],[
+  {id:'2025-2-g4-q01',attempts:10,correct:8},
+  {id:'2025-2-g4-q02',attempts:2,correct:2}
+ ],'4級',20);
+ assert.equal(data.total,2);
+ assert.deepEqual(data.rows.map(q=>({id:q.id,attempts:q.attempts,correct:q.correct,accuracy:q.accuracy,retry:q.retryAttempts,battle:q.battleAttempts})),[
+  {id:'2025-2-g4-q02',attempts:5,correct:2,accuracy:40,retry:3,battle:2},
+  {id:'2025-2-g4-q01',attempts:20,correct:14,accuracy:70,retry:10,battle:10}
+ ]);
+});
+
+test('合算ランキングの表示時だけFirestore 1 GET、RTDB 1 GET、追加write 0',async()=>{
+ let firestoreReads=0,rtdbReads=0,authChecks=0;
+ const handler=createRetryQuestionStats({
+  base:'https://firestore.test',accessToken:async()=> 'token',
+  verifyAdmin:async()=>{authChecks++;},decodeFields:fields=>fields,
+  send:(res,status,data)=>{res.status=status;res.body=data;},
+  fail:(message,status)=>Object.assign(new Error(message),{status}),
+  fetch:async()=>{
+   firestoreReads++;
+   return {ok:true,status:200,json:async()=>({fields:{items:{
+    one:{id:'2025-2-g4-q01',grade:'4級',attempts:10,correct:6}
+   }}})};
+  },
+  getQuestionBattleStats:async gradeKey=>{
+   rtdbReads++;assert.equal(gradeKey,'4');
+   return {rows:[{id:'2025-2-g4-q01',attempts:10,correct:8}]};
+  }
+ });
+ const res={};
+ await handler({method:'GET',url:'/api/admin/retry-question-stats?grade=4%E7%B4%9A&limit=20'},res);
+ assert.equal(res.status,200);
+ assert.equal(authChecks,1);
+ assert.equal(firestoreReads,1);
+ assert.equal(rtdbReads,1);
+ assert.equal(res.body.rows[0].accuracy,70);
+ assert.equal(res.body.rows[0].attempts,20);
+});
+
+test('Firestoreの集計が未生成でも対戦の正答率は表示される',async()=>{
+ let rtdbReads=0;
+ const handler=createRetryQuestionStats({
+  base:'https://firestore.test',accessToken:async()=> 'token',
+  verifyAdmin:async()=>{},decodeFields:fields=>fields,
+  send:(res,status,data)=>{res.status=status;res.body=data;},
+  fail:(message,status)=>Object.assign(new Error(message),{status}),
+  fetch:async()=>({ok:false,status:404}),
+  getQuestionBattleStats:async()=>{rtdbReads++;return {rows:[{id:'2025-2-g4-q01',attempts:2,correct:1}]};}
+ });
+ const res={};
+ await handler({method:'GET',url:'/api/admin/retry-question-stats?grade=4%E7%B4%9A'},res);
+ assert.equal(res.status,200);
+ assert.equal(rtdbReads,1);
+ assert.equal(res.body.total,1);
+ assert.equal(res.body.rows[0].accuracy,50);
+});
+
+test('準1級の合算ランキングはオンライン対戦RTDBを読まない',async()=>{
+ let rtdbReads=0;
+ const handler=createRetryQuestionStats({
+  base:'https://firestore.test',accessToken:async()=> 'token',
+  verifyAdmin:async()=>{},decodeFields:fields=>fields,
+  send:(res,status,data)=>{res.status=status;res.body=data;},
+  fail:(message,status)=>Object.assign(new Error(message),{status}),
+  fetch:async()=>({ok:true,status:200,json:async()=>({fields:{items:{a:{id:'2025-2-pre1-q01',grade:'準1級',attempts:3,correct:2}}}})}),
+  getQuestionBattleStats:async()=>{rtdbReads++;return {rows:[]};}
+ });
+ const res={};
+ await handler({method:'GET',url:'/api/admin/retry-question-stats?grade=%E6%BA%961%E7%B4%9A'},res);
+ assert.equal(res.status,200);
+ assert.equal(rtdbReads,0);
+ assert.equal(res.body.rows[0].accuracy,66.7);
 });
