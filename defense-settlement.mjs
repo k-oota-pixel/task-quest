@@ -53,7 +53,7 @@ export function createDefenseSettlement({
   const activityPath='learning_activity/'+encodeURIComponent(uid);
   const receiptPath=walletPath+'/typingDefenseRewards/'+encodeURIComponent(body.runId);
   const token=await accessToken();
-  const afterCommit=async({milestoneDelta=0,improvedBest=false,duplicate=false}={})=>{
+  const afterCommit=async({milestoneDelta=0,improvedBest=false,duplicate=false,walletData}={})=>{
    invalidate(uid);
    if(plan.stage){
     if(milestoneDelta)onDailyCountsChanged([appId],day);
@@ -63,7 +63,7 @@ export function createDefenseSettlement({
     }
    }
    if(plan.coins){
-    try{await publishCoinBoard({uid,day,token});}
+    try{await publishCoinBoard({uid,day,token,walletData});}
     catch(error){console.warn('Defense coin board update deferred',error?.message||error);}
    }
   };
@@ -115,7 +115,7 @@ export function createDefenseSettlement({
    const writes=[{
     update:{name:prefix+receiptPath,fields:{
      mode:fieldString(plan.mode),runId:fieldString(body.runId),day:fieldString(day),
-     clearedPhases:fieldInt(plan.clearedPhases),stage:fieldInt(plan.stage),amount:fieldInt(plan.coins)
+     clearedPhases:fieldInt(plan.clearedPhases),stage:fieldInt(plan.stage),amount:fieldInt(plan.coins),coinsEarnedToday:fieldInt(earned+plan.coins)
     }},
     updateTransforms:[{fieldPath:'awardedAt',setToServerValue:'REQUEST_TIME'}],
     currentDocument:{exists:false}
@@ -140,7 +140,7 @@ export function createDefenseSettlement({
     body:JSON.stringify({writes}),signal:AbortSignal.timeout(20000)
    });
    if(response.ok){
-    await afterCommit({milestoneDelta,improvedBest:plan.stage>cappedStage(activity.fields?.[MODES[plan.mode]])});
+    await afterCommit({milestoneDelta,improvedBest:plan.stage>cappedStage(activity.fields?.[MODES[plan.mode]]),walletData:{...wallet.fields,coinEarnedDate:day,coinsEarnedToday:earned+plan.coins}});
     return result(plan,day,false,freshTitles);
    }
    const error=await response.json().catch(()=>({}));
@@ -152,7 +152,11 @@ export function createDefenseSettlement({
    if(receipt.exists){
     if(receipt.fields.mode!==plan.mode||receipt.fields.clearedPhases!==plan.clearedPhases)
      throw fail('同じプレイIDで別の結果を保存することはできません。',409);
-    await afterCommit({duplicate:true});
+    const receiptTotal=receipt.fields.day===day?receipt.fields.coinsEarnedToday:null;
+    const walletData=Number.isFinite(receiptTotal)
+     ?{...wallet.fields,coinEarnedDate:day,coinsEarnedToday:Math.max(earned,receiptTotal)}
+     :wallet.fields;
+    await afterCommit({duplicate:true,walletData});
     return result(plan,day,true);
    }
   }

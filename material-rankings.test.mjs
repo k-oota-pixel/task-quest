@@ -11,7 +11,7 @@ test('append a per-day counter to the existing activity transform, not an extra 
  ]);
 });
 test('daily material rankings cache and current-day invalidation; closed days are final',async()=>{
- const store=new Map(),events=[],time=Date.parse('2026-11-06T10:00:00+09:00');
+ const store=new Map(),archives=new Map(),archiveReads=[],events=[],time=Date.parse('2026-11-06T10:00:00+09:00');
  const rankingStore={
   async getSection(k,{load,valid}={}){const v=store.get(k);if(v&&(!valid||valid(v)))return structuredClone(v);if(!load)return null;const next=await load();store.set(k,next);return structuredClone(next);},
   async setSection(k,v){store.set(k,structuredClone(v));}
@@ -32,20 +32,36 @@ test('daily material rankings cache and current-day invalidation; closed days ar
    return {ok:true,json:async()=>names.map(name=>({found:{name,fields:{petName:name.includes('/u/')?'ウサギ':'イヌ'}}}))};
   }
   if(url.includes('/leaderboards/coin-day-')){
-   const theDay=url.split('coin-day-')[1];
-   return previous.includes(theDay)?{ok:true,status:200,json:async()=>({fields:{today:theDay,leaders:[{uid:'u'},{uid:'v'},{uid:'w'}]}})}:{ok:false,status:404};
+   const theDay=url.split('coin-day-')[1].split('?')[0];
+   const archived=archives.get(theDay)||{today:theDay,leaders:[{uid:'u'},{uid:'v'},{uid:'w'}]};
+   if(options.method==='PATCH'){
+    const winners=JSON.parse(options.body).fields.materialWinners.mapValue.fields;
+    archives.set(theDay,{...archived,materialWinners:Object.fromEntries(Object.entries(winners).map(([app,value])=>[app,value.stringValue]))});
+    return {ok:true,status:200};
+   }
+   archiveReads.push(theDay);
+   return previous.includes(theDay)?{ok:true,status:200,json:async()=>({fields:archived})}:{ok:false,status:404};
   }
   if(url.includes('/leaderboards/daily-coins'))return {ok:false,status:404};
   throw Error('Unexpected '+url);
  };
- const rankings=createMaterialRankings({base:'https://db',projectId:'p',accessToken:async()=>'token',decodeFields:x=>x,verifyUser:async()=>({uid:'u'}),send:(r,status,value)=>Object.assign(r,{status,value}),fail,excludedIds:async()=>[],
+ const createRankings=()=>createMaterialRankings({base:'https://db',projectId:'p',accessToken:async()=>'token',decodeFields:x=>x,verifyUser:async()=>({uid:'u'}),send:(r,status,value)=>Object.assign(r,{status,value}),fail,excludedIds:async()=>[],
   fetch:read,rankingStore,now:()=>time});
+ const rankings=createRankings();
  const first=await rankings.getBoard('ateru',day);assert.equal(first.leaders[0].count,7);assert.equal(first.leaders[0].petName,'ウサギ');
  assert.equal(events.length,1);
  const repeated=await rankings.getBoard('ateru',day);assert.deepEqual(first,repeated);assert.equal(events.length,1);
  rankings.changed(['ateru'],day);await rankings.getBoard('ateru',day);assert.equal(events.length,2);
  const standings=await rankings.userWeekly('u');assert.equal(standings.progress.ateru,4);assert.equal(standings.progress.coins,4);
  const prior=events.length;await rankings.userWeekly('v');assert.equal(events.length,prior);
+ assert.equal(archives.size,4);
+ assert.deepEqual(archiveReads,previous);
+ store.clear();
+ archiveReads.length=0;
+ const restarted=createRankings();
+ assert.deepEqual(await restarted.userWeekly('u'),standings);
+ assert.deepEqual(archiveReads,previous);
+ assert.equal(events.length,prior,'durable daily archives eliminate material queries after restart');
  const res={};await rankings.handle({method:'GET',url:'/api/learning/material-rankings?appId=ateru'},res);
  assert.equal(res.status,200);assert.equal(res.value.leaders.length,2);
  assert.equal(res.value.leaders[0].uid,'u','pet-view action must receive the ranked user ID');
@@ -56,8 +72,9 @@ test('single top position is stable when counts tie',()=>{
 });
 
 test('typing defense normal and hard share daily ranking infrastructure and unlock separate weekly titles',()=>{
- const day='2026-11-06',ids=RANKING_ONLY_CONTENTS.map(x=>x.id);
- assert.deepEqual(ids,['pet-typing-defense-normal','pet-typing-defense-hard']);
+ const day='2026-11-06',allIds=RANKING_ONLY_CONTENTS.map(x=>x.id);
+ assert.deepEqual(allIds,['pet-typing-defense-easy','pet-typing-defense-normal','pet-typing-defense-hard']);
+ const ids=allIds.slice(1);
  assert.equal(TITLE_CONTENTS.some(x=>ids.includes(x.id)),false,'no extra per-user creative title progress reads');
  const updates=dailyMaterialTransforms(new Map([[ids[0],1],[ids[1],2]]),day);
  assert.deepEqual(updates.map(x=>x.fieldPath),ids.map(id=>'dailyCounts.`'+day+'`.`'+id+'`'));

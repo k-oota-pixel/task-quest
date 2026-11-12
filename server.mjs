@@ -57,7 +57,7 @@ const FIREBASE_WEB_API_KEY=process.env.FIREBASE_WEB_API_KEY||'AIzaSyAllLjPcGhygM
 const ADMIN_EMAIL=(process.env.ADMIN_EMAIL||'').trim().toLowerCase();
 const FIRESTORE_BASE=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)`;
 
-const dailyCoinRankingCache={viewerSnapshots:new Map(),viewerSnapshotsDay:''};
+const dailyCoinRankingCache={};
 
 const system=`
 あなたは日本の高校生の英語学習を支援する先生です。
@@ -186,6 +186,7 @@ async function writeDailyCoinSummary(accessToken,value,updateTime='',previous=nu
     error.retryable=conflict;
     throw error;
   }
+  if(archive)materialRankings.coinArchiveChanged();
   let nextUpdateTime=data.writeResults?.[0]?.updateTime||'';
   if(!nextUpdateTime){const stored=await readDailyCoinSummary(accessToken);if(stored)return stored;nextUpdateTime='';}
   return {value,updateTime:nextUpdateTime};
@@ -236,13 +237,13 @@ const handleDefenseSettlement=createDefenseSettlement({
  base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,
  todayKey:japanDateKey,earnedCoinsToday,invalidate:adminData.invalidateLearning,
  onDailyCountsChanged:materialRankings.changed,onDefenseStageSaved:defenseBestRankings.publish,
- publishCoinBoard:async({uid,day,token})=>publishDailyCoinBoard({
-  uid,access:token,today:day,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
+ publishCoinBoard:async({uid,day,token,walletData})=>publishDailyCoinBoard({
+  uid,access:token,today:day,walletData,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,
   readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,
   rankingCache:dailyCoinRankingCache,decorate:learningTitles.decorate
  })
 });
-const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache,decorate:learningTitles.decorate});}});
+const handleLearningChallenges=createLearningChallenges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onAward:async({user,access,today,walletData})=>{adminData.invalidateLearning(user.uid);await publishDailyCoinBoard({uid:user.uid,access,today,walletData,getUserDoc,queryDailyCoinWallets,decodeFields,earnedCoinsToday,validPetName,readSummary:readDailyCoinSummary,writeSummary:writeDailyCoinSummary,rankingCache:dailyCoinRankingCache,decorate:learningTitles.decorate});}});
 const handleLearningDashboard=createLearningDashboard({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail});
 const adventureRankings=createAdventureRankings({base:FIRESTORE_BASE,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,accessToken:getGoogleAccessToken,decodeFields,send,fail,decorate:learningTitles.decorate});
 const wordBreakerRecords=createWordBreakerRecords({base:FIRESTORE_BASE,activeIds:adminData.activeIds,accessToken:getGoogleAccessToken,decodeFields,send,fail,decorate:learningTitles.decorate});
@@ -471,7 +472,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.21',titleCollectionVersion:1,titleCollectionReady,titleSummaryVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:1,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',titleVersion:'1.10.21',titleCollectionVersion:1,titleCollectionReady,titleSummaryVersion:1,weeklyTitleArchiveVersion:1,coinRankingOptimizationVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
