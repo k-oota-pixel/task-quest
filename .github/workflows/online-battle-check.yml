@@ -6,11 +6,17 @@ on:
       - 'online-battle-standings.mjs'
       - 'online-battle-standings.test.mjs'
       - 'online-battle.test.mjs'
+      - 'rtdb-room-store.mjs'
+      - 'realtime-preview.test.mjs'
+      - 'server.mjs'
       - '.github/workflows/online-battle-check.yml'
   pull_request:
     paths:
       - 'online-battle.mjs'
       - 'online-battle.test.mjs'
+      - 'rtdb-room-store.mjs'
+      - 'realtime-preview.test.mjs'
+      - 'server.mjs'
       - '.github/workflows/online-battle-check.yml'
   workflow_dispatch:
 permissions:
@@ -23,4 +29,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test online-battle.test.mjs online-battle-standings.test.mjs
+      - run: node --check server.mjs && node --test online-battle.test.mjs online-battle-standings.test.mjs realtime-preview.test.mjs

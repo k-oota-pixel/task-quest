@@ -146,7 +146,6 @@ test('0コインでも入室でき、入室時にコインを消費しない',as
   const commits=[];
   const fetch=async (url,options={})=>{
    const path=String(url);
-   if(path.includes('/documents/onlineBattleRooms/'))return {status:404,ok:false,json:async()=>({})};
    if(path.includes('/documents/users/test-user/apps/english-playroom')){
     return {status:200,ok:true,json:async()=>({fields:{coins:{integerValue:String(coins)}},updateTime:'wallet-1'})};
    }
@@ -165,6 +164,7 @@ test('0コインでも入室でき、入室時にコインを消費しない',as
    send:(res,status,payload)=>{res.status=status;res.body=payload;},
    decodeFields:fields=>({coins:Number(fields?.coins?.integerValue||0)}),
    fetch,
+   roomStore:{mode:'production',read:async()=>({value:null,updateTime:'empty'}),write:async()=>{}},
    now:()=>1_000_000
   });
   const response={};
@@ -176,24 +176,15 @@ test('0コインでも入室でき、入室時にコインを消費しない',as
   assert.equal(result.response.status,200);
   assert.equal(result.response.body.room.players[0].uid,'test-user');
   assert.equal(result.response.body.room.status,'waiting');
-  assert.equal(result.commits.length,1);
-  assert.equal(result.commits[0].writes.length,2);
-  assert.ok(result.commits[0].writes.every(write=>!write.update.name.includes('/users/')),'入室時にコインを消費しない');
+  assert.deepEqual(result.commits,[],'入室時にFirestoreへ書き込まない');
  }
 });
 
 async function simulateCoinlessBattle(operation,initialRoom,actor='test-user'){
- const reads=[],commits=[];
+ const reads=[],commits=[],roomWrites=[];
+ let stored={value:structuredClone(initialRoom),updateTime:'room-1'};
  const fetch=async (url,options={})=>{
   const path=String(url);
-  if(path.endsWith('/documents/onlineBattleRooms/room4-1')){
-   reads.push('room');
-   return {status:200,ok:true,json:async()=>({fields:{__testValue:initialRoom},updateTime:'room-1'})};
-  }
-  if(path.includes('/documents/onlineBattleStats/')){
-   reads.push('stats');
-   return {status:404,ok:false,json:async()=>({})};
-  }
   if(path.includes('/documents/users/')){
    reads.push('wallet');
    return {status:200,ok:true,json:async()=>({fields:{__testValue:{coins:0}},updateTime:'wallet-1'})};
@@ -209,15 +200,21 @@ async function simulateCoinlessBattle(operation,initialRoom,actor='test-user'){
   projectId:'online-battle-test',
   accessToken:async()=> 'fake-token',
   verifyUser:async()=>({uid:actor}),
-  readJson:async()=>({}),
+  readJson:async()=>({matchId:initialRoom.matchId}),
   send:(res,status,payload)=>{res.status=status;res.body=payload;},
   decodeFields:fields=>fields.__testValue||{},
   fetch,
+  roomStore:{
+   mode:'production',
+   read:async()=>structuredClone(stored),
+   write:async(_id,value)=>{stored={value:structuredClone(value),updateTime:'next'};roomWrites.push(stored.value);},
+   saveStanding:async()=>{}
+  },
   now:()=>1_000_000
  });
  const response={};
  await service.handle({method:'POST'},response,'/api/online-battle/room/4-1/'+operation);
- return {response,reads,commits};
+ return {response,reads,commits,roomWrites};
 }
 
 test('対戦開始は双方0コインでも可能で財布のread/writeがない',async()=>{
@@ -291,9 +288,8 @@ test('アイテム消費は対戦中の①read/writeなし・終了時に一回�
  const transforms=walletWrites[0].updateTransforms;
  assert.equal(transforms.find(field=>field.fieldPath==='petDungeonItems.`bandage`').increment.integerValue,'-1');
  assert.equal(transforms.find(field=>field.fieldPath==='coins').increment.integerValue,'1');
- const firstRoomWrite=result.commits.flat().find(write=>write.update?.name.endsWith('/onlineBattleRooms/room4-1'));
- const savedPlayers=firstRoomWrite.update.fields.players.arrayValue.values;
- assert.deepEqual(savedPlayers[0].mapValue.fields.spentItems.mapValue.fields,{},'精算後に次の試合へ持ち越さない');
+ const savedPlayers=result.roomWrites[0].players;
+ assert.deepEqual(savedPlayers[0].spentItems,{},'精算後に次の試合へ持ち越さない');
 });
 
 test('タイムアウトで残ったプレイヤーの使用済アイテムを次戦へ持ち越さない',()=>{

@@ -11,15 +11,16 @@ export function previousJapanBattleDay(timestamp=Date.now()){
 }
 const nonnegative=value=>Number.isSafeInteger(Number(value))?Math.max(0,Number(value)):0;
 export function nextOnlineBattleStanding(previous={},player={},won=false,at=Date.now()){
- const day=japanBattleDay(at),continuing=previous.lastGameDay===day;
+ const day=japanBattleDay(at),latestDay=previous.lastGameDay>day?previous.lastGameDay:day;
+ const continuing=previous.lastGameDay===latestDay,countsToday=day===latestDay;
  const games=nonnegative(previous.games)+1,wins=nonnegative(previous.wins)+(won?1:0);
  return {
   uid:String(player.uid||previous.uid||''),
   nickname:String(player.nickname||previous.nickname||'なまえ未設定').slice(0,24),
   petName:String(player.petName||previous.petName||'ペット').slice(0,24),
-  games,wins,losses:games-wins,lastGameDay:day,
-  todayGames:(continuing?nonnegative(previous.todayGames):0)+1,
-  todayWins:(continuing?nonnegative(previous.todayWins):0)+(won?1:0),
+  games,wins,losses:games-wins,lastGameDay:latestDay,
+  todayGames:(continuing?nonnegative(previous.todayGames):0)+(countsToday?1:0),
+  todayWins:(continuing?nonnegative(previous.todayWins):0)+(countsToday&&won?1:0),
   updatedAt:Math.floor(at)
  };
 }
