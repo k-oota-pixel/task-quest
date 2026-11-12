@@ -1,3 +1,4 @@
+import {fixtureTitleAuthority} from './title-authority.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {applyTitleEvent} from './creative-title-progress.mjs';import {creativeTitles,titleState,validTitleName,creativeCatalog} from './title-model.mjs';import {createTitleEvents,validateTitleEvent} from './creative-title-events.mjs';
 const fail=(m,status)=>Object.assign(Error(m),{status});
@@ -32,3 +33,39 @@ test('event receipts and compare-and-swap make retries and concurrent events exa
  const r={};await handle({method:'POST'},r);assert.equal(r.status,200);assert.ok(r.data.freshTitles.length>=3);const duplicate={};await handle({method:'POST'},duplicate);assert.equal(duplicate.data.duplicate,true);assert.deepEqual(duplicate.data.freshTitles,[]);body={...body,eventId:'event-0002'};await handle({method:'POST'},{});assert.equal(decode({mapValue:{fields:docs.get('projects/p/databases/(default)/documents/title_progress/u/activities/word-breaker').fields}}).metrics.runs,2);
 });
 test('invalid or signed-out submissions never write progress',async()=>{for(const b of [{appId:'group-game',eventId:'event-0001'},{appId:'word-breaker',eventId:'event-0001',kind:'run',score:-1},{appId:'eiken-cloze',eventId:'event-0001',kind:'passage',itemId:'p',mode:'free',results:[]}])assert.throws(()=>validateTitleEvent(b,fail));let called=false;const h=createTitleEvents({verifyUser:async()=>{throw fail('login',401);},send:(r,status)=>r.status=status,fail,readJson:async()=>{called=true;},fetch:async()=>{called=true;}});const r={};await h({method:'POST'},r);assert.equal(r.status,401);assert.equal(called,false);});
+
+test('replayed title milestones already present in the wallet do not announce or write titles again',async()=>{
+ const authority=await fixtureTitleAuthority(),uid='u';
+ const first={appId:'word-breaker',eventId:'event-0001',kind:'run',course:'basic',score:10,combo:5};
+ const candidates=creativeTitles('word-breaker',applyTitleEvent({},first,'2026-11-12')).filter(t=>t.unlocked);
+ assert.ok(candidates.length>0);
+ const tokenFields={titleCollectionVersion:{integerValue:'1'},
+  titleCollectionProof:{stringValue:authority.marker(uid)},
+  earnedTitleIds:{arrayValue:{values:candidates.map(t=>({stringValue:authority.award(uid,t.id)}))}}};
+ const docs=new Map();let reads=0,walletReads=0,walletWrites=0,event=first,version=0;
+ const api=createTitleEvents({base:'https://db',projectId:'p',accessToken:async()=>'t',
+  verifyUser:async()=>({uid}),getAuthority:async()=>authority,readJson:async()=>event,
+  decodeFields:f=>decode({mapValue:{fields:f}}),fail,
+  send:(res,status,data)=>Object.assign(res,{status,data}),
+  fetch:async(url,opt={})=>{
+   if(opt.method==='GET'){walletReads++;return {ok:true,json:async()=>({fields:tokenFields})};}
+   const body=JSON.parse(opt.body);
+   if(url.endsWith(':batchGet')){reads++;return {ok:true,json:async()=>body.documents.map(name=>docs.has(name)?{found:docs.get(name)}:{missing:name})};}
+   if(url.endsWith(':commit')){for(const write of body.writes){
+    if(write.update.name.endsWith('/apps/english-playroom'))walletWrites++;
+    docs.set(write.update.name,{...write.update,updateTime:String(++version)});
+   }return {ok:true};}
+   throw Error('Unexpected request '+url);
+  }});
+ const firstResult={};await api({method:'POST'},firstResult);
+ assert.equal(firstResult.status,200);
+ assert.deepEqual(firstResult.data.freshTitles,[]);
+ assert.equal(walletReads,1);assert.equal(walletWrites,0);
+ event={...first,eventId:'event-0002'};
+ const secondResult={};await api({method:'POST'},secondResult);
+ assert.equal(secondResult.status,200);
+ assert.deepEqual(secondResult.data.freshTitles,[]);
+ assert.equal(walletReads,1,'ordinary repeated answers must not add a wallet read');
+ assert.equal(walletWrites,0);
+ assert.equal(reads,2);
+});
