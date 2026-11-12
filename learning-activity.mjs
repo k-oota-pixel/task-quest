@@ -37,6 +37,8 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
    defenseStage={mode:match[1],stage:Number(match[3])};
   }
   const counts=new Map();for(const appId of unique.values())counts.set(appId,(counts.get(appId)||0)+1);
+  // Reuse the activity summary write: no extra Firebase document reads or writes.
+  const lastLearningAppId=body.events.at(-1).appId;
   const appIds=[...counts.keys()],{day,week}=challengePeriods(),token=await accessToken(),prefix=`projects/${projectId}/databases/(default)/documents/`;
   const receipt=prefix+`learning_activity/${user.uid}/events/${body.batchId}`;
   const transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
@@ -50,7 +52,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   }
   const writes=[
    {update:{name:receipt,fields:{batchId:encode(body.batchId),day:encode(day),counts:{mapValue:{fields:Object.fromEntries([...counts].map(([appId,count])=>[appId,{integerValue:String(count)}]))}}}},currentDocument:{exists:false},updateTransforms:[{fieldPath:'recordedAt',setToServerValue:'REQUEST_TIME'}]},
-   {update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms},
+   {update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid},lastLearningAppId:encode(lastLearningAppId)}},updateMask:{fieldPaths:['uid','lastLearningAppId']},updateTransforms:transforms},
    ...challengeWrites,
    ...(counts.has('eiken-retry')?[titleCountInvalidation(prefix,user.uid)]:[])
   ];
@@ -79,7 +81,7 @@ export function createLearningActivity({base,projectId,accessToken,verifyUser,se
   const appId=body.appId;if(appId!==undefined&&!CONTENT_IDS.has(appId))throw fail('教材が不正です。',400);if(DEFENSE_IDS.has(appId))throw fail('ディフェンスのランキングにはステージ別の記録IDが必要です。',400);
   const token=await accessToken(),day=challengePeriods().day,prefix=`projects/${projectId}/databases/(default)/documents/`,transforms=[{fieldPath:'lastLearningAt',setToServerValue:'REQUEST_TIME'}];
   if(appId){transforms.push({fieldPath:'contents.`'+appId+'`.lastLearningAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'contents.`'+appId+'`.titleCount',increment:{integerValue:'1'}});transforms.push(...dailyMaterialTransforms(new Map([[appId,1]]),day));}
-  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[...(appId?[{update:{name:prefix+`learning_activity/${user.uid}/events/${randomUUID()}`,fields:{day:encode(day),counts:{mapValue:{fields:{[appId]:{integerValue:'1'}}}}}},currentDocument:{exists:false},updateTransforms:[{fieldPath:'recordedAt',setToServerValue:'REQUEST_TIME'}]}]:[]),{update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid}}},updateMask:{fieldPaths:['uid']},updateTransforms:transforms},...challengeProgressWrites({uid:user.uid,appId,projectId}),...(appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
+  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({writes:[...(appId?[{update:{name:prefix+`learning_activity/${user.uid}/events/${randomUUID()}`,fields:{day:encode(day),counts:{mapValue:{fields:{[appId]:{integerValue:'1'}}}}}},currentDocument:{exists:false},updateTransforms:[{fieldPath:'recordedAt',setToServerValue:'REQUEST_TIME'}]}]:[]),{update:{name:prefix+`learning_activity/${user.uid}`,fields:{uid:{stringValue:user.uid},...(appId?{lastLearningAppId:encode(appId)}:{})}},updateMask:{fieldPaths:appId?['uid','lastLearningAppId']:['uid']},updateTransforms:transforms},...challengeProgressWrites({uid:user.uid,appId,projectId}),...(appId==='eiken-retry'?[titleCountInvalidation(prefix,user.uid)]:[])]})});
   if(!response.ok)throw fail('学習日時を保存できませんでした。',502);
   invalidate(user.uid);if(appId)onDailyCountsChanged([appId],day);const committed=await response.json?.().catch(()=>({}))||{},activityWriteIndex=appId?1:0;const total=Number(committed.writeResults?.[activityWriteIndex]?.transformResults?.[2]?.integerValue)||0;const freshTitles=appId?activityTitles(appId,total).filter(t=>t.need===total):[];send(res,200,{ok:true,freshTitles});
  }catch(error){send(res,error.status||500,{error:error.message||'学習日時を保存できませんでした。'});}};
