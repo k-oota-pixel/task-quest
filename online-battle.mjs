@@ -26,6 +26,17 @@ const DUNGEON_ITEMS=Object.freeze([
  {id:'yoteizan-water',name:'ようていざんのみず',icon:'🏔️',kind:'mp',amount:20}
 ]);
 const MATCH_OPERATIONS=new Set(['attack','miss','magic','item','continue']);
+const ONLINE_QUESTION_SEGMENTS=Object.freeze({'4':'g4','3':'g3','pre2':'pre2','2':'g2'});
+export function validOnlineBattleQuestionId(value,gradeKey){
+ if(typeof value!=='string'||!ONLINE_QUESTION_SEGMENTS[gradeKey])return false;
+ const parts=/^20\d{2}-[1-3]-(g4|g3|pre2|g2)-q\d{2}$/.exec(value);
+ return !!parts&&parts[1]===ONLINE_QUESTION_SEGMENTS[gradeKey];
+}
+function recordOnlineBattleFirstAnswer(player,questionId,gradeKey,correct){
+ if(!validOnlineBattleQuestionId(questionId,gradeKey))return;
+ player.battleQuestionFirst||={};
+ if(!Object.hasOwn(player.battleQuestionFirst,questionId))player.battleQuestionFirst[questionId]=correct?1:0;
+}
 export const onlineBattleMissDamage=maxHp=>Math.max(1,Math.ceil(Math.max(1,Number(maxHp)||1)/4));
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const field=v=>v&&typeof v==='object'?v:{};
@@ -116,7 +127,8 @@ function createPendingSettlement(room,players=room.players,winnerUid=room.winner
   played,
   gradeKey:room.gradeKey,
   won:played&&player.uid===winnerUid,
-  items:Object.fromEntries(DUNGEON_ITEMS.map(item=>[item.id,Math.max(0,Math.floor(number(player.spentItems?.[item.id])))]).filter(([,count])=>count>0))
+  items:Object.fromEntries(DUNGEON_ITEMS.map(item=>[item.id,Math.max(0,Math.floor(number(player.spentItems?.[item.id])))]).filter(([,count])=>count>0)),
+  ...(player.battleQuestionFirst?{firstAnswers:player.battleQuestionFirst}:{})
  })).filter(row=>row.uid&&(row.played||row.coins>0||Object.keys(row.items).length>0));
  if(!entries.length)return null;
  const matchId=String(room.matchId||'legacy-'+room.roomId+'-'+room.updatedAt+'-'+room.seq).replace(/[^A-Za-z0-9-]/g,'-');
@@ -157,7 +169,7 @@ function publicRoom(value,id,viewerUid=''){
  const {pendingSettlement,titleAwards,...room}=safeRoom(value,id);
  const settlementPending=room.status==='finished'&&Boolean(pendingSettlement);
  return {...room,settlementPending,freshTitles:room.status==='finished'?(Array.isArray(titleAwards?.[viewerUid])?titleAwards[viewerUid]:[]):[],players:room.players.map(player=>{
-  const {battleInventory,spentItems,coinsAtJoin,...safe}=player;
+  const {battleInventory,spentItems,coinsAtJoin,battleQuestionFirst,...safe}=player;
   const coins=settlementPending&&player.uid===room.winnerUid?Math.max(0,coinsAtJoin-1):coinsAtJoin;
   return {...safe,petShop:player.petShop||{},...(player.uid===viewerUid?{inventory:battleInventory,coins}:{})};
  })};
@@ -248,7 +260,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    const {lastGameDay,todayGames,todayWins}=standing;
    standingDays.set(entry.uid,{...days,[entry.gradeKey]:{lastGameDay,todayGames,todayWins}});
    if(questionMode)standingTotals.set(entry.uid,{...totals,[entry.gradeKey]:{games:standing.games,wins:standing.wins}});
-   standings.push({gradeKey:entry.gradeKey,standing});
+   standings.push({gradeKey:entry.gradeKey,standing,...(questionMode?{firstAnswers:field(entry.firstAnswers)}:{})});
   }
   writes.push({update:{name:baseName(projectId,ledgerPath(settlement.id)),fields:encodeFields({
    id:settlement.id,roomId:settlement.roomId,createdAt:settlement.createdAt,titleAwards:awards,standings
@@ -305,7 +317,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   entry.result=(async()=>{
    entry.settlement??=await applySettlement(await accessToken(),pending);
    const {awards,standings}=entry.settlement;
-   await Promise.all(standings.map(({gradeKey,standing})=>roomStore.saveStanding(gradeKey,standing)));
+   await Promise.all(standings.map(({gradeKey,standing,firstAnswers})=>roomStore.saveStanding(gradeKey,standing,firstAnswers)));
    return awards;
   })().catch(error=>{
    entry.result=null;
@@ -383,13 +395,14 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='waiting'||players.length!==2)throw error('相手が入室するまでお待ちください。',409);
      players[index]={...players[index],ready:true};room.players=players;
      if(players.every(p=>p.ready)){
-      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;});
+      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;if(questionMode)p.battleQuestionFirst={};});
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else if(operation==='miss'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],at=now();
      if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
+     if(questionMode)recordOnlineBattleFirstAnswer(attacker,body?.questionId,room.gradeKey,false);
      const damage=onlineBattleMissDamage(attacker.stats.hp);
       attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage,at};
      if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;}
@@ -433,6 +446,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],targetIndex=index===0?1:0,defender=players[targetIndex],at=now();
      if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
+     if(questionMode)recordOnlineBattleFirstAnswer(attacker,body?.questionId,room.gradeKey,true);
      const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
@@ -440,7 +454,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
-      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;});
+      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;if(questionMode)p.battleQuestionFirst={};});
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
@@ -468,6 +482,25 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
   throw error('対戦状態の更新が競合しました。もう一度お試しください。',409);
  }
 
+ // This admin report reads the existing per-grade RTDB standings once on demand.
+ // First answers live inside the already-written standings, so battles need no
+ // additional Realtime Database or Firestore reads/writes for accuracy.
+ async function questionStats(gradeKey,limit=20){
+  if(!questionMode||!GRADE_BY_KEY[gradeKey])throw error('対象の級が見つかりません。',400);
+  const rows=new Map(),records=await roomStore.listStandings(gradeKey);
+  for(const record of records){
+   for(const [id,result] of Object.entries(field(record.questionFirst))){
+    if(!validOnlineBattleQuestionId(id,gradeKey)||(result!==0&&result!==1))continue;
+    const entry=rows.get(id)||{id,attempts:0,correct:0};
+    entry.attempts++;
+    if(result===1)entry.correct++;
+    rows.set(id,entry);
+   }
+  }
+  const all=[...rows.values()].map(entry=>({...entry,accuracy:Math.round(entry.correct/entry.attempts*1000)/10}))
+   .sort((a,b)=>a.accuracy-b.accuracy||b.attempts-a.attempts||a.id.localeCompare(b.id,'ja'));
+  return {grade:GRADE_BY_KEY[gradeKey].grade,limit,total:all.length,rows:all.slice(0,limit),source:'online-battle-questions'};
+ }
  async function publishRankings(){
   const at=now(),todayDay=japanBattleDay(at),asOfDate=previousJapanBattleDay(at);
   const summary=await Promise.all(ONLINE_BATTLE_GRADES.map(async gradeKey=>{
@@ -531,5 +564,5 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     send(res,e.status||500,{error:e.message||'オンライン対戦でエラーが発生しました。'});
    }
  }
- return {handle,publishRankings};
+ return {handle,publishRankings,questionStats};
 }
