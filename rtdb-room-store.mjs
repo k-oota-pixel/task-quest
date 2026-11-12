@@ -118,15 +118,23 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   } finally { await response.body?.cancel(); }
  }
 
- async function saveStanding(grade, standing) {
+ async function saveStanding(grade, standing, firstAnswers){
   const key = Buffer.from(standing.uid, 'utf8').toString('base64url');
   const path = gradePath('standings', grade) + '/' + key;
   for (let attempt = 0; attempt < 5; attempt++) {
    const current = await readData(path);
-   // The wallet commit serializes totals. A delayed retry must not overwrite
-   // the projection of a more recent settlement for this player and grade.
+   // Match counts already provide the same idempotency guard as the original
+   // standings code, including after a Firestore settlement retry.
    if (current.value?.games >= standing.games) return;
-   if (await writeData(path, standing, current.updateTime)) return;
+   const prior = current.value?.questionFirst;
+   const outcomes = prior && typeof prior === 'object' ? {...prior} : {};
+   if (firstAnswers && typeof firstAnswers === 'object') {
+    for (const [id, value] of Object.entries(firstAnswers)) {
+     if (!Object.hasOwn(outcomes, id) && (value === 0 || value === 1)) outcomes[id] = value;
+    }
+   }
+   const next = { ...standing, ...(firstAnswers || prior ? {questionFirst:outcomes} : {}) };
+   if (await writeData(path, next, current.updateTime)) return;
   }
   throw Object.assign(new Error('対戦成績を同期できませんでした。'), { status: 503 });
  }
