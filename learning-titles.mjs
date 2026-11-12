@@ -171,10 +171,38 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   }
   return titles;
  }
+ // Read only the expanded content's progress documents (usually one Firestore read).
+ // Ownership comes from the existing collection read; do not migrate or write here.
+ async function readAppProgress(uid,appId){
+  if(!TITLE_CONTENTS.some(item=>item.id===appId))throw fail('教材が不正です。',400);
+  const walletNeeded=[DEFENSE_TITLE_APP,ONLINE_TITLE_APP,'word-tower','eiken-dungeon'].includes(appId);
+  const progressPath=`title_progress/${uid}/activities/${appId}`;
+  const activityPath=`learning_activity/${uid}`,retryPath=`users/${uid}/apps/eiken-retry`;
+  const paths=[
+   ...([DEFENSE_TITLE_APP,ONLINE_TITLE_APP].includes(appId)?[]:[progressPath]),
+   ...(appId==='eiken-retry'?[retryPath,activityPath]:[]),
+   ...(appId===DEFENSE_TITLE_APP?[activityPath]:[]),
+   ...(walletNeeded?[walletPath(uid)]:[])
+  ];
+  const token=await accessToken(),response=await request(base+'/documents:batchGet',{
+   method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+   body:JSON.stringify({documents:paths.map(path=>prefix+path)})
+  });
+  if(!response.ok)throw fail('教材別の進捗を取得できませんでした。',502);
+  const rows=await response.json(),data=path=>decodeFields(rows.find(row=>row.found?.name===prefix+path)?.found?.fields||{});
+  const state=titleState({
+   activity:paths.includes(activityPath)?data(activityPath):{},
+   retry:paths.includes(retryPath)?data(retryPath):{},
+   wallet:walletNeeded?data(walletPath(uid)):{},
+   progress:paths.includes(progressPath)?{[appId]:data(progressPath)}:{}
+  });
+  return {appId,titles:state.titles.filter(item=>item.appId===appId).map(({id,done})=>({id,done}))};
+ }
  async function handle(req,res){try{
   if(!['GET','POST'].includes(req.method))throw fail('GETまたはPOSTのみ対応しています。',405);
   const user=await verifyUser(req),view=new URL(req.url,'http://localhost').searchParams.get('view');
   if(req.method==='GET'&&view==='selection')return send(res,200,await readSelection(user.uid));
+  if(req.method==='GET'&&view==='app-progress')return send(res,200,await readAppProgress(user.uid,new URL(req.url,'http://localhost').searchParams.get('appId')));
   if(req.method==='GET'){
    if(view==='retry')return send(res,200,{titles:await readRetryTitles(user.uid)});
    if(view==='initialize'){
