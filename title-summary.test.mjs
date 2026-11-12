@@ -94,7 +94,7 @@ test('migrated title listing ignores forged awards and uses one wallet read',asy
 test('creative acquisitions count atomically; duplicates and unchanged repeats do not add writes',async()=>{
  const docs=new Map();let body={appId:'word-breaker',eventId:'event-0001',kind:'run',course:'basic',score:10,combo:5},walletWrites=0,version=0;
  const api=createTitleEvents({base:'https://db',projectId:'p',accessToken:async()=>'token',verifyUser:async()=>({uid:'u'}),decodeFields:fields=>decode({mapValue:{fields}}),readJson:async()=>body,fail,send,fetch:async(url,opt)=>{
-  const b=JSON.parse(opt.body);
+  if(opt.method!=='POST')return {ok:false,status:404};const b=JSON.parse(opt.body);
   if(url.endsWith(':batchGet'))return {ok:true,json:async()=>b.documents.map(name=>docs.has(name)?{found:docs.get(name)}:{missing:name})};
   const invalidations=b.writes.filter(w=>w.update.name.endsWith('/apps/english-playroom'));
   walletWrites+=invalidations.length;
