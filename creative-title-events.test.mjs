@@ -48,7 +48,7 @@ test('replayed title milestones already present in the wallet do not announce or
   decodeFields:f=>decode({mapValue:{fields:f}}),fail,
   send:(res,status,data)=>Object.assign(res,{status,data}),
   fetch:async(url,opt={})=>{
-   if(opt.method==='GET'){walletReads++;return {ok:true,json:async()=>({fields:tokenFields})};}
+   if(!opt.method||opt.method==='GET'){walletReads++;return {ok:true,json:async()=>({fields:tokenFields})};}
    const body=JSON.parse(opt.body);
    if(url.endsWith(':batchGet')){reads++;return {ok:true,json:async()=>body.documents.map(name=>docs.has(name)?{found:docs.get(name)}:{missing:name})};}
    if(url.endsWith(':commit')){for(const write of body.writes){
