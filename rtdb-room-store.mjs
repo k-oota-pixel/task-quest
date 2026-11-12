@@ -81,10 +81,66 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   }));
  }
 
+ function dataUrl(path) {
+  const target = new URL('/' + root + '/' + path + '.json', database);
+  if (emulatorNamespace && database.hostname === '127.0.0.1') target.searchParams.set('ns', emulatorNamespace);
+  return target;
+ }
+
+ function gradePath(collection, grade) {
+  if (!GRADE.test(grade)) throw new Error('Invalid battle grade');
+  return collection + '/' + grade;
+ }
+
+ async function readData(path, conditional = true) {
+  const response = await send(dataUrl(path), {
+   headers: conditional ? { 'X-Firebase-ETag': 'true' } : {},
+   signal: AbortSignal.timeout(12000)
+  });
+  check(response);
+  const updateTime = response.headers.get('etag');
+  if (conditional && !updateTime) throw new Error('Realtime Database did not return an ETag');
+  return { value: await response.json(), updateTime };
+ }
+
+ async function writeData(path, value, version) {
+  const response = await send(dataUrl(path), {
+   method: 'PUT',
+   headers: { 'Content-Type': 'application/json', 'If-Match': version },
+   body: JSON.stringify(value),
+   signal: AbortSignal.timeout(12000)
+  });
+  try {
+   if (response.status === 412) return false;
+   check(response);
+   return true;
+  } finally { await response.body?.cancel(); }
+ }
+
+ async function saveStanding(grade, standing) {
+  const key = Buffer.from(standing.uid, 'utf8').toString('base64url');
+  const path = gradePath('standings', grade) + '/' + key;
+  for (let attempt = 0; attempt < 5; attempt++) {
+   const current = await readData(path);
+   // The wallet commit serializes totals. A delayed retry must not overwrite
+   // the projection of a more recent settlement for this player and grade.
+   if (current.value?.games >= standing.games) return;
+   if (await writeData(path, standing, current.updateTime)) return;
+  }
+  throw Object.assign(new Error('対戦成績を同期できませんでした。'), { status: 503 });
+ }
+
+ async function listStandings(grade) {
+  const { value } = await readData(gradePath('standings', grade), false);
+  return Object.values(value || {});
+ }
+
+ const readRanking = grade => readData(gradePath('rankings', grade));
+ const writeRanking = (grade, ranking, version) => writeData(gradePath('rankings', grade), ranking, version);
+
  async function verifyConnection() {
   const nonce = randomUUID();
-  const target = new URL('/onlineBattlePreview/connectionChecks/' + nonce + '.json', database);
-  if (emulatorNamespace && database.hostname === '127.0.0.1') target.searchParams.set('ns', emulatorNamespace);
+  const target = dataUrl('connectionChecks/' + nonce);
   const operation = (method, headers = {}, body) => send(target, {
    method, headers, body, signal: AbortSignal.timeout(12000)
   });
@@ -135,7 +191,7 @@ export function createRealtimeRoomStore({ databaseUrl, accessToken, request = fe
   }
  }
 
- return { mode, read, write, lobby, stream, verifyConnection };
+ return { mode, read, write, lobby, stream, verifyConnection, saveStanding, listStandings, readRanking, writeRanking };
 }
 
 export async function* realtimeEvents(body) {

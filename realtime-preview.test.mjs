@@ -8,8 +8,6 @@ import { createRealtimeRoomStore, realtimeEvents } from './rtdb-room-store.mjs';
 const roomPath = '/api/online-battle/room/4-1';
 const projectId = 'demo-monstudy-battle';
 const base = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)';
-const battleProjectId = 'demo-monstudy-standings';
-const battleBase = 'https://firestore.googleapis.com/v1/projects/' + battleProjectId + '/databases/(default)';
 
 function decode(value) {
  if ('mapValue' in value) return decodeFields(value.mapValue.fields || {});
@@ -37,7 +35,7 @@ function fakeFirestore(wallet, prefix) {
  let revision = 0;
  const request = async (url, options) => {
   const primary=url.startsWith(base);
-  assert.ok(primary||url.startsWith(battleBase));
+  assert.ok(primary,'No Firestore project other than the primary may be contacted');
   if (!url.endsWith(':commit')) {
    counts.reads++;
    const path = pathOf(url);
@@ -123,7 +121,7 @@ function fakeRealtime() {
    if (options.headers['If-Match'] !== stored.version) return new Response(null, { status: 412 });
    bytes.uploads += Buffer.byteLength(options.body);
    const payload = JSON.parse(options.body);
-   const room = JSON.parse(payload);
+   const room = typeof payload==='string'?JSON.parse(payload):payload;
    if (failClear && room.lastSettledMatchId && !room.pendingSettlement) {
     failClear = false;
     return new Response(null, { status: 500 });
@@ -134,7 +132,10 @@ function fakeRealtime() {
    bytes.snapshots += Buffer.byteLength(options.body);
    return Response.json(payload);
   }
-  const result = JSON.stringify(stored.payload);
+  const standings=/\/standings\/[^/]+\.json$/.test(key);
+  const records=standings?Object.fromEntries([...rooms].filter(([path])=>path.startsWith(key.slice(0,-5)+'/'))
+   .map(([path,value])=>[path.split('/').at(-1).slice(0,-5),value.payload])):null;
+  const result = JSON.stringify(standings?records:stored.payload);
   bytes.snapshots += Buffer.byteLength(result);
   return new Response(result, {headers:{etag:stored.version}});
  };
@@ -161,7 +162,8 @@ async function emulatorRealtime(port) {
  async function request(target,options){
   if(options.method==='PUT'){
    bytes.uploads+=Buffer.byteLength(options.body);
-   const room=JSON.parse(JSON.parse(options.body));
+   const payload=JSON.parse(options.body);
+   const room=typeof payload==='string'?JSON.parse(payload):payload;
    if(failClear&&room.lastSettledMatchId&&!room.pendingSettlement){
     failClear=false;
     return new Response(null,{status:500});
@@ -190,6 +192,10 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  const emulatorPort=process.env.MONSTUDY_RTDB_EMULATOR_PORT;
  const realtime=emulatorPort?await emulatorRealtime(emulatorPort):fakeRealtime();
  let now = 1_000_000;
+ const roomStore = createRealtimeRoomStore({
+  databaseUrl:'http://127.0.0.1:'+(realtime.port||9000),
+  accessToken:async () => realtime.token||'fixture', request:realtime.request, emulatorNamespace:realtime.namespace, mode
+ });
  const service = createOnlineBattle({
   base, projectId, accessToken: async () => 'fixture',
   verifyUser: async req => ({uid:req.headers.authorization}),
@@ -197,11 +203,7 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
   send: (res, status, body) => { res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(body)); },
   decodeFields: fields => fields.fixture,
   fetch: firestore.request, now: () => now,
-  battleConfig: {base:battleBase,projectId:battleProjectId,separated:true,accessToken:async()=> 'fixture'},
-  roomStore: createRealtimeRoomStore({
-   databaseUrl:'http://127.0.0.1:'+(realtime.port||9000),
-   accessToken:async () => realtime.token||'fixture', request:realtime.request, emulatorNamespace:realtime.namespace, mode
-  })
+  roomStore
  });
  const server = createServer((req,res) => void service.handle(req,res,req.url));
  server.listen(0,'127.0.0.1');
@@ -290,7 +292,7 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  assert.equal(firestore.docs.get(wallet('a')).value.onlineBattleTitleStats.games,1);
  assert.deepEqual(firestore.walletOperations,{reads:4,writes:2});
  assert.deepEqual(firestore.primaryOperations,{reads:4,writes:3});
- assert.equal(firestore.docs.get(prefix+'Stats/4/players/a').value.wins,1);
+ assert.equal((await roomStore.listStandings('4')).find(player=>player.uid==='a').wins,1);
  assert.ok([...firestore.docs.keys()].every(path=>path.startsWith(prefix)||path===wallet('a')||path===wallet('b')));
  if(mode==='production')assert.ok([...firestore.docs.keys()].every(path=>!path.startsWith('onlineBattlePreview')));
  const continued = await Promise.all([api('a','continue'),api('b','continue')]);
@@ -319,7 +321,12 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  assert.equal(firestore.docs.get(wallet('a')).value.coins,2);
  assert.deepEqual(firestore.walletOperations,{reads:6,writes:4});
  assert.deepEqual(firestore.primaryOperations,{reads:6,writes:6});
- now+=ONLINE_BATTLE_JOIN_TTL_MS;
+ const nowBeforeRanking=now;
+ now+=24*60*60*1000;
+ await service.publishRankings();
+ assert.deepEqual((await roomStore.readRanking('4')).value.leaders.map(({uid,wins})=>({uid,wins})),[{uid:'a',wins:2}]);
+ assert.deepEqual(firestore.primaryOperations,{reads:6,writes:6});
+ now=nowBeforeRanking+ONLINE_BATTLE_JOIN_TTL_MS;
  assert.equal((await api('a')).room.status,'open');
  t.diagnostic(JSON.stringify({rtdbBodyBytes:realtime.bytes,firestoreOperations:firestore.counts}));
 });

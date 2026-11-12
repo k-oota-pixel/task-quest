@@ -362,58 +362,19 @@ const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KE
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
 const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds,onPersisted:message=>adminMessagePages.append(message)});
-const onlineBattle=createOnlineBattle({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,fail,decodeFields});
-const previewDatabaseUrl=(process.env.BATTLE_RTDB_PREVIEW_URL||'').trim();
-const previewUsers=new Set((process.env.BATTLE_RTDB_PREVIEW_UIDS||'').split(',').map(uid=>uid.trim()).filter(Boolean));
-const previewCredential=process.env.BATTLE_RTDB_PREVIEW_SERVICE_ACCOUNT_B64||'';
-const previewAccessToken=createGoogleAccessToken({
- serviceAccount:()=>JSON.parse(Buffer.from(previewCredential,'base64').toString('utf8')),
- scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+const liveRoomStore=createRealtimeRoomStore({
+ databaseUrl:'https://eiken-retry-default-rtdb.asia-southeast1.firebasedatabase.app',
+ accessToken:createGoogleAccessToken({
+  serviceAccount:getServiceAccount,
+  scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+ }),
+ mode:'production'
 });
-function configuredOnlineBattlePreview(){
- if(!previewDatabaseUrl||!previewUsers.size||!previewCredential)return null;
- try{
-  if(new URL(previewDatabaseUrl).protocol!=='https:')throw Error('HTTPS is required');
-  return createOnlineBattle({
-   base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
-   verifyUser:async req=>{
-    const user=await verifyUser(req);
-    if(!previewUsers.has(user.uid))throw fail('この検証版への参加は許可されていません。',403);
-    return user;
-   },
-   readJson,send,fail,decodeFields,
-   roomStore:createRealtimeRoomStore({databaseUrl:previewDatabaseUrl,accessToken:previewAccessToken})
-  });
- }catch{
-  console.warn('Online battle preview configuration is invalid');
-  return null;
- }
-}
-const onlineBattlePreview=configuredOnlineBattlePreview();
-const liveDatabaseUrl='https://eiken-retry-default-rtdb.asia-southeast1.firebasedatabase.app';
-const liveRequested=process.env.BATTLE_RTDB_LIVE==='1';
-const liveAccessToken=createGoogleAccessToken({
- serviceAccount:getServiceAccount,
- scopes:['https://www.googleapis.com/auth/firebase.database','https://www.googleapis.com/auth/userinfo.email']
+const onlineBattle=createOnlineBattle({
+ base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,
+ verifyUser,readJson,send,fail,decodeFields,roomStore:liveRoomStore
 });
-const liveRoomStore=createRealtimeRoomStore({databaseUrl:liveDatabaseUrl,accessToken:liveAccessToken,mode:'production'});
-const onlineBattleRealtime=onlineBattle.battleDatabaseSeparated&&onlineBattle.battleProjectId!==FIREBASE_PROJECT_ID
- ?createOnlineBattle({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,fail,decodeFields,roomStore:liveRoomStore})
- :null;
-let realtimeReady=false,checkingCutover=false,realtimeConnection='pending';
-async function initializeRealtimeBattles(connectionCheck){
- if(!liveRequested)return;
- checkingCutover=true;
- try{
-  if(!onlineBattleRealtime)throw Error('The separate standings database is not configured');
-  if(!await connectionCheck)throw Error('The realtime database connection check failed');
-  const legacyRooms=await onlineBattle.countActiveLegacyRooms();
-  realtimeReady=legacyRooms===0;
-  console.info(JSON.stringify({event:'battle_rtdb_cutover',result:realtimeReady?'ready':'legacy_rooms',legacyRooms}));
- }catch(error){
-  console.warn(JSON.stringify({event:'battle_rtdb_cutover',result:'failure',status:error?.status||null}));
- }finally{checkingCutover=false;}
-}
+let realtimeConnection='pending';
 async function checkRealtimeBattleConnection(){
  try{
   await liveRoomStore.verifyConnection();
@@ -444,18 +405,11 @@ export const server=http.createServer(async(req,res)=>{
   }
   if(path.startsWith('/api/account/')||path.startsWith('/api/admin/code-'))return codeAuth.handle(req,res);
   if(path==='/api/online-battle/transport'&&req.method==='GET'){
-    return send(res,200,{realtime:realtimeReady,connection:realtimeConnection});
+    return send(res,200,{realtime:true,connection:realtimeConnection,storage:'firebase-1-rtdb'});
   }
   const realtimePrefix='/api/online-battle-realtime';
   if(path.startsWith(realtimePrefix+'/')){
-    if(!onlineBattleRealtime)return send(res,503,{error:'リアルタイム対戦を利用できません。'});
-    if(path.endsWith('/join')&&!realtimeReady)return send(res,409,{error:'対戦方式が切り替わりました。対戦画面を開き直してください。'});
-    return onlineBattleRealtime.handle(req,res,'/api/online-battle'+path.slice(realtimePrefix.length));
-  }
-  const previewPrefix='/api/online-battle-preview';
-  if(path===previewPrefix||path.startsWith(previewPrefix+'/')){
-    if(!onlineBattlePreview)return send(res,404,{error:'検証版は公開されていません。'});
-    return onlineBattlePreview.handle(req,res,'/api/online-battle'+path.slice(previewPrefix.length));
+    return onlineBattle.handle(req,res,'/api/online-battle'+path.slice(realtimePrefix.length));
   }
   if(path==='/api/online-battle/rankings/daily'){
     try{
@@ -466,13 +420,11 @@ export const server=http.createServer(async(req,res)=>{
       return send(res,200,await onlineBattle.publishRankings());
     }catch(e){return send(res,e.status||500,{error:e.message||'ランキング集計に失敗しました。'});}
   }
+  // Cached clients may still use the original URL; both URLs use the same RTDB rooms.
+  if(path.startsWith('/api/online-battle/'))return onlineBattle.handle(req,res,path);
   // Public GET is intentionally anonymous, while publishing (POST) still requires authentication.
   const publicWordBreakerRead=req.method==='GET'&&path==='/api/word-breaker/records';
   if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'&&!publicWordBreakerRead){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
-  if(req.method==='POST'&&path.startsWith('/api/online-battle/room/')&&path.endsWith('/join')&&(realtimeReady||checkingCutover)){
-    return send(res,409,{error:'対戦方式を切り替えています。少し待ってから対戦画面を開き直してください。'});
-  }
-  if(path.startsWith('/api/online-battle'))return onlineBattle.handle(req,res,path);
   if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest","/api/vocabulary/gemini"].includes(path)){
     try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
   }
@@ -548,7 +500,7 @@ export const server=http.createServer(async(req,res)=>{
 
 if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>{
  console.log('Task Quest server ready');
- void initializeRealtimeBattles(checkRealtimeBattleConnection());
+ void checkRealtimeBattleConnection();
 });
 
 

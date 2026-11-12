@@ -1,5 +1,5 @@
-import {createSign,randomUUID} from 'node:crypto';
-import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard,onlineBattleRankingScanComplete} from './online-battle-standings.mjs';
+import {randomUUID} from 'node:crypto';
+import {ONLINE_BATTLE_GRADES,nextOnlineBattleStanding,previousJapanBattleDay,japanBattleDay,projectOnlineBattleLeaderboard} from './online-battle-standings.mjs';
 import {ONLINE_TITLE_APP,onlineBattleTitleProgress,nextOnlineBattleTitleStats,creativeTitles} from './title-model.mjs';
 
 const GRADE_CONFIG=Object.freeze([{key:'4',grade:'4級'},{key:'3',grade:'3級'},{key:'pre2',grade:'準2級'},{key:'2',grade:'2級'}]);
@@ -37,55 +37,7 @@ const encode=value=>{
  return {nullValue:null};
 };
 const encodeFields=value=>Object.fromEntries(Object.entries(value).map(([k,v])=>[k,encode(v)]));
-const roomPath=id=>'onlineBattleRooms/room'+id;
-const lobbyPath=gradeKey=>'onlineBattleLobbies/'+gradeKey;
 const baseName=(projectId,path)=>'projects/'+projectId+'/databases/(default)/documents/'+path;
-
-function readBattleServiceAccount(){
- let raw='';
- if(process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64){
-  try{raw=Buffer.from(process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_B64,'base64').toString('utf8');}catch{}
- }
- if(!raw)raw=process.env.BATTLE_FIREBASE_SERVICE_ACCOUNT_JSON||'';
- if(!raw)return null;
- try{
-  const account=JSON.parse(raw);
-  if(account?.client_email&&account?.private_key)return account;
- }catch{}
- return null;
-}
-function b64urlJson(value){return Buffer.from(JSON.stringify(value)).toString('base64url');}
-function createServiceAccountAccessToken(account,request,error){
- let cached='',cachedUntil=0;
- return async()=>{
-  if(cached&&Date.now()<cachedUntil-60000)return cached;
-  const now=Math.floor(Date.now()/1000);
-  const header=b64urlJson({alg:'RS256',typ:'JWT'});
-  const claims=b64urlJson({iss:account.client_email,scope:'https://www.googleapis.com/auth/cloud-platform',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600});
-  const unsigned=`${header}.${claims}`;
-  const signer=createSign('RSA-SHA256');signer.update(unsigned);signer.end();
-  const assertion=`${unsigned}.${signer.sign(account.private_key).toString('base64url')}`;
-  const response=await request('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:AbortSignal.timeout(12000),body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion})});
-  let data={};try{data=await response.json();}catch{}
-  if(!response.ok||!data.access_token){
-   console.error('Online battle Firebase OAuth failed',{httpStatus:response.status,error:String(data?.error||''),description:String(data?.error_description||'').slice(0,200)});
-   throw error('オンライン対戦用Firebaseの認証に失敗しました。',503);
-  }
-  cached=data.access_token;cachedUntil=Date.now()+Number(data.expires_in||3600)*1000;
-  return cached;
- };
-}
-function battleDatabase({base,projectId,accessToken,request,error}){
- const account=readBattleServiceAccount();
- const configuredProjectId=String(process.env.BATTLE_FIREBASE_PROJECT_ID||account?.project_id||'').trim();
- if(!account||!configuredProjectId)return {base,projectId,accessToken,separated:false};
- return {
-  base:`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(configuredProjectId)}/databases/(default)`,
-  projectId:configuredProjectId,
-  accessToken:createServiceAccountAccessToken(account,request,error),
-  separated:true
- };
-}
 
 function ageBonuses(days,adult){
  const out={hp:adult?2:0,attack:adult?1:0,defense:adult?1:0,mp:adult?2:0};
@@ -214,8 +166,6 @@ function lobbyState(room,id){
  const matchExpiresAt=endedAt>0?Math.floor(number(endedAt))+ONLINE_BATTLE_RESULT_TTL_MS:0;
  return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status:room.status||'open',playerCount:players.length,playerExpiresAt,matchExpiresAt,updatedAt:Math.max(0,Math.floor(number(room.updatedAt,0)))};
 }
-function lobbyStateChanged(before,after){return before.status!==after.status||before.playerCount!==after.playerCount;}
-
 // The lobby document alone is enough to project expired rooms: no N+1 room reads/writes.
 export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
  const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1};
@@ -240,54 +190,34 @@ export function projectOnlineBattleLobbyRoom(value,id,at=Date.now()){
  return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,status,playerCount:count,updatedAt};
 }
 
-export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore=null,battleConfig=null}){
+export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJson,send,fail:failExternal,decodeFields,fetch:request=globalThis.fetch,now=Date.now,roomStore}){
  const error=failExternal||fail;
- const battle=battleConfig||battleDatabase({base,projectId,accessToken,request,error});
- if(roomStore?.mode==='production'&&(!battle.separated||battle.projectId===projectId)){
-  throw new Error('Realtime battles require a separate Firestore project for standings');
- }
- const preview=Boolean(roomStore&&roomStore.mode!=='production');
+ if(!roomStore)throw new Error('Online battle requires Realtime Database storage');
+ const preview=roomStore.mode==='preview';
  const realtimeSettlements=new Map();
- const collection=name=>preview?'onlineBattlePreview'+name:'onlineBattle'+name;
  const walletPath=uid=>(preview?'onlineBattlePreviewUsers/':'users/')+encodeURIComponent(uid)+'/apps/english-playroom';
- const statsPath=(gradeKey,uid)=>collection('Stats')+'/'+gradeKey+'/players/'+encodeURIComponent(uid);
- const dailyRankingPath=gradeKey=>collection('Rankings')+'/'+gradeKey;
- async function getDocAt(baseUrl,token,path,message='対戦データを読み込めませんでした。'){
-  const response=await request(baseUrl+'/documents/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
+ async function getDoc(token,path,message){
+  const response=await request(base+'/documents/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
   if(response.status===404)return null;
   let data={};try{data=await response.json();}catch{}
   if(!response.ok)throw error(message,502);
   return {fields:data.fields||{},updateTime:data.updateTime||'',value:decodeFields(data.fields||{})};
  }
- async function userWallet(token,uid){return getDocAt(base,token,walletPath(uid),'ユーザー情報を読み込めませんでした。');}
- async function roomDoc(token,id){return roomStore?roomStore.read(id):getDocAt(battle.base,token,roomPath(id));}
- async function lobbyDoc(token,gradeKey){return getDocAt(battle.base,token,lobbyPath(gradeKey),'ロビー情報を読み込めませんでした。');}
- async function standingDoc(token,gradeKey,uid){return getDocAt(battle.base,token,statsPath(gradeKey,uid),'対戦成績を読み込めませんでした。');}
- async function dailyRankingDoc(token,gradeKey){return getDocAt(battle.base,token,dailyRankingPath(gradeKey),'ランキングを読み込めませんでした。');}
- async function commitAt(baseUrl,token,writes,message='対戦状態が更新されました。もう一度お試しください。'){
+ async function userWallet(token,uid){return getDoc(token,walletPath(uid),'ユーザー情報を読み込めませんでした。');}
+ async function commitSettlement(token,writes){
   if(!writes.length)return {};
-  const response=await request(baseUrl+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
+  const response=await request(base+'/documents:commit',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({writes})});
   let data={};try{data=await response.json();}catch{}
-  if(!response.ok){const e=error(message,response.status===409||response.status===412?409:502);e.retryable=response.status===409||response.status===412||data.error?.status==='ABORTED';throw e;}
+  if(!response.ok){const e=error('対戦報酬・称号・アイテムの精算を保存できませんでした。',response.status===409||response.status===412?409:502);e.retryable=response.status===409||response.status===412||data.error?.status==='ABORTED';throw e;}
   return data;
  }
- function roomWrite(id,room,snapshot){
-  const path=roomPath(id),body={name:baseName(battle.projectId,path),fields:encodeFields(room)};
-  return {update:body,updateMask:{fieldPaths:Object.keys(room)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
+ function ledgerPath(id){
+  return (preview?'onlineBattlePreviewSettlements/':'onlineBattleSettlements/')+encodeURIComponent(id);
  }
- function lobbyWrite(id,room){
-  const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1},key='room'+rules.roomNo,path=lobbyPath(rules.gradeKey),state=lobbyState(room,id);
-  return {update:{name:baseName(battle.projectId,path),fields:{[key]:encode(state),gradeKey:encode(rules.gradeKey),grade:encode(rules.grade),updatedAt:encode(Math.max(0,Math.floor(number(room.updatedAt,Date.now()))))}},updateMask:{fieldPaths:[key,'gradeKey','grade','updatedAt']}};
- }
- function standingWrite(gradeKey,uid,standing,snapshot){
-  return {update:{name:baseName(battle.projectId,statsPath(gradeKey,uid)),fields:encodeFields(standing)},updateMask:{fieldPaths:Object.keys(standing)},currentDocument:snapshot?.updateTime?{updateTime:snapshot.updateTime}:{exists:false}};
- }
- function ledgerPath(id){return collection('Settlements')+'/'+encodeURIComponent(id);}
- // Reuse the existing per-match ledger. Titles and coins are committed atomically
- // to Firebase #1; no title document or per-attack write.
- // Historical grade totals require a one-time Firebase #2 import per player.
+ // Store the ranking projection in the existing settlement receipt so a retry
+ // after a successful Firestore commit can resume without applying rewards twice.
  function settlementWrites(settlement,wallets=new Map()){
-  const awards={},writes=[],titleStats=new Map();
+  const awards={},writes=[],titleStats=new Map(),standings=[],standingDays=new Map();
   for(const entry of settlement.entries){
    if(!entry.played)continue;
    if(!ONLINE_BATTLE_GRADES.includes(entry.gradeKey))throw error('対戦の級が正しくありません。',400);
@@ -295,14 +225,21 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    if(!wallet?.updateTime)throw error('称号の保存先が見つかりません。',503);
    const oldStats=field(wallet.value?.onlineBattleTitleStats);
    const newStats=nextOnlineBattleTitleStats(oldStats,entry.gradeKey,Boolean(entry.won));
-   const oldIds=wallet._titleMigrated?new Set():new Set(creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats})).filter(t=>t.unlocked).map(t=>t.id));
+   const oldIds=new Set(creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:oldStats})).filter(t=>t.unlocked).map(t=>t.id));
    awards[entry.uid]=creativeTitles(ONLINE_TITLE_APP,onlineBattleTitleProgress({onlineBattleTitleStats:newStats}))
     .filter(t=>t.unlocked&&!oldIds.has(t.id))
     .map(t=>({id:t.id,label:t.label,name:t.name,condition:t.condition}));
    titleStats.set(entry.uid,newStats);
+   const days=field(wallet.value?.onlineBattleStandingDays);
+   const prior=field(oldStats.byGrade?.[entry.gradeKey]);
+   const player=settlement.rankingPlayers?.find(player=>player.uid===entry.uid)||profile(wallet.value,entry.uid);
+   const standing=nextOnlineBattleStanding({...prior,...field(days[entry.gradeKey])},player,Boolean(entry.won),settlement.endedAt||settlement.createdAt);
+   const {lastGameDay,todayGames,todayWins}=standing;
+   standingDays.set(entry.uid,{...days,[entry.gradeKey]:{lastGameDay,todayGames,todayWins}});
+   standings.push({gradeKey:entry.gradeKey,standing});
   }
   writes.push({update:{name:baseName(projectId,ledgerPath(settlement.id)),fields:encodeFields({
-   id:settlement.id,roomId:settlement.roomId,createdAt:settlement.createdAt,titleAwards:awards
+   id:settlement.id,roomId:settlement.roomId,createdAt:settlement.createdAt,titleAwards:awards,standings
   })},currentDocument:{exists:false}});
   for(const entry of settlement.entries){
    const transforms=[];
@@ -316,8 +253,8 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     if((awards[entry.uid]||[]).length)transforms.push({fieldPath:'titleCountRevision',increment:encode(1)});
     const wallet=wallets.get(entry.uid);
     writes.push({
-     update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid))}},
-     updateMask:{fieldPaths:['onlineBattleTitleStats']},
+     update:{name:baseName(projectId,walletPath(entry.uid)),fields:{onlineBattleTitleStats:encode(titleStats.get(entry.uid)),onlineBattleStandingDays:encode(standingDays.get(entry.uid))}},
+     updateMask:{fieldPaths:['onlineBattleTitleStats','onlineBattleStandingDays']},
      ...(transforms.length?{updateTransforms:transforms}:{}),
      currentDocument:{updateTime:wallet.updateTime}
     });
@@ -325,159 +262,107 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     writes.push({transform:{document:baseName(projectId,walletPath(entry.uid)),fieldTransforms:transforms},currentDocument:{exists:true}});
    }
   }
-  return {writes,awards};
+  return {writes,awards,standings};
  }
- async function baselineOnlineTitleStats(roomToken,entry){
-  const otherGrades=ONLINE_BATTLE_GRADES.filter(grade=>grade!==entry.gradeKey);
-  const others=await Promise.all(otherGrades.map(grade=>standingDoc(roomToken,grade,entry.uid)));
-  // This grade's PRE-match totals are stored with the pending receipt.
-  const records=Object.fromEntries(otherGrades.map((grade,i)=>[grade,field(others[i]?.value)]));
-  records[entry.gradeKey]=field(entry.priorGrade);
-  const byGrade=Object.fromEntries(ONLINE_BATTLE_GRADES.map(grade=>[grade,{
-   games:Math.max(0,Math.floor(number(records[grade]?.games))),
-   wins:Math.max(0,Math.floor(number(records[grade]?.wins)))
-  }]));
-  return {games:Object.values(byGrade).reduce((sum,item)=>sum+item.games,0),
-   wins:Object.values(byGrade).reduce((sum,item)=>sum+item.wins,0),
-   streak:0,maxStreak:0,byGrade};
- }
- async function applySettlement(roomToken,walletToken,settlement){
+ async function applySettlement(walletToken,settlement){
   for(let attempt=0;attempt<4;attempt++){
    const players=settlement.entries.filter(entry=>entry.played);
    const snapshots=await Promise.all(players.map(entry=>userWallet(walletToken,entry.uid)));
    const wallets=new Map(players.map((entry,i)=>[entry.uid,snapshots[i]]));
-   // Migrates old per-grade totals once. Subsequent matches read no extra Firebase #2 docs.
-   await Promise.all(players.filter(entry=>wallets.get(entry.uid)?.value?.onlineBattleTitleStats===undefined)
-    .map(async entry=>{
-     const snapshot=wallets.get(entry.uid);
-     const initial=await baselineOnlineTitleStats(roomToken,entry);
-     wallets.set(entry.uid,{...snapshot,_titleMigrated:true,value:{...snapshot.value,onlineBattleTitleStats:initial}});
-    }));
-   const {writes,awards}=settlementWrites(settlement,wallets);
+   const {writes,awards,standings}=settlementWrites(settlement,wallets);
    try{
-    await commitAt(base,walletToken,writes,'対戦報酬・称号・アイテムの精算を保存できませんでした。');
-    return awards;
+    await commitSettlement(walletToken,writes);
+    return {awards,standings};
    }catch(e){
-    const saved=await getDocAt(base,walletToken,ledgerPath(settlement.id),'精算記録を確認できませんでした。');
-    if(saved?.value?.id===settlement.id)return field(saved.value.titleAwards);
+    const saved=await getDoc(walletToken,ledgerPath(settlement.id),'精算記録を確認できませんでした。');
+    if(saved?.value?.id===settlement.id){
+     return {awards:field(saved.value.titleAwards),standings:saved.value.standings||[]};
+    }
     if(e.retryable&&attempt<3)continue;
     throw e;
    }
   }
   throw error('対戦報酬の保存が競合しました。',503);
  }
- // The standings receipt and standings are saved in a single Firestore commit.
- async function recordRealtimeStandings(token,pending){
-  const played=pending.entries.filter(entry=>entry.played);
-  if(!played.length)return pending;
-  const path=collection('StandingReceipts')+'/'+pending.id;
-  for(let attempt=0;attempt<4;attempt++){
-   const receipt=await getDocAt(battle.base,token,path);
-   if(receipt)return {...pending,entries:receipt.value.entries};
-   const snapshots=await Promise.all(played.map(entry=>standingDoc(token,entry.gradeKey,entry.uid)));
-   const entries=pending.entries.map(entry=>{
-    const index=played.indexOf(entry);
-    if(index<0)return entry;
-    const prior=field(snapshots[index]?.value);
-    return {...entry,priorGrade:{games:Math.max(0,Math.floor(number(prior.games))),wins:Math.max(0,Math.floor(number(prior.wins)))}};
-   });
-   const writes=played.map((entry,index)=>{
-    const player=pending.rankingPlayers.find(player=>player.uid===entry.uid);
-    return standingWrite(entry.gradeKey,entry.uid,nextOnlineBattleStanding(snapshots[index]?.value||{},player,entry.won,pending.endedAt),snapshots[index]);
-   });
-   writes.push({update:{name:baseName(battle.projectId,path),fields:encodeFields({entries})},currentDocument:{exists:false}});
-   try{await commitAt(battle.base,token,writes);return {...pending,entries};}
-   catch(e){if(!e.retryable)throw e;}
-  }
-  throw error('対戦成績の更新が競合しました。',409);
- }
- async function saveRoom(id,roomToken,room,stored,writes){
-  if(roomStore){await roomStore.write(id,room,stored?.updateTime);return {};}
-  return commitAt(battle.base,roomToken,writes);
- }
- function resolveRealtimeSettlement(id,roomToken,walletToken,pending){
+ function resolveRealtimeSettlement(id,pending){
   const existing=realtimeSettlements.get(id);
-  if(existing?.matchId===pending.id)return existing.result;
-  // One entry per room lets concurrent requests and a failed room update
-  // reuse a completed settlement. Firestore receipts still protect restarts.
-  const entry={matchId:pending.id,result:null};
-  entry.result=recordRealtimeStandings(roomToken,pending)
-   .then(settlement=>applySettlement(roomToken,walletToken,settlement))
-   .catch(error=>{
-    if(realtimeSettlements.get(id)===entry)realtimeSettlements.delete(id);
-    throw error;
-   });
+  const entry=existing?.matchId===pending.id?existing:{matchId:pending.id,settlement:null,result:null};
+  if(entry.result)return entry.result;
   realtimeSettlements.set(id,entry);
+  entry.result=(async()=>{
+   entry.settlement??=await applySettlement(await accessToken(),pending);
+   const {awards,standings}=entry.settlement;
+   await Promise.all(standings.map(({gradeKey,standing})=>roomStore.saveStanding(gradeKey,standing)));
+   return awards;
+  })().catch(error=>{
+   entry.result=null;
+   throw error;
+  });
   return entry.result;
  }
- async function settlePending(id,roomToken,walletToken,stored){
-  const pending=stored?.value?.pendingSettlement;
-  if(!pending)return false;
-  const awards=await (roomStore?resolveRealtimeSettlement(id,roomToken,walletToken,pending):applySettlement(roomToken,walletToken,pending));
+ async function settlePending(id,stored){
+  const pending=stored.value.pendingSettlement;
+  const awards=await resolveRealtimeSettlement(id,pending);
   const room=safeRoom(stored.value,id);
   room.pendingSettlement=null;
   room.titleAwards=awards;
   room.lastSettledMatchId=pending.id;
-  try{await saveRoom(id,roomToken,room,stored,[roomWrite(id,room,stored)]);}
+  try{await roomStore.write(id,room,stored.updateTime);}
   catch(e){if(!e.retryable)throw e;}
-  return true;
  }
- function inventoryWrite(uid,wallet,inventory){
-  const path=walletPath(uid);
-  return {update:{name:baseName(projectId,path),fields:{petDungeonItems:encode(inventory)}},updateMask:{fieldPaths:['petDungeonItems']},currentDocument:wallet?.updateTime?{updateTime:wallet.updateTime}:{exists:false},updateTransforms:[{fieldPath:'petUpdatedAt',setToServerValue:'REQUEST_TIME'}]};
- }
- async function snapshot(id,roomToken,viewerUid){
+ async function snapshot(id,viewerUid){
   for(let attempt=0;attempt<6;attempt++){
-   const doc=await roomDoc(roomToken,id);
-   if(doc?.value?.pendingSettlement){await settlePending(id,roomToken,await accessToken(),doc);continue;}
+   const doc=await roomStore.read(id);
+   if(doc?.value?.pendingSettlement){await settlePending(id,doc);continue;}
    const cleaned=cleanupOnlineBattleRoom(doc?.value||emptyRoom(id),id,now());
    if(!cleaned.changed)return publicRoom(cleaned.room,id,viewerUid);
-   try{await saveRoom(id,roomToken,cleaned.room,doc,[roomWrite(id,cleaned.room,doc),lobbyWrite(id,cleaned.room)]);continue;}
+   try{await roomStore.write(id,cleaned.room,doc.updateTime);continue;}
    catch(e){if(e.retryable&&attempt<2)continue;throw e;}
   }
   throw error('対戦ルームを更新できませんでした。',409);
  }
- async function lobbySummary(roomToken,gradeKey){
+ async function lobbySummary(gradeKey){
   const config=GRADE_BY_KEY[gradeKey];if(!config)throw error('級が見つかりません。',404);
-  const doc=roomStore?null:await lobbyDoc(roomToken,gradeKey);
-  const value=roomStore?await roomStore.lobby(gradeKey,lobbyState):doc?.value||{};
+  const value=await roomStore.lobby(gradeKey,lobbyState);
   const current=now();
   const rooms=Array.from({length:10},(_,index)=>projectOnlineBattleLobbyRoom(value['room'+(index+1)],`${gradeKey}-${index+1}`,current));
   return {gradeKey,grade:config.grade,rooms,updatedAt:Math.max(0,Math.floor(number(value.updatedAt,0)))};
  }
- async function act(id,uid,roomToken,walletToken,operation,body){
+ async function act(id,uid,operation,body){
+  let joiningWallet;
   for(let attempt=0;attempt<6;attempt++){
-   const stored=await roomDoc(roomToken,id);
-   if(stored?.value?.pendingSettlement){await settlePending(id,roomToken,walletToken,stored);continue;}
+   const stored=await roomStore.read(id);
+   if(stored?.value?.pendingSettlement){await settlePending(id,stored);continue;}
    const cleaned=cleanupOnlineBattleRoom(stored?.value||emptyRoom(id),id,now());
    if(cleaned.changed){
-    try{await saveRoom(id,roomToken,cleaned.room,stored,[roomWrite(id,cleaned.room,stored),lobbyWrite(id,cleaned.room)]);continue;}
+    try{await roomStore.write(id,cleaned.room,stored.updateTime);continue;}
     catch(e){if(e.retryable&&attempt<3)continue;throw e;}
    }
-   const room=cleaned.room,beforeLobby=lobbyState(room,id),previousStatus=room.status,players=room.players.slice(),previousPlayers=room.players.slice(),index=players.findIndex(p=>p.uid===uid),roomWrites=[];
-   if(roomStore&&index>=0&&MATCH_OPERATIONS.has(operation)&&(!room.matchId||body?.matchId!==room.matchId)){
+   const room=cleaned.room,previousStatus=room.status,players=room.players.slice(),previousPlayers=room.players.slice(),index=players.findIndex(p=>p.uid===uid);
+   if(index>=0&&MATCH_OPERATIONS.has(operation)&&(!room.matchId||body?.matchId!==room.matchId)){
     throw error('対戦が切り替わりました。最新の状態を確認してください。',409);
    }
    if(operation==='join'){
     if(index>=0)return {room:publicRoom(room,id,uid)};
     if(room.status==='playing'||room.status==='finished'||players.length>=2)throw error('このルームは満室です。',409);
-    const wallet=await userWallet(walletToken,uid),data=wallet?.value||{};
-     if(preview&&!wallet)throw error('検証用の対戦プロフィールが用意されていません。',403);
+    joiningWallet??=userWallet(await accessToken(),uid);
+    const wallet=await joiningWallet,data=wallet?.value||{};
+    if(preview&&!wallet)throw error('検証用の対戦プロフィールが用意されていません。',403);
     const player=profile(data,uid),at=now();player.hp=player.stats.hp;player.mp=player.stats.mp;player.joinedAt=at;players.push(player);
-    room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;roomWrites.push(roomWrite(id,room,stored));
+    room.players=players;room.status='waiting';room.matchEndedAt=0;room.updatedAt=at;room.seq++;
    }else if(operation==='leave'){
     if(index<0)return {room:publicRoom(room,id,uid)};
     if(room.status==='playing'){
      const opponent=players.find(p=>p.uid!==uid),at=now();
      if(opponent){
       room.players=[{...opponent,ready:false,rematchReady:false}];room.status='finished';room.winnerUid=opponent.uid;room.lastEvent={type:'forfeit',from:uid,to:opponent.uid,at};room.matchEndedAt=at;room.seq++;room.updatedAt=at;
-      roomWrites.push(roomWrite(id,room,stored));
+
      }else{
-      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=at;roomWrites.push(roomWrite(id,room,stored));
+      room.players=[];room.status='open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=at;
      }
     }else{
      room.players=players.filter(p=>p.uid!==uid).map(p=>({...p,ready:false,rematchReady:false}));
-     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
+     room.status=room.players.length?'waiting':'open';room.winnerUid='';room.lastEvent=null;room.matchEndedAt=0;room.seq++;room.updatedAt=now();
     }
    }else{
     if(index<0)throw error('先にルームへ入室してください。',403);
@@ -491,7 +376,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     }else if(operation==='miss'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],at=now();
-     if((roomStore?attacker.lastActionAt>0:at-number(attacker.lastActionAt)>0)&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
+     if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから解答してください。',429);
      attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-1);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'miss',from:uid,damage:1,at};
      if(attacker.hp<=0){room.status='finished';room.winnerUid=index===0?players[1].uid:players[0].uid;room.matchEndedAt=at;}
     }else if(operation==='magic'){
@@ -501,7 +386,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(!spell)throw error('使用する魔法を選んでください。',400);
      const attacker=players[index],level=attacker.level,at=now();
      if(level<spell.level)throw error('この魔法はまだ習得していません。',400);
-     if((roomStore?attacker.lastActionAt>0:at-number(attacker.lastActionAt)>0)&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
+     if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
      if(Math.floor(number(attacker.mp))<spell.mpCost)throw error('MPが足りません。',400);
      if(spell.kind==='heal'&&attacker.hp>=attacker.stats.hp)throw error('HPは満タンです。',400);
      attacker.mp=Math.max(0,Math.floor(number(attacker.mp))-spell.mpCost);attacker.lastActionAt=at;room.seq++;
@@ -520,7 +405,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      const item=DUNGEON_ITEMS.find(entry=>entry.id===String(body?.itemId||''));
      if(!item)throw error('使用するアイテムを選んでください。',400);
      const attacker=players[index],at=now();
-     if((roomStore?attacker.lastActionAt>0:at-number(attacker.lastActionAt)>0)&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってからアイテムを使ってください。',429);
+     if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってからアイテムを使ってください。',429);
      if(item.kind==='hp'&&attacker.hp>=attacker.stats.hp)throw error('HPは満タンです。',400);
      if(item.kind==='mp'&&attacker.mp>=attacker.stats.mp)throw error('MPは満タンです。',400);
      const inventory=normalizeInventory(attacker.battleInventory);
@@ -533,7 +418,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     }else if(operation==='attack'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
      const attacker=players[index],targetIndex=index===0?1:0,defender=players[targetIndex],at=now();
-     if((roomStore?attacker.lastActionAt>0:at-number(attacker.lastActionAt)>0)&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
+     if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから攻撃してください。',429);
      const damage=Math.max(1,Math.floor(number(attacker.stats?.attack,1)+2-number(defender.stats?.defense,1)));
      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);attacker.lastActionAt=at;room.seq++;room.lastEvent={type:'attack',from:uid,to:defender.uid,damage,at};
      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
@@ -545,7 +430,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
-    room.seq++;room.updatedAt=now();roomWrites.push(roomWrite(id,room,stored));
+    room.seq++;room.updatedAt=now();
    }
    if(previousStatus==='playing'&&room.status==='finished'){
     room.pendingSettlement=createPendingSettlement(room,previousPlayers,room.winnerUid);
@@ -553,105 +438,52 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
     room.players=room.players.map(player=>({...player,spentItems:{}}));
     const winner=room.players.find(player=>player.uid===room.winnerUid);
     if(winner)winner.coinsAtJoin=Math.max(0,Math.floor(number(winner.coinsAtJoin)))+1;
-    const roomWriteIndex=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
-    if(roomWriteIndex>=0)roomWrites[roomWriteIndex]=roomWrite(id,room,stored);
-   }
-   if(roomStore&&room.pendingSettlement&&room.winnerUid&&previousPlayers.length===2){
+    if(room.pendingSettlement&&previousPlayers.length===2){
      room.pendingSettlement.rankingPlayers=previousPlayers.map(({uid,nickname,petName})=>({uid,nickname,petName}));
      room.pendingSettlement.endedAt=room.matchEndedAt||now();
     }
-    if(!roomStore&&previousStatus==='playing'&&room.status==='finished'&&room.winnerUid&&previousPlayers.length===2){
-    const gradeKey=ROOM_RULES[id].gradeKey,endedAt=room.matchEndedAt||now();
-    const existing=await Promise.all(previousPlayers.map(player=>standingDoc(roomToken,gradeKey,player.uid)));
-    previousPlayers.forEach((player,i)=>{
-     const prior=field(existing[i]?.value);
-     const entry=room.pendingSettlement?.entries?.find(item=>item.uid===player.uid);
-     if(entry)entry.priorGrade={
-      games:Math.max(0,Math.floor(number(prior.games))),
-      wins:Math.max(0,Math.floor(number(prior.wins)))
-     };
-     const result=nextOnlineBattleStanding(prior,player,player.uid===room.winnerUid,endedAt);
-     roomWrites.push(standingWrite(gradeKey,player.uid,result,existing[i]));
-    });
-    // Save pre-match grade stats in the SAME room write, no additional write.
-    const index=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
-    if(index>=0)roomWrites[index]=roomWrite(id,room,stored);
    }
-   if(roomWrites.length&&lobbyStateChanged(beforeLobby,lobbyState(room,id)))roomWrites.push(lobbyWrite(id,room));
-   let roomCommitted=false;
-   try{
-    const result=await saveRoom(id,roomToken,room,stored,roomWrites);
-    roomCommitted=true;
-    if(room.pendingSettlement){
-     const roomIndex=roomWrites.findIndex(write=>write.update?.name===baseName(battle.projectId,roomPath(id)));
-     const saved={value:room,updateTime:result.writeResults?.[roomIndex]?.updateTime||stored?.updateTime||''};
-     try{
-      if(roomStore)return {room:await snapshot(id,roomToken,uid)};
-      await settlePending(id,roomToken,walletToken,saved);
-     }
-     catch(e){console.warn('Online battle settlement deferred for retry',String(e?.message||e));}
-    }
-    return {room:publicRoom(room,id,uid)};
-   }catch(e){
-    if(!roomCommitted&&e.retryable&&attempt<3)continue;
-    throw e;
+   try{await roomStore.write(id,room,stored.updateTime);}
+   catch(e){if(e.retryable&&attempt<3)continue;throw e;}
+   if(room.pendingSettlement){
+    try{return {room:await snapshot(id,uid)};}
+    catch(e){console.warn('Online battle settlement deferred for retry',String(e?.message||e));}
    }
+   return {room:publicRoom(room,id,uid)};
   }
   throw error('対戦状態の更新が競合しました。もう一度お試しください。',409);
  }
 
- async function rankCandidates(token,gradeKey,todayDay){
-  let limit=12;
-  while(limit<=4096){
-   const response=await request(battle.base+'/documents/'+collection('Stats')+'/'+gradeKey+':runQuery',{
-    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-    signal:AbortSignal.timeout(20000),
-    body:JSON.stringify({structuredQuery:{from:[{collectionId:'players'}],orderBy:[{field:{fieldPath:'wins'},direction:'DESCENDING'}],limit}})
-   });
-   let raw=[];try{raw=await response.json();}catch{}
-   if(!response.ok||!Array.isArray(raw))throw error('ランキングの集計に失敗しました。',502);
-   const records=raw.filter(row=>row.document?.fields).map(row=>decodeFields(row.document.fields));
-   if(records.length<limit||onlineBattleRankingScanComplete(records,todayDay,10))return projectOnlineBattleLeaderboard(records,todayDay,10);
-   limit*=2;
-  }
-  throw error('ランキング候補が多すぎるため、集計を安全に完了できませんでした。',503);
- }
  async function publishRankings(){
-  const token=await battle.accessToken(),todayDay=japanBattleDay(now()),asOfDate=previousJapanBattleDay(now()),summary=[];
-  for(const gradeKey of ONLINE_BATTLE_GRADES){
-   const previous=await dailyRankingDoc(token,gradeKey);
-   if(previous?.value?.asOfDate===asOfDate){
-    summary.push({gradeKey,asOfDate,unchanged:true});
-    continue;
-   }
-   const leaders=await rankCandidates(token,gradeKey,todayDay);
-   const entry={schemaVersion:1,gradeKey,asOfDate,updatedAt:Math.floor(now()),leaders};
-   await commitAt(battle.base,token,[{
-    update:{name:baseName(battle.projectId,dailyRankingPath(gradeKey)),fields:encodeFields(entry)},
-    updateMask:{fieldPaths:Object.keys(entry)},
-    currentDocument:previous?.updateTime?{updateTime:previous.updateTime}:{exists:false}
-   }],'対戦ランキングを保存できませんでした。');
-   summary.push({gradeKey,asOfDate,entries:leaders.length});
-  }
+  const at=now(),todayDay=japanBattleDay(at),asOfDate=previousJapanBattleDay(at);
+  const summary=await Promise.all(ONLINE_BATTLE_GRADES.map(async gradeKey=>{
+   const previous=await roomStore.readRanking(gradeKey);
+   if(previous.value?.asOfDate>=asOfDate)return {gradeKey,asOfDate,unchanged:true};
+   const records=await roomStore.listStandings(gradeKey);
+   const leaders=projectOnlineBattleLeaderboard(records,todayDay,10);
+   const entry={schemaVersion:1,gradeKey,asOfDate,updatedAt:at,leaders};
+   const published=await roomStore.writeRanking(gradeKey,entry,previous.updateTime);
+   return published?{gradeKey,asOfDate,entries:leaders.length}:{gradeKey,asOfDate,unchanged:true};
+  }));
   return {asOfDate,summary};
  }
  async function handle(req,res,path){
   try{
-   const user=await verifyUser(req),roomToken=await battle.accessToken();
+   const user=await verifyUser(req);
    if(req.method==='GET'&&path==='/api/online-battle/rooms')return send(res,200,{rooms:[]});
    const rankingMatch=path.match(/^\/api\/online-battle\/rankings\/(4|3|pre2|2)$/);
    if(req.method==='GET'&&rankingMatch){
-    const gradeKey=rankingMatch[1],snapshot=await dailyRankingDoc(roomToken,gradeKey);
+    const gradeKey=rankingMatch[1],snapshot=await roomStore.readRanking(gradeKey);
     const data=snapshot?.value||{};
     return send(res,200,{gradeKey,grade:GRADE_BY_KEY[gradeKey].grade,asOfDate:data.asOfDate||'',leaders:Array.isArray(data.leaders)?data.leaders:[]});
    }
    const lobbyMatch=path.match(/^\/api\/online-battle\/lobby\/(4|3|pre2|2)$/);
-   if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(roomToken,lobbyMatch[1])});
+   if(req.method==='GET'&&lobbyMatch)return send(res,200,{lobby:await lobbySummary(lobbyMatch[1])});
    const match=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))(?:\/(join|ready|attack|magic|item|miss|continue|leave))?$/);
-   const live=roomStore&&path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))\/live$/);
+   const live=path.match(/^\/api\/online-battle\/room\/((?:4|3|pre2|2)-(?:10|[1-9]))\/live$/);
    if(req.method==='GET'&&live){
     const id=live[1];
-    const initial=await snapshot(id,roomToken,user.uid);
+    const initial=await snapshot(id,user.uid);
     if(!initial.players.some(player=>player.uid===user.uid))throw error('先にルームへ入室してください。',403);
     return await roomStore.stream(id,res,async value=>{
      const room=publicRoom(value||emptyRoom(id),id,user.uid);
@@ -661,25 +493,14 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
    }
    if(!match)throw error('対戦ルームが見つかりません。',404);
    const id=match[1],operation=match[2];
-   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,roomToken,user.uid)});
+   if(req.method==='GET'&&!operation)return send(res,200,{room:await snapshot(id,user.uid)});
    if(req.method!=='POST'||!operation)throw error('この操作は利用できません。',405);
-   const walletToken=await accessToken(),body=await readJson(req,1024),result=await act(id,user.uid,roomToken,walletToken,operation,body);
+   const body=await readJson(req,1024),result=await act(id,user.uid,operation,body);
    send(res,200,{ok:true,...result});
    }catch(e){
     if(res.headersSent){res.end();return;}
     send(res,e.status||500,{error:e.message||'オンライン対戦でエラーが発生しました。'});
    }
  }
- async function countActiveLegacyRooms(){
-  if(roomStore)throw new Error('Legacy room inspection requires Firestore');
-  const token=await battle.accessToken();
-  const at=now();
-  const docs=await Promise.all(ROOM_IDS.map(id=>roomDoc(token,id)));
-  return docs.filter((doc,index)=>{
-   if(!doc?.value)return false;
-   const {room}=cleanupOnlineBattleRoom(doc.value,ROOM_IDS[index],at);
-   return doc.value.pendingSettlement||room.pendingSettlement||room.players.length;
-  }).length;
- }
- return {handle,publishRankings,countActiveLegacyRooms,ROOM_IDS,battleDatabaseSeparated:battle.separated,battleProjectId:battle.projectId};
+ return {handle,publishRankings};
 }
