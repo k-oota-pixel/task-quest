@@ -21,3 +21,16 @@ jobs:
             sleep 12
           done
           exit 1
+      - name: Probe deployed login without real credentials
+        run: |
+          for attempt in $(seq 1 3); do
+            code=$(curl --silent --show-error --max-time 20 --output /tmp/weekly-check-login.json --write-out '%{http_code}' \
+              -H 'Content-Type: application/json' -H 'Origin: https://k-oota-pixel.github.io' \
+              --data '{"loginId":"zz_read_rollout_probe_1112","password":"invalid-password-probe"}' \
+              https://task-quest.onrender.com/api/account/login)
+            printf 'Login probe HTTP %s\n' "$code"
+            if [[ "$code" == 401 ]]; then exit 0; fi
+            sleep 8
+          done
+          jq -r '.error // "no API error message"' /tmp/weekly-check-login.json
+          exit 1
