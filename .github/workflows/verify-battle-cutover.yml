@@ -1,4 +1,4 @@
-name: Verify production battle cutover
+name: Verify production title-count update
 on:
   pull_request:
     paths:
@@ -10,14 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Check Render production transport and RTDB connectivity
+      - name: Check the deployed title API version
         shell: bash
         run: |
-          url=https://task-quest.onrender.com/api/online-battle/transport
+          url=https://task-quest.onrender.com/api/status
           for attempt in $(seq 1 22); do
             result=$(curl --silent --show-error --fail --max-time 12 "$url" || true)
-            printf 'Attempt %s response %s\n' "$attempt" "$result"
-            if jq -e '.realtime == true and .connection == "success" and .storage == "firebase-1-rtdb"' <<< "$result" >/dev/null 2>&1; then
+            printf 'Attempt %s title API version %s\n' "$attempt" "$(jq -r '.titleVersion' <<< "$result" 2>/dev/null || true)"
+            if jq -e '.titleVersion == "1.10.20"' <<< "$result" >/dev/null 2>&1; then
               exit 0
             fi
             sleep 12
