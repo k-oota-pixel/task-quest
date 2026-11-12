@@ -4,7 +4,7 @@ import {createAdminData} from './admin-data.mjs';
 function fixture(verifyDetailAdmin){
  let time=100000,summaries=0,queries=0,codeQueries=0,codeRequested=0,authReads=0,details=0,authorized=true;
  const stamp=i=>new Date(1700000000000+i*1000).toISOString();
- const records=Array.from({length:20},(_,i)=>({name:'projects/test/databases/(default)/documents/learning_activity/u'+i,fields:{uid:'u'+i,lastLearningAt:stamp(i)}})).reverse();
+ const records=Array.from({length:20},(_,i)=>({name:'projects/test/databases/(default)/documents/learning_activity/u'+i,fields:{uid:'u'+i,lastLearningAt:stamp(i),lastLearningAppId:'listening-training'}})).reverse();
  const api=createAdminData({base:'https://firestore.test/db',projectId:'test',accessToken:async()=> 'access',verifyAdmin:async()=>{if(!authorized)throw Object.assign(Error('forbidden'),{status:403});},verifyDetailAdmin,send:(res,status,body)=>Object.assign(res,{status,body}),fail:(m,status)=>Object.assign(Error(m),{status}),decodeFields:x=>x,normalizeNickname:x=>String(x||''),validNickname:x=>!!x,now:()=>time,fetch:async(url,opt)=>{
   const u=new URL(url);
   if(u.hostname==='identitytoolkit.googleapis.com'){authReads++;return {ok:true,json:async()=>({users:Array.from({length:22},(_,i)=>({localId:'u'+i,email:'private',lastLoginAt:String(3000-i),createdAt:String(1000-i)}))})};}
@@ -19,7 +19,7 @@ function fixture(verifyDetailAdmin){
    queries++;assert.equal(q.from[0].collectionId,'learning_activity');let rows=records;if(!q.select){assert.equal(q.limit,7);assert.equal(q.orderBy[0].field.fieldPath,'lastLearningAt');assert.equal(q.orderBy[0].direction,'DESCENDING');if(q.startAt)rows=rows.filter(r=>r.fields.lastLearningAt<q.startAt.values[0].timestampValue);rows=rows.slice(0,q.limit);}return {ok:true,json:async()=>rows.map(document=>({document}))};
   }
   if(u.pathname.endsWith('documents:batchGet')){details++;const names=JSON.parse(opt.body).documents;assert.equal(names.length,9);return {ok:true,json:async()=>names.map(name=>({found:{name,fields:name.includes('/learning_activity/')?{contents:{'listening-training':{lastLearningAt:stamp(1)}}}:{coins:7,submissions:2}}}))};}
-  if(u.pathname.includes('/learning_activity/'))return {ok:true,json:async()=>({fields:{lastLearningAt:stamp(Number(u.pathname.split('/').at(-1).slice(1)))}})};
+  if(u.pathname.includes('/learning_activity/'))return {ok:true,json:async()=>({fields:{lastLearningAt:stamp(Number(u.pathname.split('/').at(-1).slice(1))),lastLearningAppId:'listening-training'}})};
   if(u.pathname.endsWith('/nickname_registry'))return {ok:true,json:async()=>({documents:[{fields:{uid:'u0',nickname:'Test u0'}}]})};
   summaries++;assert.deepEqual(u.searchParams.getAll('mask.fieldPaths'),['nickname','petName','coins']);return {ok:true,json:async()=>({fields:{nickname:'Test '+u.pathname.split('/')[4],petName:'Pet',coins:7}})};
  }});
@@ -29,7 +29,7 @@ test('global learning order wins over authentication time; paging only reads ide
  const f=fixture(),results=await Promise.all(Array.from({length:20},()=>f.call('/api/admin/users?limit=6')));
  assert.ok(results.every(r=>r.status===200&&r.body.users.length===6));assert.deepEqual(results[0].body.users.map(u=>u.uid),Array.from({length:6},(_,i)=>'u'+(19-i)));
  assert.deepEqual(f.stats(),{summaries:6,queries:1,codeQueries:1,codeRequested:6,authReads:0,details:0});
- assert.ok(results[0].body.users.every(u=>u.petName==='Pet'&&u.coins===7&&u.lastLearningAt&&!('lastLoginAt'in u)&&!('email'in u)&&!('apps'in u)&&u.loginId==='id-'+u.uid&&u.codeName==='code-'+u.uid));
+ assert.ok(results[0].body.users.every(u=>u.lastLearningAppId==='listening-training'&&u.petName==='Pet'&&u.coins===7&&u.lastLearningAt&&!('lastLoginAt'in u)&&!('email'in u)&&!('apps'in u)&&u.loginId==='id-'+u.uid&&u.codeName==='code-'+u.uid));
  const second=await f.call('/api/admin/users?pageToken='+encodeURIComponent(results[0].body.nextPageToken));assert.deepEqual(second.body.users.map(u=>u.uid),Array.from({length:6},(_,i)=>'u'+(13-i)));
  const third=await f.call('/api/admin/users?pageToken='+encodeURIComponent(second.body.nextPageToken));assert.deepEqual(third.body.users.map(u=>u.uid),Array.from({length:6},(_,i)=>'u'+(7-i)));
  const fourth=await f.call('/api/admin/users?pageToken='+encodeURIComponent(third.body.nextPageToken));assert.deepEqual(fourth.body.users.map(u=>u.uid),['u1','u0','u20','u21']);assert.deepEqual(fourth.body.users.map(u=>u.lastLearningAt),[1700000001000,1700000000000,null,null]);assert.equal(fourth.body.nextPageToken,null);
@@ -49,7 +49,7 @@ test('details remain lazy and cached; coin updates preserve names and learning t
 test('admin search resolves UIDs without extra scans and pet names with a bounded exact-match query',async()=>{
  const f=fixture();
  const uid=await f.call('/api/admin/users?search=u19');
- assert.equal(uid.status,200);assert.deepEqual(uid.body.users.map(u=>u.uid),['u19']);
+ assert.equal(uid.status,200);assert.deepEqual(uid.body.users.map(u=>u.uid),['u19']);assert.equal(uid.body.users[0].lastLearningAppId,'listening-training');
  const before=f.stats().queries;
  const pet=await f.call('/api/admin/users?search=Fluffy');
  assert.equal(pet.status,200);assert.deepEqual(pet.body.users.map(u=>u.uid),['u3']);
@@ -64,7 +64,7 @@ test('compact recent-user list reads only learning activity, never six profiles 
  const first=await f.call('/api/admin/users?limit=6&compact=1');
  assert.equal(first.status,200);
  assert.deepEqual(first.body.users.map(row=>row.uid),['u19','u18','u17','u16','u15','u14']);
- assert.ok(first.body.users.every(row=>!('coins' in row)&&!('nickname' in row)&&!('petName' in row)&&!('codeName' in row)));
+ assert.ok(first.body.users.every(row=>row.lastLearningAppId==='listening-training'&&!('coins' in row)&&!('nickname' in row)&&!('petName' in row)&&!('codeName' in row)));
  assert.deepEqual(f.stats(),{summaries:0,queries:1,codeQueries:0,codeRequested:0,authReads:0,details:0});
  const next=await f.call('/api/admin/users?limit=6&compact=1&pageToken='+encodeURIComponent(first.body.nextPageToken));
  assert.equal(next.status,200);assert.equal(next.body.users.length,6);
