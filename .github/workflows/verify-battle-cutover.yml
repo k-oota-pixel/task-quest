@@ -1,4 +1,4 @@
-name: Verify production title collection
+name: Verify production ranking read changes
 on:
   pull_request:
     paths:
@@ -8,25 +8,22 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 9
     steps:
-      - name: Check the production server and pet strength module
+      - name: Check deployed server and homepage
         shell: bash
         run: |
           status_url=https://task-quest.onrender.com/api/status
           home_url=https://k-oota-pixel.github.io/english-playroom/
-          for attempt in $(seq 1 35); do
+          for attempt in $(seq 1 30); do
             status=$(curl --silent --show-error --fail --max-time 12 "$status_url" || true)
-            home=$(curl --silent --show-error --fail --max-time 10 "$home_url?title-collection-check=$attempt" || true)
+            home=$(curl --silent --show-error --fail --max-time 12 "$home_url?ranking-check=$attempt-$GITHUB_RUN_ID" || true)
             ready=false
             web=false
-            if jq -e '.titleVersion == "1.10.21" and .titleCollectionReady == true' <<< "$status" >/dev/null 2>&1; then ready=true; fi
-            if grep -q 'pet-strength.js?v=2.4.86' <<< "$home"; then web=true; fi
+            if jq -e '.weeklyTitleArchiveVersion == 1 and .coinRankingOptimizationVersion == 1' <<< "$status" >/dev/null 2>&1; then ready=true; fi
+            if grep -Fq 'id="heading-vocabulary-grammar">語彙文法学習</h2><span>6教材' <<< "$home" && ! grep -Fq 'href="./vocabulary/"' <<< "$home"; then web=true; fi
             printf 'Attempt %s server=%s frontend=%s\n' "$attempt" "$ready" "$web"
-            if [[ "$ready" == true && "$web" == true ]]; then
-              curl --silent --show-error --fail --max-time 10 "${home_url}title-ownership.js?v=1" | grep -q 'export function collectedTitleCount'
-              exit 0
-            fi
+            if [[ "$ready" == true && "$web" == true ]]; then exit 0; fi
             sleep 12
           done
           exit 1
