@@ -183,7 +183,7 @@ test('0コインでも入室でき、入室時にコインを消費しない',as
  }
 });
 
-async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',questionMode=false,questionId='',getQuestionAccuracy=null,spellId='mirogoturn'){
+async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',questionMode=false,questionId='',getQuestionAccuracy=null,spellId='mirogoturn',clock=1_000_000){
  const reads=[],commits=[],roomWrites=[];
  let stored={value:structuredClone(initialRoom),updateTime:'room-1'};
  const fetch=async (url,options={})=>{
@@ -213,7 +213,7 @@ async function simulateCoinlessBattle(operation,initialRoom,actor='test-user',qu
    write:async(_id,value)=>{stored={value:structuredClone(value),updateTime:'next'};roomWrites.push(stored.value);},
    saveStanding:async()=>{}
   },
-  now:()=>1_000_000
+  now:()=>clock
  });
  const response={};
  await service.handle({method:'POST'},response,'/api/online-battle/room/4-1/'+operation);
@@ -227,6 +227,8 @@ test('対戦開始は双方0コインでも可能で財布のread/writeがない
  const result=await simulateCoinlessBattle('ready',initial);
  assert.equal(result.response.status,200);
  assert.equal(result.response.body.room.status,'playing');
+ assert.deepEqual(result.response.body.room.players.map(p=>p.magicReadyAt),[1_010_000,1_010_000]);
+ assert.deepEqual(result.response.body.room.players.map(p=>p.magicCooldownMs),[10_000,10_000]);
  assert.equal(result.reads.filter(name=>name==='wallet').length,0);
  assert.ok(result.commits.flat().every(write=>!write.update.name.includes('/users/')));
 });
@@ -528,7 +530,30 @@ test('単語対戦のダメージに問題正答率ボーナスが混ざらな�
  assert.equal(word.response.body.room.lastEvent.bonusPercent,undefined);
 });
 
-test('ミロゴターンをLv20・MP8で唱えると1回だけの反射が無期限で残る',async()=>{
+test('開始後10秒・発動後MP秒は全魔法共通で再使用できず、read/writeを増やさない',async()=>{
+ const initial=room({roomId:'4-1',gradeKey:'4',status:'playing',matchId:'cooldown-match',
+  players:[{...player('test-user',999_000),level:35,hp:40,mp:40,stats:{hp:60,attack:5,defense:3,mp:40},magicReadyAt:1_010_000,magicCooldownMs:10_000},
+   {...player('opponent',999_000),level:35,mp:40}]});
+ const early=await simulateCoinlessBattle('magic',initial,'test-user',false,'',null,'mimuros');
+ assert.equal(early.response.status,429,'開始10秒間は唱えられない');
+ assert.equal(early.roomWrites.length,0);
+ const allowed=await simulateCoinlessBattle('magic',initial,'test-user',false,'',null,'mimuros',1_010_000);
+ assert.equal(allowed.response.status,200);
+ assert.equal(allowed.response.body.room.players[0].magicReadyAt,1_014_000,'MP4の魔法なら4秒待機');
+ const again=await simulateCoinlessBattle('magic',allowed.response.body.room,'test-user',false,'',null,'mirogoro',1_012_000);
+ assert.equal(again.response.status,429,'別の魔法でも共通クールタイムが適用される');
+ assert.equal(again.roomWrites.length,0);
+ const attack=await simulateCoinlessBattle('attack',allowed.response.body.room,'test-user',false,'',null,'mirogoturn',1_012_000);
+ assert.equal(attack.response.status,200,'通常攻撃は魔法クールタイム中も可能');
+ const after=await simulateCoinlessBattle('magic',allowed.response.body.room,'test-user',false,'',null,'mirogoro',1_014_000);
+ assert.equal(after.response.status,200);
+ assert.equal(after.response.body.room.players[0].magicReadyAt,1_020_000,'MP6の魔法なら6秒待機');
+ assert.equal(after.reads.length,0);
+ assert.equal(after.commits.length,0);
+ assert.equal(after.roomWrites.length,1);
+});
+
+test('ミロゴターンをLv20・MP5で唱えると1回だけの反射が無期限で残る',async()=>{
  const initial=room({roomId:'4-1',gradeKey:'4',status:'playing',matchId:'shield-cast',
   players:[{...player('test-user',999_000),level:20,mp:20,stats:{hp:60,attack:5,defense:3,mp:20}},
    {...player('opponent',999_000),level:35,mp:20,stats:{hp:60,attack:5,defense:3,mp:20}}]});
@@ -536,9 +561,11 @@ test('ミロゴターンをLv20・MP8で唱えると1回だけの反射が無期
  assert.equal(result.response.status,200);
  const saved=result.response.body.room;
  assert.equal(saved.players[0].magicReflect,true);
- assert.equal(saved.players[0].mp,12);
+ assert.equal(saved.players[0].mp,15);
+ assert.equal(saved.players[0].magicReadyAt,1_005_000);
+ assert.equal(saved.players[0].magicCooldownMs,5_000);
  assert.equal(saved.lastEvent.kind,'reflect');
- assert.equal(saved.lastEvent.mpCost,8);
+ assert.equal(saved.lastEvent.mpCost,5);
  assert.equal(saved.lastEvent.expiresAt,undefined,'時間制限なし');
  assert.equal(result.reads.length,0,'追加Firestore reads 0');
  assert.equal(result.commits.length,0,'追加Firestore writes 0');
@@ -547,8 +574,8 @@ test('ミロゴターンをLv20・MP8で唱えると1回だけの反射が無期
  assert.equal(duplicate.response.status,409,'反射の多重重ね掛けは禁止');
  const lowLevel=await simulateCoinlessBattle('magic',{...initial,players:[{...initial.players[0],level:19},initial.players[1]]});
  assert.equal(lowLevel.response.status,400,'Lv19は未習得');
- const lowMp=await simulateCoinlessBattle('magic',{...initial,players:[{...initial.players[0],mp:7},initial.players[1]]});
- assert.equal(lowMp.response.status,400,'MP7では唱えられない');
+ const lowMp=await simulateCoinlessBattle('magic',{...initial,players:[{...initial.players[0],mp:4},initial.players[1]]});
+ assert.equal(lowMp.response.status,400,'MP4では唱えられない');
 });
 
 test('ミロゴロを反射し、相手に被害ゼロ・発動者の盾だけ消費・追加Firebase readなし',async()=>{
@@ -563,7 +590,7 @@ test('ミロゴロを反射し、相手に被害ゼロ・発動者の盾だけ�
  assert.equal(battle.players[0].hp,60-battle.lastEvent.damage,'攻撃した本人に反射');
  assert.equal(battle.players[1].hp,60,'防御側はノーダメージ');
  assert.equal(battle.players[1].magicReflect,false,'盾は1回で消える');
- assert.equal(battle.players[0].mp,15,'攻撃魔法のMP5も消費される');
+ assert.equal(battle.players[0].mp,14,'攻撃魔法のMP6を消費する');
  assert.equal(result.reads.length,0);
  assert.equal(result.commits.length,0);
  assert.equal(result.roomWrites.length,1);
