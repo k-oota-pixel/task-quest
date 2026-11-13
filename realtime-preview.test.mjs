@@ -259,6 +259,8 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  assert.equal(started.room.status,'playing');
  matchId=started.room.matchId;
  assert.equal((await second.next()).status,'playing');
+ assert.equal(started.room.players[0].magicReadyAt,now+10_000);
+ now+=10_000; // Start-of-match spell lock does not affect normal attacks.
  const concurrent = await Promise.all([api('a','attack'),api('b','attack')]);
  assert.ok(concurrent.every(result=>result.status===200));
  assert.equal(new Set(concurrent.map(result=>result.room.seq)).size,2);
@@ -271,7 +273,7 @@ test(mode + ' storage: two players, contention, reconnect and exactly-once settl
  now+=1200;
  const heal = await api('b','magic',{spellId:'mimuros'});
  assert.equal(heal.room.players[1].hp,15);
- assert.equal(heal.room.players[1].mp,6);
+ assert.equal(heal.room.players[1].mp,7);
  assert.deepEqual(firestore.counts,beforeCombat);
  assert.equal(firestore.docs.get(wallet('a')).value.onlineBattleTitleStats.games,undefined);
  first.stop();second.stop();
