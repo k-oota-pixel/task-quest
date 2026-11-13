@@ -15,6 +15,7 @@ export const ONLINE_BATTLE_RESULT_TTL_MS=2*60*1000;
 const MAGIC_SPELLS=Object.freeze([
  {id:'mimuros',name:'ミムロス',level:5,kind:'heal',base:10,mpCost:5},
  {id:'mirogoro',name:'ミロゴロ',level:15,kind:'attack',base:15,mpCost:5},
+ {id:'mirogoturn',name:'ミロゴターン',level:20,kind:'reflect',base:0,mpCost:8},
  {id:'mimurose',name:'ミムローズ',level:25,kind:'heal',base:30,mpCost:10},
  {id:'mirogoron',name:'ミロゴロン',level:35,kind:'attack',base:30,mpCost:10}
 ]);
@@ -100,14 +101,14 @@ function profile(data,uid){
  const nickname=typeof data.nickname==='string'&&data.nickname.trim()?data.nickname.trim().slice(0,24):'なまえ未設定';
  const petName=typeof data.petName==='string'&&data.petName.trim()?data.petName.trim().slice(0,24):(data.petHatched?'ペット':'ふしぎなたまご');
  const stats=petStats(data);
- return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0,coinsAtJoin:Math.max(0,Math.floor(number(data.coins))),battleInventory:normalizeInventory(data.petDungeonItems),spentItems:{}};
+ return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0,coinsAtJoin:Math.max(0,Math.floor(number(data.coins))),battleInventory:normalizeInventory(data.petDungeonItems),spentItems:{},magicReflect:false};
 }
 function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchId:'',pendingSettlement:null,titleAwards:{},matchEndedAt:0,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2).map(player=>{
   const stats=field(player.stats),maxHp=Math.max(1,Math.floor(number(stats.hp,10))),maxMp=Math.max(0,Math.floor(number(stats.mp,6)));
-  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0))),coinsAtJoin:Math.max(0,Math.floor(number(player.coinsAtJoin))),battleInventory:normalizeInventory(player.battleInventory),spentItems:normalizeInventory(player.spentItems)};
+  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0))),coinsAtJoin:Math.max(0,Math.floor(number(player.coinsAtJoin))),battleInventory:normalizeInventory(player.battleInventory),spentItems:normalizeInventory(player.spentItems),magicReflect:player.magicReflect===true};
  }):[];
  room.seq=Math.max(0,Math.floor(number(room.seq)));
  room.matchEndedAt=Math.max(0,Math.floor(number(room.matchEndedAt,0)));
@@ -403,7 +404,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='waiting'||players.length!==2)throw error('相手が入室するまでお待ちください。',409);
      players[index]={...players[index],ready:true};room.players=players;
      if(players.every(p=>p.ready)){
-      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;if(questionMode)p.battleQuestionFirst={};});
+      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;p.magicReflect=false;if(questionMode)p.battleQuestionFirst={};});
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else if(operation==='miss'){
@@ -424,15 +425,27 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
      if(Math.floor(number(attacker.mp))<spell.mpCost)throw error('MPが足りません。',400);
      if(spell.kind==='heal'&&attacker.hp>=attacker.stats.hp)throw error('HPは満タンです。',400);
+     if(spell.kind==='reflect'&&attacker.magicReflect)throw error('すでにミロゴターンの反射効果が有効です。',409);
      attacker.mp=Math.max(0,Math.floor(number(attacker.mp))-spell.mpCost);attacker.lastActionAt=at;room.seq++;
      const rolled=rollMagicAmount(spell.base);
      if(spell.kind==='heal'){
       const before=attacker.hp;attacker.hp=Math.min(attacker.stats.hp,attacker.hp+rolled);const heal=attacker.hp-before;
       room.lastEvent={type:'magic',kind:'heal',from:uid,spellId:spell.id,name:spell.name,heal,mpCost:spell.mpCost,at};
+     }else if(spell.kind==='reflect'){
+      attacker.magicReflect=true; // One charge, no timeout, automatically ends with the match.
+      room.lastEvent={type:'magic',kind:'reflect',from:uid,spellId:spell.id,name:spell.name,mpCost:spell.mpCost,at};
      }else{
       const targetIndex=index===0?1:0,defender=players[targetIndex],damage=Math.max(0,rolled);
-      defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);room.lastEvent={type:'magic',kind:'attack',from:uid,to:defender.uid,spellId:spell.id,name:spell.name,damage,mpCost:spell.mpCost,at};
-      if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
+      if(defender.magicReflect){
+       defender.magicReflect=false; // Consume the charge; reflected spells never bounce again.
+       attacker.hp=Math.max(0,Math.floor(number(attacker.hp))-damage);
+       room.lastEvent={type:'magic',kind:'reflected',from:uid,to:attacker.uid,by:defender.uid,spellId:spell.id,name:spell.name,damage,mpCost:spell.mpCost,at};
+       if(attacker.hp<=0){room.status='finished';room.winnerUid=defender.uid;room.matchEndedAt=at;}
+      }else{
+       defender.hp=Math.max(0,Math.floor(number(defender.hp))-damage);
+       room.lastEvent={type:'magic',kind:'attack',from:uid,to:defender.uid,spellId:spell.id,name:spell.name,damage,mpCost:spell.mpCost,at};
+       if(defender.hp<=0){room.status='finished';room.winnerUid=uid;room.matchEndedAt=at;}
+      }
      }
     }else if(operation==='item'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -472,7 +485,7 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
-      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;if(questionMode)p.battleQuestionFirst={};});
+      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;p.magicReflect=false;if(questionMode)p.battleQuestionFirst={};});
       room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
      }
     }else throw error('操作が正しくありません。',400);
