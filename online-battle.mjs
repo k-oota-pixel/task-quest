@@ -13,11 +13,11 @@ const ROOM_RULES=Object.freeze(Object.fromEntries(ROOM_IDS.map(id=>{const [grade
 export const ONLINE_BATTLE_JOIN_TTL_MS=15*60*1000;
 export const ONLINE_BATTLE_RESULT_TTL_MS=2*60*1000;
 const MAGIC_SPELLS=Object.freeze([
- {id:'mimuros',name:'ミムロス',level:5,kind:'heal',base:10,mpCost:5},
- {id:'mirogoro',name:'ミロゴロ',level:15,kind:'attack',base:15,mpCost:5},
- {id:'mirogoturn',name:'ミロゴターン',level:20,kind:'reflect',base:0,mpCost:8},
+ {id:'mimuros',name:'ミムロス',level:5,kind:'heal',base:10,mpCost:4},
+ {id:'mirogoro',name:'ミロゴロ',level:15,kind:'attack',base:15,mpCost:6},
+ {id:'mirogoturn',name:'ミロゴターン',level:20,kind:'reflect',base:0,mpCost:5},
  {id:'mimurose',name:'ミムローズ',level:25,kind:'heal',base:30,mpCost:10},
- {id:'mirogoron',name:'ミロゴロン',level:35,kind:'attack',base:30,mpCost:10}
+ {id:'mirogoron',name:'ミロゴロン',level:35,kind:'attack',base:30,mpCost:14}
 ]);
 const DUNGEON_ITEMS=Object.freeze([
  {id:'bandage',name:'ばんそうこう',icon:'🩹',kind:'hp',amount:10},
@@ -101,14 +101,14 @@ function profile(data,uid){
  const nickname=typeof data.nickname==='string'&&data.nickname.trim()?data.nickname.trim().slice(0,24):'なまえ未設定';
  const petName=typeof data.petName==='string'&&data.petName.trim()?data.petName.trim().slice(0,24):(data.petHatched?'ペット':'ふしぎなたまご');
  const stats=petStats(data);
- return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0,coinsAtJoin:Math.max(0,Math.floor(number(data.coins))),battleInventory:normalizeInventory(data.petDungeonItems),spentItems:{},magicReflect:false};
+ return {uid,nickname,petName,petAppearance:data.petAppearance||null,petShop:data.petShop||{},petHatched:data.petHatched===true,petAdult:data.petAdult!==false,stats,level:petLevel(data),hp:0,mp:stats.mp,ready:false,rematchReady:false,lastActionAt:0,joinedAt:0,coinsAtJoin:Math.max(0,Math.floor(number(data.coins))),battleInventory:normalizeInventory(data.petDungeonItems),spentItems:{},magicReflect:false,magicReadyAt:0,magicCooldownMs:0};
 }
 function emptyRoom(id){const rules=ROOM_RULES[id]||{gradeKey:'4',grade:'4級',roomNo:1,noItems:false};return {roomId:id,roomNo:rules.roomNo,gradeKey:rules.gradeKey,grade:rules.grade,noItems:false,status:'open',players:[],seq:0,winnerUid:'',lastEvent:null,matchId:'',pendingSettlement:null,titleAwards:{},matchEndedAt:0,updatedAt:Date.now()};}
 function safeRoom(value,id){
  const room={...emptyRoom(id),...value};
  room.players=Array.isArray(room.players)?room.players.slice(0,2).map(player=>{
   const stats=field(player.stats),maxHp=Math.max(1,Math.floor(number(stats.hp,10))),maxMp=Math.max(0,Math.floor(number(stats.mp,6)));
-  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0))),coinsAtJoin:Math.max(0,Math.floor(number(player.coinsAtJoin))),battleInventory:normalizeInventory(player.battleInventory),spentItems:normalizeInventory(player.spentItems),magicReflect:player.magicReflect===true};
+  return {...player,stats:{hp:maxHp,attack:Math.max(1,Math.floor(number(stats.attack,1))),defense:Math.max(1,Math.floor(number(stats.defense,1))),mp:maxMp},hp:Math.max(0,Math.min(maxHp,Math.floor(number(player.hp,maxHp)))),mp:player.mp===undefined?maxMp:Math.max(0,Math.min(maxMp,Math.floor(number(player.mp)))),level:Math.max(1,Math.floor(number(player.level,1))),joinedAt:Math.max(0,Math.floor(number(player.joinedAt,0))),coinsAtJoin:Math.max(0,Math.floor(number(player.coinsAtJoin))),battleInventory:normalizeInventory(player.battleInventory),spentItems:normalizeInventory(player.spentItems),magicReflect:player.magicReflect===true,magicReadyAt:Math.max(0,Math.floor(number(player.magicReadyAt))),magicCooldownMs:Math.max(0,Math.floor(number(player.magicCooldownMs)))};
  }):[];
  room.seq=Math.max(0,Math.floor(number(room.seq)));
  room.matchEndedAt=Math.max(0,Math.floor(number(room.matchEndedAt,0)));
@@ -404,8 +404,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='waiting'||players.length!==2)throw error('相手が入室するまでお待ちください。',409);
      players[index]={...players[index],ready:true};room.players=players;
      if(players.every(p=>p.ready)){
-      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;p.magicReflect=false;if(questionMode)p.battleQuestionFirst={};});
-      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
+      const openedAt=now();
+      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.lastActionAt=0;p.rematchReady=false;p.magicReflect=false;p.magicReadyAt=openedAt+10_000;p.magicCooldownMs=10_000;if(questionMode)p.battleQuestionFirst={};});
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:openedAt};
      }
     }else if(operation==='miss'){
      if(room.status!=='playing')throw error('対戦中ではありません。',409);
@@ -423,10 +424,12 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      const attacker=players[index],level=attacker.level,at=now();
      if(level<spell.level)throw error('この魔法はまだ習得していません。',400);
      if(attacker.lastActionAt>0&&at-number(attacker.lastActionAt)<1200)throw error('少し待ってから魔法を使ってください。',429);
+     const readyAt=Math.max(0,Math.floor(number(attacker.magicReadyAt)));
+     if(at<readyAt)throw error('魔法の準備中です（あと'+Math.ceil((readyAt-at)/1000)+'秒）。',429);
      if(Math.floor(number(attacker.mp))<spell.mpCost)throw error('MPが足りません。',400);
      if(spell.kind==='heal'&&attacker.hp>=attacker.stats.hp)throw error('HPは満タンです。',400);
      if(spell.kind==='reflect'&&attacker.magicReflect)throw error('すでにミロゴターンの反射効果が有効です。',409);
-     attacker.mp=Math.max(0,Math.floor(number(attacker.mp))-spell.mpCost);attacker.lastActionAt=at;room.seq++;
+     attacker.mp=Math.max(0,Math.floor(number(attacker.mp))-spell.mpCost);attacker.lastActionAt=at;attacker.magicReadyAt=at+spell.mpCost*1000;attacker.magicCooldownMs=spell.mpCost*1000;room.seq++;
      const rolled=rollMagicAmount(spell.base);
      if(spell.kind==='heal'){
       const before=attacker.hp;attacker.hp=Math.min(attacker.stats.hp,attacker.hp+rolled);const heal=attacker.hp-before;
@@ -485,8 +488,9 @@ export function createOnlineBattle({base,projectId,accessToken,verifyUser,readJs
      if(room.status!=='finished'||players.length!==2)throw error('再戦するには相手が必要です。',409);
      players[index]={...players[index],rematchReady:true};room.players=players;
      if(players.every(p=>p.rematchReady)){
-      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;p.magicReflect=false;if(questionMode)p.battleQuestionFirst={};});
-      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:now()};
+      const openedAt=now();
+      players.forEach(p=>{p.hp=p.stats.hp;p.mp=p.stats.mp;p.ready=true;p.rematchReady=false;p.lastActionAt=0;p.magicReflect=false;p.magicReadyAt=openedAt+10_000;p.magicCooldownMs=10_000;if(questionMode)p.battleQuestionFirst={};});
+      room.players=players;room.status='playing';room.winnerUid='';room.matchEndedAt=0;room.matchId=randomUUID();room.titleAwards={};room.lastEvent={type:'start',at:openedAt};
      }
     }else throw error('操作が正しくありません。',400);
     room.seq++;room.updatedAt=now();
