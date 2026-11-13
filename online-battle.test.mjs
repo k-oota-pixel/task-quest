@@ -533,7 +533,7 @@ test('単語対戦のダメージに問題正答率ボーナスが混ざらな�
 test('開始後10秒・発動後MP秒は全魔法共通で再使用できず、read/writeを増やさない',async()=>{
  const initial=room({roomId:'4-1',gradeKey:'4',status:'playing',matchId:'cooldown-match',
   players:[{...player('test-user',999_000),level:35,hp:40,mp:40,stats:{hp:60,attack:5,defense:3,mp:40},magicReadyAt:1_010_000,magicCooldownMs:10_000},
-   {...player('opponent',999_000),level:35,mp:40}]});
+   {...player('opponent',999_000),level:35,hp:60,mp:40,stats:{hp:60,attack:5,defense:3,mp:40}}]});
  const early=await simulateCoinlessBattle('magic',initial,'test-user',false,'',null,'mimuros');
  assert.equal(early.response.status,429,'開始10秒間は唱えられない');
  assert.equal(early.roomWrites.length,0);
