@@ -363,10 +363,15 @@ test('問題対戦の4級は20部屋、単語対戦は従来どおり10部屋',a
  assert.equal(word.reads(),0,'単語対戦の存在しない部屋をDBから読まない');
 });
 
-test('問題IDは級ごとに正しいリトライノート形式だけを集計する',()=>{
+test('問題IDは既存形式に加え2級のターゲット1000熟語のみ受け付ける',()=>{
  assert.equal(validOnlineBattleQuestionId('2025-2-g4-q01','4'),true);
  assert.equal(validOnlineBattleQuestionId('2020-2-pre2-q11','pre2'),true);
  assert.equal(validOnlineBattleQuestionId('2025-2-g4-q01','3'),false);
+ assert.equal(validOnlineBattleQuestionId('t1000_0001','2'),true);
+ assert.equal(validOnlineBattleQuestionId('t1000_1000','2'),true);
+ assert.equal(validOnlineBattleQuestionId('t1000_0420','pre2'),false);
+ assert.equal(validOnlineBattleQuestionId('t1000_0000','2'),false);
+ assert.equal(validOnlineBattleQuestionId('t1000_1001','2'),false);
  assert.equal(validOnlineBattleQuestionId('__proto__','4'),false);
 });
 
