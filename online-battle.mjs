@@ -31,6 +31,10 @@ const MATCH_OPERATIONS=new Set(['attack','miss','magic','item','continue']);
 const ONLINE_QUESTION_SEGMENTS=Object.freeze({'4':'g4','3':'g3','pre2':'pre2','2':'g2'});
 export function validOnlineBattleQuestionId(value,gradeKey){
  if(typeof value!=='string'||!ONLINE_QUESTION_SEGMENTS[gradeKey])return false;
+ // TARGET1000 phrase-completion questions are valid for grade 2 only.
+ // Reuse the existing per-match first-answer tracking; no additional Firestore reads.
+ const idiom=/^t1000_(\d{4})$/.exec(value);
+ if(idiom)return gradeKey==='2'&&Number(idiom[1])>=1&&Number(idiom[1])<=1000;
  const parts=/^20\d{2}-[1-3]-(g4|g3|pre2|g2)-q\d{2}$/.exec(value);
  return !!parts&&parts[1]===ONLINE_QUESTION_SEGMENTS[gradeKey];
 }
