@@ -317,7 +317,9 @@ export function createAdminData({base,projectId,accessToken,verifyAdmin,verifyDe
   }
   function invalidate(uid){cache.delete('detail:'+uid);cache.delete('summary:'+uid);cache.delete('nicknames');cache.delete('activity:'+uid);cache.delete('unrecorded');for(const [key,e]of cache)if(key.startsWith('page:')||key.startsWith('page-compact:')||key.startsWith('code-page:'))cache.delete(key);}
   async function activeIds(){return (await authDirectory()).filter(u=>!u.disabled&&typeof u.localId==='string'&&u.localId.length>0&&u.localId.length<=128&&!/[\/\u0000-\u001f]/.test(u.localId)).map(u=>u.localId);}
+  // Include every Firebase Auth registration in the popularity denominator, even disabled accounts.
+  async function registeredIds(){return (await authDirectory()).map(u=>u.localId).filter(uid=>typeof uid==='string'&&uid.length>0&&uid.length<=128&&!/[\/\u0000-\u001f]/.test(uid));}
   function invalidateLearning(uid){cache.delete('activity:'+uid);cache.delete('summary:'+uid);cache.delete('unrecorded');for(const key of cache.keys())if(key.startsWith('page:')||key.startsWith('page-compact:'))cache.delete(key);}
   async function adminIds(){const email=String(process.env.ADMIN_EMAIL||'').trim().toLowerCase();if(!email)return [];return (await authDirectory()).filter(u=>String(u.email||'').trim().toLowerCase()===email).map(u=>u.localId).filter(Boolean);}
-  return {handle,updateCoins,invalidate,invalidateLearning,activeIds,adminIds,messageSenderProfiles};
+  return {handle,updateCoins,invalidate,invalidateLearning,activeIds,registeredIds,adminIds,messageSenderProfiles};
 }
