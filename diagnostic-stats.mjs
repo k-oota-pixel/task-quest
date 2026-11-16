@@ -2,7 +2,7 @@
 // Initial migration reads individual wallets once. Subsequent refreshes use the
 // existing assessmentUpdatedAt timestamp; no extra writes by learners.
 export const DIAGNOSTIC_SCALE='pilot-2-grade2';
-export const DIAGNOSTIC_SNAPSHOT='analytics/level-diagnostic-summary-v1';
+export const DIAGNOSTIC_SNAPSHOT='admin_diagnostic_stats/current';
 const SNAPSHOT_VERSION=2;
 const grades=['4級','3級','準2級','2級','準1級程度'];
 const PREFIX_ERROR='集計用のFirestoreインデックスが未設定です。appsコレクショングループのassessmentUpdatedAt（昇順）を設定してください。';
