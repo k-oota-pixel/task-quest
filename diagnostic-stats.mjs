@@ -85,9 +85,17 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     });
     if(!response.ok){
       const error=await response.json().catch(()=>({}));
-      const reason=error?.error?.status;
-      if(reason==='FAILED_PRECONDITION'||reason==='INVALID_ARGUMENT')return null;
-      throw fail('受験結果の検索に失敗しました。',response.status===429?429:502);
+      const reason=String(error?.error?.status||'UNKNOWN');
+      // A collection-group index may not exist in a new Firebase project.
+      // On an index / query failure, switch to a bounded per-user batchGet.
+      // Do not try the fallback when Firestore quotas or credentials are exhausted:
+      // additional reads would only increase load and obscure the real problem.
+      if(response.status===429||reason==='RESOURCE_EXHAUSTED')
+        throw fail('Firestoreの読み取り上限または利用制限に達しました。時間を置いて集計してください。',429);
+      if(response.status===401||reason==='UNAUTHENTICATED')
+        throw fail('Firestoreの管理者認証を確認してください。',502);
+      console.warn('diagnostic_index_query_fallback', {httpStatus:response.status, firestoreStatus:reason});
+      return null;
     }
     const raw=await response.json();
     if(!Array.isArray(raw))throw fail('受験結果の形式が不正です。',502);
@@ -110,7 +118,14 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
       const batch=ids.slice(i,i+100).map(uid=>prefix+uid+'/apps/english-playroom');
       const response=await call(base+'/documents:batchGet',{method:'POST',
         body:JSON.stringify({documents:batch,mask:{fieldPaths:['assessmentLatest']}})});
-      if(!response.ok)throw fail('個別の最新診断を取得できませんでした。',response.status===429?429:502);
+      if(!response.ok){
+        const body=await response.json().catch(()=>({}));
+        const reason=String(body?.error?.status||'UNKNOWN');
+        console.warn('diagnostic_batch_read_failed',{httpStatus:response.status,firestoreStatus:reason});
+        if(response.status===429||reason==='RESOURCE_EXHAUSTED')
+          throw fail('Firestoreの読み取り上限または利用制限に達しました。時間を置いて集計してください。',429);
+        throw fail('受験者の最新成績の取得に失敗しました。',502);
+      }
       const result=await response.json();
       if(!Array.isArray(result))throw fail('個別の診断データが不正です。',502);
       for(const item of result)if(item.found?.fields)rows.push(decodeFields(item.found.fields));
