@@ -16,6 +16,10 @@ on:
       - 'learning-titles.mjs'
       - 'title-count-rankings.mjs'
       - 'title-count-rankings.test.mjs'
+      - 'title-popularity.mjs'
+      - 'title-popularity.test.mjs'
+      - 'admin-data.mjs'
+      - 'server.mjs'
       - 'learning-titles.test.mjs'
       - 'title-summary.test.mjs'
       - 'title-count-summary.mjs'
@@ -37,6 +41,10 @@ on:
       - 'learning-titles.mjs'
       - 'title-count-rankings.mjs'
       - 'title-count-rankings.test.mjs'
+      - 'title-popularity.mjs'
+      - 'title-popularity.test.mjs'
+      - 'admin-data.mjs'
+      - 'server.mjs'
       - 'learning-titles.test.mjs'
       - 'title-summary.test.mjs'
       - 'title-count-summary.mjs'
@@ -54,4 +62,5 @@ jobs:
         with:
           node-version: '22'
       - run: node --test title-summary.test.mjs defense-settlement.test.mjs daily-coins.test.mjs material-rankings.test.mjs weekly-title-settlement.test.mjs
-      - run: node --test title-count-rankings.test.mjs learning-titles.test.mjs
+      - run: node --test title-count-rankings.test.mjs learning-titles.test.mjs title-popularity.test.mjs
+      - run: node --check server.mjs
