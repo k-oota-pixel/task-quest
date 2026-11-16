@@ -40,7 +40,7 @@ function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,commit
   send:(_res,status,data)=>{response={status,...data};},
   fetchImpl:async(url,opt)=>{
     reqs.push({url,opt});
-    if(url.endsWith('/analytics/level-diagnostic-summary-v1')){
+    if(url.endsWith('/admin_diagnostic_stats/current')){
       reads.snapshot++;
       return stored?result(200,{fields:encodeFields(stored),updateTime:'2026-11-16T13:03:00Z'}):result(404,{});
     }
