@@ -46,7 +46,8 @@ function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,commit
     }
     if(url.endsWith(':batchGet')){
       reads.batch++;
-      return result(200,batchRows.map(x=>({found:{name:name(x.uid),fields:encodeFields(x.fields)}})));
+      const asked=new Set(JSON.parse(opt.body).documents);
+      return result(200,batchRows.filter(x=>asked.has(name(x.uid))).map(x=>({found:{name:name(x.uid),fields:encodeFields(x.fields)}})));
     }
     if(url.endsWith(':runQuery')){
       reads.query++;
