@@ -24,6 +24,7 @@ import {createPetFriends} from './pet-friends.mjs';
 import {createPetCatchRecords} from './pet-catch-records.mjs';
 import {createWordBreakerRecords} from './word-breaker-records.mjs';
 import {createAdminData} from './admin-data.mjs';
+import {createDiagnosticStats} from './diagnostic-stats.mjs';
 import {createRetryQuestionStats} from './retry-question-stats.mjs';
 import {createTalkQuest} from './talk-quest.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
@@ -217,6 +218,7 @@ async function handleDailyCoinLeaderboard(req,res){
 }
 const codeAuth=createCodeAuth({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,serviceAccount:getServiceAccount,verifyUser:verifyRawUser,verifyAdmin,isAdmin:user=>isAdministrator(user,ADMIN_EMAIL),readJson,send,fail,encodeFields:encodeFirestoreFields,decodeFields,onAccountCreated:(uid,change)=>adminUserIndex.sync(uid,change),onDirectoryChanged:()=>adminUserIndex.build(true),onAdmissionChanged:verifyAdmittedUser.invalidateAdmission});
 const adminData=createAdminData({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyDetailAdmin:req=>verifyAdmin(req,verifyRawUser),verifyUser,send,fail,decodeFields,normalizeNickname,validNickname,listMessagePage:token=>adminMessagePages.list(token)});
+const handleDiagnosticStats=createDiagnosticStats({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,activeIds:adminData.activeIds,adminIds:adminData.adminIds,decodeFields,encodeFields:encodeFirestoreFields,send,fail});
 const adminUserIndex=createAdminUserIndex({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyAdmin,verifyUser,encodeFields:encodeFirestoreFields,decodeFields,send,fail});
 const shopGifts=createShopGifts({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
 const petFriends=createPetFriends({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,readJson,send,encodeFields:encodeFirestoreFields,decodeFields,searchUsers:(q,uid)=>adminUserIndex.searchGift(q,uid)});
@@ -518,6 +520,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/material-open')return handleMaterialOpen(req,res);
   if(path==='/api/material-activity')return handleMaterialActivity(req,res);
   if(path==='/api/admin/material-usage')return handleMaterialUsage(req,res);
+  if(path==='/api/admin/diagnostic-stats')return handleDiagnosticStats(req,res);
   if(path==='/api/admin/online-battle-question-stats'){
     try{
       if(req.method!=='GET')throw fail('GETのみ対応しています。',405);
