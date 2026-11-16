@@ -107,6 +107,45 @@ test('fallback batchGet reads only active non-admin members when collection grou
  assert.equal(out.get().summary.sourceReads,2);
 });
 
+test('query permission and internal errors fall back to per-user reads without extra writes',async()=>{
+ for(const [status,reason] of [[403,'PERMISSION_DENIED'],[500,'INTERNAL']]){
+  let batches=0,commits=0;
+  const {handle,out}=make({fetchImpl:async(url,options)=>{
+   if(url.endsWith(':runQuery'))return response(status,{error:{status:reason}});
+   if(url.endsWith(':batchGet')){
+    batches++;
+    assert.deepEqual(JSON.parse(options.body).documents,[name('student1'),name('student2')]);
+    return response(200,[{found:{name:name('student1'),fields:encodeFields(row(320))}},
+      {found:{name:name('student2'),fields:encodeFields(row(420))}}]);
+   }
+   if(url.endsWith(':commit')){commits++;return response(200,{});}
+   throw Error('Unexpected call '+url);
+  }});
+  await handle({method:'POST'},{});
+  assert.equal(out.get().status,200);
+  assert.equal(out.get().summary.participantCount,2);
+  assert.equal(out.get().summary.averageScore,370);
+  assert.equal(out.get().summary.source,'batchGet');
+  assert.equal(batches,1);
+  assert.equal(commits,1);
+ }
+});
+
+test('Firestore quota exhaustion does not trigger full-user fallback',async()=>{
+ let queryCalls=0,batchCalls=0,writeCalls=0;
+ const {handle,out}=make({fetchImpl:async(url)=>{
+  if(url.endsWith(':runQuery')){queryCalls++;return response(429,{error:{status:'RESOURCE_EXHAUSTED'}});}
+  if(url.endsWith(':batchGet'))batchCalls++;
+  if(url.endsWith(':commit'))writeCalls++;
+  return response(500,{});
+ }});
+ await handle({method:'POST'},{});
+ assert.equal(queryCalls,1);
+ assert.equal(batchCalls,0);
+ assert.equal(writeCalls,0);
+ assert.equal(out.get().status,429);
+});
+
 test('unauthorized caller never reads the database',async()=>{
  let calls=0;
  const {handle,out}=make({verifyAdmin:async()=>{throw Object.assign(Error('forbidden'),{status:403});},
