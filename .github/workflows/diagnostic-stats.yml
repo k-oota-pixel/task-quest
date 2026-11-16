@@ -1,0 +1,21 @@
+name: Diagnostic statistics checks
+on:
+  push:
+    paths:
+      - diagnostic-stats.mjs
+      - diagnostic-stats.test.mjs
+      - server.mjs
+      - .github/workflows/diagnostic-stats.yml
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check server.mjs
+      - run: node --check diagnostic-stats.mjs
+      - run: node --test diagnostic-stats.test.mjs
