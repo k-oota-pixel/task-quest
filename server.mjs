@@ -13,6 +13,7 @@ import {createLearningTitles} from './learning-titles.mjs';
 import {createTitleAuthority} from './title-authority.mjs';
 import {createMaterialRankings} from './material-rankings.mjs';
 import {createTitleCountRankings} from './title-count-rankings.mjs';
+import {createTitlePopularity} from './title-popularity.mjs';
 import {createMaterialUsage,createMaterialOpen,createMaterialActivity} from './material-usage.mjs';
 import {createLearningChallenges} from './learning-challenges.mjs';
 import {createSecurityGate} from './security-gate.mjs';
@@ -235,6 +236,7 @@ const getTitleAuthority=async()=>{const authority=await loadTitleAuthority();tit
 const weeklyTitleSettlement=createWeeklyTitleSettlement({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,decodeFields,getAuthority:getTitleAuthority,completedWeek:materialRankings.completedWeek});
 const handleTitleEvents=createTitleEvents({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onDailyCountsChanged:materialRankings.changed});
 const titleCountRankings=createTitleCountRankings({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,verifyUser,decodeFields,send,fail});
+const titlePopularity=createTitlePopularity({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,registeredIds:adminData.registeredIds,decodeFields});
 const learningTitles=createLearningTitles({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,decodeFields,send,fail,readJson,onTitleCountChanged:titleCountRankings.publish,weeklyProgress:materialRankings.userWeekly});
 const defenseBestRankings=createDefenseBestRankings({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,activeIds:adminData.activeIds,excludedIds:adminData.adminIds,decodeFields,decorate:learningTitles.decorate,send,fail});
 const handleLearningActivity=createLearningActivity({getAuthority:getTitleAuthority,base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID,accessToken:getGoogleAccessToken,verifyUser,send,fail,readJson,decodeFields,invalidate:adminData.invalidateLearning,onDailyCountsChanged:materialRankings.changed,onDefenseStageSaved:defenseBestRankings.publish});
@@ -447,6 +449,15 @@ export const server=http.createServer(async(req,res)=>{
   if(path.startsWith(realtimePrefix+'/')){
     return onlineBattle.handle(req,res,'/api/online-battle'+path.slice(realtimePrefix.length));
   }
+  if(path==='/api/learning/title-popularity/export'){
+    try{
+      if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
+      const auth=String(req.headers.authorization||'');
+      if(!auth.startsWith('Bearer '))throw fail('GitHub Actions認証が必要です。',401);
+      await verifyGithubOidcToken(auth.slice(7));
+      return send(res,200,await titlePopularity.exportSnapshot());
+    }catch(e){return send(res,e.status||500,{error:e.message||'称号獲得率の集計に失敗しました。'});}
+  }
   if(path==='/api/online-battle/accuracy/export'){
     try{
       if(req.method!=='POST')throw fail('POSTのみ対応しています。',405);
@@ -537,7 +548,7 @@ export const server=http.createServer(async(req,res)=>{
   if(['/api/admin/users','/api/admin/user','/api/admin/session','/api/admin/retry-screen-logs','/api/admin/contact-messages','/api/admin/search-preview'].includes(path))return adminData.handle(req,res);
   if(path==='/api/admin/pet-name-reset')return handleAdminPetNameReset(req,res);
   if(path==='/api/admin/coins')return handleAdminCoins(req,res);
-  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:2,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',challengeReadOptimizationVersion:1,titleVersion:'1.10.21',titleCollectionVersion:1,titleCollectionReady,titleSummaryVersion:1,weeklyTitleArchiveVersion:1,weeklyTitleAutomaticAwardVersion:1,coinRankingOptimizationVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
+  if(req.method==='GET'&&path==='/api/status')return send(res,200,{authTransportVersion:'2026-11-08-bounded',codeAuthVersion:'2.3.5',authReadOptimizationVersion:2,registrationCodeFormat:'private-mixed6',registrationCodeFingerprint:codeAuth.inventoryFingerprint,securityVersion:'2026-10-31',aiAuthRequired:true,appCheckMode:process.env.APP_CHECK_MODE||'monitor',ready:!!key,backupReady:!!backupKey,taskEvaluationVersion:'2026-11-05',petChatReady:!!petKey,vocabularyGeminiReady:!!vocabularyKey,adminApiVersion:'1.5.11',adminAggregateVersion:1,challengeVersion:'1.10.2',challengeReadOptimizationVersion:1,titleVersion:'1.10.21',titleCollectionVersion:1,titlePopularityVersion:1,titleCollectionReady,titleSummaryVersion:1,weeklyTitleArchiveVersion:1,weeklyTitleAutomaticAwardVersion:1,coinRankingOptimizationVersion:1,grammarRewardVersion:'2.2.3',grammarTitleCount:30,todayTitleCount:15,adventureRankingVersion:'2.3.15',adventureTitleCount:creativeCatalog['word-tower'].length+creativeCatalog['eiken-dungeon'].length});
   if(req.method==='GET'&&(path==='/'||path==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
   if(path!=='/api/evaluate')return send(res,404,{error:'ページが見つかりません。'});
   if(req.method!=='POST')return send(res,405,{error:'POSTのみ対応しています。'});
