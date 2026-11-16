@@ -1,58 +1,83 @@
-// Administrator-only, on-demand English diagnostic snapshot.
-// Individual results stay in users/{uid}/apps/english-playroom.
-// GET costs one snapshot document read; POST refreshes from latest attempts.
-export const DIAGNOSTIC_SCALE = 'pilot-1';
-export const DIAGNOSTIC_SNAPSHOT = 'analytics/level-diagnostic-summary-v1';
+// Administrator-only, on-demand diagnostic statistics.
+// Initial migration reads individual wallets once. Subsequent refreshes use the
+// existing assessmentUpdatedAt timestamp; no extra writes by learners.
+export const DIAGNOSTIC_SCALE='pilot-2-grade2';
+export const DIAGNOSTIC_SNAPSHOT='analytics/level-diagnostic-summary-v1';
+const SNAPSHOT_VERSION=2;
+const grades=['4級','3級','準2級','2級','準1級程度'];
+const PREFIX_ERROR='集計用のFirestoreインデックスが未設定です。appsコレクショングループのassessmentUpdatedAt（昇順）を設定してください。';
+const asNumber=value=>value===null||value===undefined||value===''?NaN:Number(value);
+const average=values=>values.length?Math.round(values.reduce((a,b)=>a+b,0)*10/values.length)/10:null;
+const safeCount=value=>Number.isInteger(value)&&value>=0?value:null;
+const validUid=uid=>typeof uid==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(uid);
+const obj=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
 
-const categories = ['4級', '3級', '準2級', '2級', '準1級程度'];
-const bands = Array.from({length:10}, (_,i)=>({
-  label: (i*100)+'〜'+(i===9?1000:i*100+99)+'点', min:i*100, max:i===9?1000:i*100+99
-}));
-const rounded = n => Math.round(n*10)/10;
-const asNumber = value => typeof value === 'number' || typeof value === 'string' && value.trim()
-  ? Number(value) : NaN;
-const average = nums => nums.length ? rounded(nums.reduce((a,b)=>a+b,0)/nums.length) : null;
-
-export function summarizeDiagnostic(rows, {updatedAt=new Date().toISOString(),source='batchGet',sourceReads=0}={}) {
-  const scores=[], vocabulary=[], grammar=[], latestTimes=[];
-  const gradeCounts=Object.fromEntries([...categories, '不明'].map(key=>[key,0]));
-  const scoreBands=bands.map(item=>({...item,count:0}));
-  for(const entry of rows){
-    const latest=entry?.assessmentLatest;
-    if(!latest || latest.scaleVersion!==DIAGNOSTIC_SCALE) continue;
-    const score=asNumber(latest.score);
-    if(!Number.isFinite(score)||score<0||score>1000)continue;
-    scores.push(score);
-    const v=asNumber(latest.vocabScore),g=asNumber(latest.grammarScore);
-    if(Number.isFinite(v)&&v>=0&&v<=1000)vocabulary.push(v);
-    if(Number.isFinite(g)&&g>=0&&g<=1000)grammar.push(g);
-    const grade=categories.find(key=>String(latest.grade||'').startsWith(key));
-    gradeCounts[grade||'不明']++;
-    scoreBands[Math.min(9,Math.floor(score/100))].count++;
-    const at=asNumber(latest.atMs);
-    if(Number.isFinite(at)&&at>0)latestTimes.push(at);
+export function normalizeDiagnostic(latest){
+  if(!latest||latest.scaleVersion!==DIAGNOSTIC_SCALE)return null;
+  const score=asNumber(latest.score);
+  if(!Number.isFinite(score)||score<0||score>1000)return null;
+  const normalized={id:String(latest.id||''),score,
+    grade:String(latest.grade||''),
+    atMs:Number(latest.atMs)||0};
+  for(const key of ['vocabScore','grammarScore']){
+    const value=asNumber(latest[key]);
+    if(Number.isFinite(value)&&value>=0&&value<=1000)normalized[key]=value;
   }
-  scores.sort((a,b)=>a-b);
-  return {
-    schemaVersion:1,scaleVersion:DIAGNOSTIC_SCALE,updatedAt,source,sourceReads,
-    participantCount:scores.length,
-    averageScore:average(scores),
-    medianScore:scores.length ? rounded(scores.length%2?scores[(scores.length-1)/2]:
-      (scores[scores.length/2-1]+scores[scores.length/2])/2) : null,
-    minimumScore:scores.length?scores[0]:null,
-    maximumScore:scores.length?scores.at(-1):null,
-    averageVocabScore:average(vocabulary),averageGrammarScore:average(grammar),
-    gradeCounts,scoreBands,latestAttemptAt:latestTimes.length?Math.max(...latestTimes):null
+  for(const key of ['vocabCorrect','vocabTotal','grammarCorrect','grammarTotal']){
+    const value=safeCount(asNumber(latest[key]));
+    if(value!==null)normalized[key]=value;
+  }
+  return normalized;
+}
+
+export function summarizeMembers(members, {updatedAt=new Date().toISOString(),source='batchGet',
+  sourceReads=0,through=''}={}){
+  const values=Object.values(obj(members)).filter(Boolean);
+  const sorted=values.map(x=>x.score).sort((a,b)=>a-b);
+  const counts=Object.fromEntries([...grades,'不明'].map(k=>[k,0]));
+  const scoreBands=Array.from({length:10},(_,i)=>({
+    label:i*100+'〜'+(i===9?1000:i*100+99)+'点',
+    min:i*100,max:i===9?1000:i*100+99,count:0
+  }));
+  for(const entry of values){
+    const grade=grades.find(k=>String(entry.grade||'').startsWith(k));
+    counts[grade||'不明']++;
+    scoreBands[Math.min(9,Math.floor(entry.score/100))].count++;
+  }
+  const valid=key=>values.map(x=>asNumber(x[key])).filter(Number.isFinite);
+  const times=valid('atMs');
+  const middle=sorted.length%2?sorted[(sorted.length-1)/2]:
+    (sorted[sorted.length/2-1]+sorted[sorted.length/2])/2;
+  return {schemaVersion:SNAPSHOT_VERSION,scaleVersion:DIAGNOSTIC_SCALE,
+    updatedAt,through,source,sourceReads,
+    participantCount:values.length,averageScore:average(sorted),
+    medianScore:sorted.length?Math.round(middle*10)/10:null,
+    minimumScore:sorted.length?sorted[0]:null,
+    maximumScore:sorted.length?sorted.at(-1):null,
+    averageVocabScore:average(valid('vocabScore')),
+    averageGrammarScore:average(valid('grammarScore')),
+    averageVocabCorrect:average(valid('vocabCorrect')),
+    averageGrammarCorrect:average(valid('grammarCorrect')),
+    gradeCounts:counts,scoreBands,
+    latestAttemptAt:times.length?Math.max(...times):null
   };
+}
+
+export function summarizeDiagnostic(rows,options={}){
+  const members={};
+  for(const [index,row] of rows.entries()){
+    const record=normalizeDiagnostic(row?.assessmentLatest);
+    if(record)members[String(index)]=record;
+  }
+  return summarizeMembers(members,options);
 }
 
 export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,activeIds,adminIds,
   decodeFields,encodeFields,send,fail,fetchImpl=fetch,now=Date.now}){
   const docName='projects/'+projectId+'/databases/(default)/documents/'+DIAGNOSTIC_SNAPSHOT;
   const path=base+'/documents/'+DIAGNOSTIC_SNAPSHOT;
-  const prefix='projects/'+projectId+'/databases/(default)/documents/users/';
+  const userPrefix='projects/'+projectId+'/databases/(default)/documents/users/';
   let pending=null;
-
   async function call(url,options={}){
     const token=await accessToken();
     return fetchImpl(url,{...options,headers:{
@@ -63,99 +88,163 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     const response=await call(path);
     if(response.status===404)return null;
     if(!response.ok)throw fail('保存済みのレベル判定集計を読み込めませんでした。',502);
-    const doc=await response.json();
-    const value=decodeFields(doc.fields||{});
-    if(value.schemaVersion!==1||value.scaleVersion!==DIAGNOSTIC_SCALE)
-      throw fail('集計結果の形式が異なります。',502);
-    return value;
+    const doc=await response.json(),value=decodeFields(doc.fields||{});
+    if(![1,SNAPSHOT_VERSION].includes(value.schemaVersion))
+      throw fail('集計データの形式が不正です。',502);
+    return {value,updateTime:doc.updateTime};
   }
-
-  async function readMatching(active,excluded){
-    // Prefer a collection-group query: reads only existing test-takers if
-    // the assessmentScaleVersion collection-group index is available.
-    const structuredQuery={
-      from:[{collectionId:'apps',allDescendants:true}],
-      select:{fields:[{fieldPath:'assessmentLatest'}]},
-      where:{fieldFilter:{field:{fieldPath:'assessmentScaleVersion'},op:'EQUAL',
-        value:{stringValue:DIAGNOSTIC_SCALE}}},
-      limit:5000
-    };
-    const response=await call(base+'/documents:runQuery',{
-      method:'POST',body:JSON.stringify({structuredQuery})
-    });
+  const publicView=value=>{
+    const {members,...summary}=value;
+    return summary;
+  };
+  const uidFromDoc=name=>{
+    if(!name?.startsWith(userPrefix)||!name.endsWith('/apps/english-playroom'))return '';
+    const uid=name.slice(userPrefix.length,-'/apps/english-playroom'.length);
+    return validUid(uid)?uid:'';
+  };
+  async function batchGetMembers(ids){
+    const members={};
+    for(let start=0;start<ids.length;start+=100){
+      const docs=ids.slice(start,start+100).map(uid=>userPrefix+uid+'/apps/english-playroom');
+      const response=await call(base+'/documents:batchGet',{method:'POST',
+        body:JSON.stringify({documents:docs,mask:{fieldPaths:['assessmentLatest']}})});
+      if(!response.ok)throw fail('初回の受験結果の取得に失敗しました。',502);
+      const rows=await response.json();
+      if(!Array.isArray(rows))throw fail('受験結果の形式が不正です。',502);
+      for(const row of rows){
+        const uid=uidFromDoc(row.found?.name);
+        if(!uid)continue;
+        const record=normalizeDiagnostic(decodeFields(row.found.fields||{}).assessmentLatest);
+        if(record)members[uid]=record;
+      }
+    }
+    return members;
+  }
+  async function changedMembers(after,before){
+    // A single-field COLLECTION_GROUP ASCENDING index on assessmentUpdatedAt
+    // allows this query to read just the updated wallets.
+    let cursor=null,readCount=0;
+    const changes={};
+    while(true){
+      const filters=[
+        {fieldFilter:{field:{fieldPath:'assessmentUpdatedAt'},op:'GREATER_THAN_OR_EQUAL',
+          value:{timestampValue:after}}},
+        {fieldFilter:{field:{fieldPath:'assessmentUpdatedAt'},op:'LESS_THAN',
+          value:{timestampValue:before}}}
+      ];
+      const structuredQuery={
+        from:[{collectionId:'apps',allDescendants:true}],
+        select:{fields:[{fieldPath:'assessmentLatest'},{fieldPath:'assessmentUpdatedAt'}]},
+        where:{compositeFilter:{op:'AND',filters}},
+        orderBy:[{field:{fieldPath:'assessmentUpdatedAt'},direction:'ASCENDING'},
+          {field:{fieldPath:'__name__'},direction:'ASCENDING'}],
+        limit:200
+      };
+      if(cursor)structuredQuery.startAt={values:[
+        {timestampValue:cursor.at},{referenceValue:cursor.name}],before:false};
+      const response=await call(base+'/documents:runQuery',{
+        method:'POST',body:JSON.stringify({structuredQuery})});
+      if(!response.ok){
+        const error=await response.json().catch(()=>({}));
+        const reason=String(error?.error?.status||'UNKNOWN');
+        console.warn('diagnostic_delta_query_failed',{status:response.status,reason});
+        if(response.status===429||reason==='RESOURCE_EXHAUSTED')
+          throw fail('Firestoreの読み取り上限または利用制限に達しています。',429);
+        if(response.status===400||reason==='FAILED_PRECONDITION')
+          throw fail(PREFIX_ERROR,412);
+        throw fail('差分集計用の検索に失敗しました。集計結果は変更していません。',502);
+      }
+      const rows=await response.json();
+      if(!Array.isArray(rows))throw fail('差分検索の応答が不正です。',502);
+      const docs=rows.map(x=>x.document).filter(Boolean);
+      readCount+=docs.length;
+      if(readCount>10000)throw fail('差分が多すぎます。管理者に確認してください。',413);
+      for(const doc of docs){
+        const uid=uidFromDoc(doc.name);
+        if(!uid)continue;
+        const fields=decodeFields(doc.fields||{});
+        const at=String(fields.assessmentUpdatedAt||'');
+        if(!at)continue;
+        changes[uid]={at,record:normalizeDiagnostic(fields.assessmentLatest)};
+      }
+      if(docs.length<200)break;
+      const last=docs.at(-1);
+      const at=String(decodeFields(last.fields||{}).assessmentUpdatedAt||'');
+      if(!at||last.name===cursor?.name)throw fail('差分集計を安全に継続できませんでした。',502);
+      cursor={name:last.name,at};
+    }
+    return {changes,readCount};
+  }
+  async function saveSnapshot(snapshot,previous){
+    const encoded=encodeFields(snapshot);
+    if(Buffer.byteLength(JSON.stringify(encoded),'utf8')>800000)
+      throw fail('集計ドキュメントが大きくなりました。分割保存が必要です。',413);
+    const write={update:{name:docName,fields:encoded},
+      currentDocument:previous?{updateTime:previous.updateTime}:{exists:false}};
+    const response=await call(base+'/documents:commit',{
+      method:'POST',body:JSON.stringify({writes:[write]})});
     if(!response.ok){
       const error=await response.json().catch(()=>({}));
-      const reason=String(error?.error?.status||'UNKNOWN');
-      // A collection-group index may not exist in a new Firebase project.
-      // On an index / query failure, switch to a bounded per-user batchGet.
-      // Do not try the fallback when Firestore quotas or credentials are exhausted:
-      // additional reads would only increase load and obscure the real problem.
-      if(response.status===429||reason==='RESOURCE_EXHAUSTED')
-        throw fail('Firestoreの読み取り上限または利用制限に達しました。時間を置いて集計してください。',429);
-      if(response.status===401||reason==='UNAUTHENTICATED')
-        throw fail('Firestoreの管理者認証を確認してください。',502);
-      console.warn('diagnostic_index_query_fallback', {httpStatus:response.status, firestoreStatus:reason});
-      return null;
+      const reason=String(error?.error?.status||'');
+      if(response.status===409||response.status===412||
+        ['ABORTED','FAILED_PRECONDITION','ALREADY_EXISTS'].includes(reason))
+        throw fail('ほかの集計更新と競合しました。もう一度更新してください。',409);
+      throw fail('集計結果を保存できませんでした。',502);
     }
-    const raw=await response.json();
-    if(!Array.isArray(raw))throw fail('受験結果の形式が不正です。',502);
-    const documents=raw.map(row=>row.document).filter(Boolean);
-    if(documents.length>=5000)throw fail('受験記録が多すぎるため、集計範囲を分割してください。',413);
-    const rows=[],seen=new Set();
-    for(const doc of documents){
-      if(!doc.name?.startsWith(prefix)||!doc.name.endsWith('/apps/english-playroom'))continue;
-      const uid=doc.name.slice(prefix.length,-'/apps/english-playroom'.length);
-      if(!active.has(uid)||excluded.has(uid)||seen.has(uid))continue;
-      seen.add(uid);
-      rows.push(decodeFields(doc.fields||{}));
-    }
-    return {rows,source:'collectionGroup',sourceReads:documents.length};
+    return publicView(snapshot);
   }
-
-  async function readByUid(ids){
-    const rows=[];
-    for(let i=0;i<ids.length;i+=100){
-      const batch=ids.slice(i,i+100).map(uid=>prefix+uid+'/apps/english-playroom');
-      const response=await call(base+'/documents:batchGet',{method:'POST',
-        body:JSON.stringify({documents:batch,mask:{fieldPaths:['assessmentLatest']}})});
-      if(!response.ok){
-        const body=await response.json().catch(()=>({}));
-        const reason=String(body?.error?.status||'UNKNOWN');
-        console.warn('diagnostic_batch_read_failed',{httpStatus:response.status,firestoreStatus:reason});
-        if(response.status===429||reason==='RESOURCE_EXHAUSTED')
-          throw fail('Firestoreの読み取り上限または利用制限に達しました。時間を置いて集計してください。',429);
-        throw fail('受験者の最新成績の取得に失敗しました。',502);
+  async function refresh(){
+    const previous=await readSnapshot();
+    const [active,admins]=await Promise.all([activeIds(),adminIds()]);
+    const allowed=new Set(active.filter(validUid));
+    for(const uid of admins)allowed.delete(uid);
+    const upper=new Date(now()-1000).toISOString();
+    // Existing v1 snapshots contain only totals; a one-time scan is required
+    // to retain each person's previous contribution for accurate replacements.
+    if(!previous||previous.value.schemaVersion!==SNAPSHOT_VERSION||
+      previous.value.scaleVersion!==DIAGNOSTIC_SCALE||
+      !previous.value.through||!previous.value.members){
+      const ids=[...allowed];
+      const members=await batchGetMembers(ids);
+      const snapshot={...summarizeMembers(members,{
+        updatedAt:new Date(now()).toISOString(),source:'initialBackfill',
+        sourceReads:ids.length,through:upper
+      }),members};
+      return saveSnapshot(snapshot,previous);
+    }
+    const snapshot=previous.value;
+    if(snapshot.through>=upper)return {...publicView(snapshot),source:'unchanged',sourceReads:0};
+    const {changes,readCount}=await changedMembers(snapshot.through,upper);
+    const members={...snapshot.members};
+    let changed=false;
+    // Also handle accounts that were disabled after the last snapshot.
+    for(const uid of Object.keys(members))if(!allowed.has(uid)){
+      delete members[uid];changed=true;
+    }
+    for(const [uid,item] of Object.entries(changes)){
+      if(!allowed.has(uid))continue;
+      if(!item.record){
+        if(members[uid]){delete members[uid];changed=true;}
+      }else if(JSON.stringify(members[uid])!==JSON.stringify(item.record)){
+        members[uid]=item.record;changed=true;
       }
-      const result=await response.json();
-      if(!Array.isArray(result))throw fail('個別の診断データが不正です。',502);
-      for(const item of result)if(item.found?.fields)rows.push(decodeFields(item.found.fields));
     }
-    return {rows,source:'batchGet',sourceReads:ids.length};
+    if(!changed&&!readCount)return {...publicView(snapshot),source:'unchanged',sourceReads:0};
+    const next={...summarizeMembers(members,{
+      updatedAt:new Date(now()).toISOString(),source:'delta',
+      sourceReads:readCount,through:upper
+    }),members};
+    return saveSnapshot(next,previous);
   }
-  async function rebuild(){
-    const [activeList,adminList]=await Promise.all([activeIds(),adminIds()]);
-    const excluded=new Set(adminList),active=new Set(activeList);
-    const ids=[...active].filter(uid=>!excluded.has(uid));
-    const input=await readMatching(active,excluded)||await readByUid(ids);
-    const summary=summarizeDiagnostic(input.rows,{
-      updatedAt:new Date(now()).toISOString(),source:input.source,sourceReads:input.sourceReads
-    });
-    const response=await call(base+'/documents:commit',{method:'POST',body:JSON.stringify({
-      writes:[{update:{name:docName,fields:encodeFields(summary)}}]
-    })});
-    if(!response.ok)throw fail('レベル判定の集計を保存できませんでした。',502);
-    return summary;
-  }
-
   return async function handle(req,res){
     try{
       if(!['GET','POST'].includes(req.method))throw fail('GETまたはPOSTのみ対応しています。',405);
       await verifyAdmin(req);
       if(req.method==='GET'){
-        const summary=await readSnapshot();
-        return send(res,200,summary?{ready:true,summary}:{ready:false});
+        const previous=await readSnapshot();
+        return send(res,200,previous?{ready:true,summary:publicView(previous.value)}:{ready:false});
       }
-      if(!pending)pending=rebuild().finally(()=>{pending=null;});
+      if(!pending)pending=refresh().finally(()=>{pending=null;});
       return send(res,200,{ready:true,summary:await pending});
     }catch(error){
       return send(res,error.status||500,{error:error.message||'集計処理に失敗しました。'});
