@@ -1,166 +1,198 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDiagnosticStats,summarizeDiagnostic,DIAGNOSTIC_SCALE} from './diagnostic-stats.mjs';
+import {DIAGNOSTIC_SCALE,createDiagnosticStats,normalizeDiagnostic,summarizeMembers} from './diagnostic-stats.mjs';
 
-const row=(score,grade='4級基礎',extra={})=>({
-  assessmentLatest:{score,grade,scaleVersion:DIAGNOSTIC_SCALE,vocabScore:score+10,grammarScore:score-10,
-    atMs:1000+score,...extra}
-});
-function output(){
-  let answer;
-  const send=(_res,status,data)=>{answer={status,...data};};
-  return {send,get:()=>answer};
-}
-const field=value=> {
-  if(value===null)return {nullValue:null};
-  if(typeof value==='string')return {stringValue:value};
-  if(typeof value==='number')return {integerValue:String(value)};
-  if(Array.isArray(value))return {arrayValue:{values:value.map(field)}};
-  return {mapValue:{fields:Object.fromEntries(Object.entries(value).map(([k,v])=>[k,field(v)]))}};
+const value=(v)=>{
+ if(v===null)return {nullValue:null};
+ if(typeof v==='string')return {stringValue:v};
+ if(typeof v==='number')return {doubleValue:v};
+ if(Array.isArray(v))return {arrayValue:{values:v.map(value)}};
+ return {mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,n])=>[k,value(n)]))}};
 };
-const unfield=v=>{
-  if(!v)return null;
-  if('stringValue'in v)return v.stringValue;
-  if('integerValue'in v)return Number(v.integerValue);
-  if('nullValue'in v)return null;
-  if('arrayValue'in v)return (v.arrayValue.values||[]).map(unfield);
-  if('mapValue'in v)return Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,x])=>[k,unfield(x)]));
+const encodeFields=obj=>Object.fromEntries(Object.entries(obj).map(([k,v])=>[k,value(v)]));
+const decodeValue=v=>{
+ if('nullValue'in v)return null;
+ if('stringValue'in v)return v.stringValue;
+ if('integerValue'in v)return Number(v.integerValue);
+ if('doubleValue'in v)return Number(v.doubleValue);
+ if('timestampValue'in v)return v.timestampValue;
+ if('arrayValue'in v)return (v.arrayValue.values||[]).map(decodeValue);
+ if('mapValue'in v)return Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,x])=>[k,decodeValue(x)]));
+ return undefined;
 };
-const encodeFields=v=>Object.fromEntries(Object.entries(v).map(([k,x])=>[k,field(x)]));
-const decodeFields=v=>Object.fromEntries(Object.entries(v).map(([k,x])=>[k,unfield(x)]));
-const response=(status,data)=>({status,ok:status>=200&&status<300,json:async()=>data});
+const decodeFields=fields=>Object.fromEntries(Object.entries(fields).map(([k,x])=>[k,decodeValue(x)]));
+const result=(status,data)=>({status,ok:status>=200&&status<300,json:async()=>data});
 const name=uid=>'projects/p/databases/(default)/documents/users/'+uid+'/apps/english-playroom';
-const make=({fetchImpl,verifyAdmin=async()=>{},activeIds=async()=>['student1','student2','admin'],
-    adminIds=async()=>['admin'],now=()=>1234567890000}={})=>{
-  const out=output();
-  const handle=createDiagnosticStats({base:'https://db',projectId:'p',accessToken:async()=> 'token',
-    verifyAdmin,activeIds,adminIds,encodeFields,decodeFields,fetchImpl,now,send:out.send,
-    fail:(message,status)=>Object.assign(new Error(message),{status})});
-  return {handle,out};
-};
-
-test('summary uses latest matching scale, median, means and histogram',()=>{
- const s=summarizeDiagnostic([row(100,'4級基礎'),row(350,'3級上位'),row(900,'準1級程度'),row(300,'2級標準',{scaleVersion:'old'}),{}],
-  {updatedAt:'2026-11-16T00:00:00.000Z',sourceReads:3});
- assert.equal(s.participantCount,3);
- assert.equal(s.averageScore,450);
- assert.equal(s.medianScore,350);
- assert.equal(s.minimumScore,100);
- assert.equal(s.maximumScore,900);
- assert.equal(s.averageVocabScore,460);
- assert.equal(s.averageGrammarScore,440);
- assert.equal(s.gradeCounts['準1級程度'],1);
- assert.equal(s.gradeCounts['4級'],1);
- assert.equal(s.scoreBands.reduce((sum,x)=>sum+x.count,0),3);
+const previousDate='2026-11-16T13:00:00.000Z';
+const nowDate='2026-11-16T13:05:00.000Z';
+const record=(score,atMs=1000,grade='4級',scaleVersion=DIAGNOSTIC_SCALE)=>({
+ id:'attempt-'+atMs,score,atMs,grade,scaleVersion,vocabCorrect:7,grammarCorrect:6,vocabTotal:10,grammarTotal:10
 });
-
-test('GET returns saved snapshot using one document read only',async()=>{
- let calls=0;
- const {handle,out}=make({fetchImpl:async(url,options)=>{
-  calls++;assert.match(url,/level-diagnostic-summary-v1$/);assert.equal(options.method,undefined);
-  return response(200,{fields:encodeFields({schemaVersion:1,scaleVersion:DIAGNOSTIC_SCALE,participantCount:2})});
- }});
- await handle({method:'GET'},{});
- assert.equal(calls,1);assert.equal(out.get().status,200);
- assert.equal(out.get().summary.participantCount,2);
-});
-
-test('POST queries current diagnostics, excludes admin and saves anonymous single document',async()=>{
- const calls=[],snapshot=[];
- const {handle,out}=make({fetchImpl:async(url,options)=>{
-  calls.push([url,options.method||'GET']);
-  if(url.endsWith(':runQuery'))return response(200,[
-    {document:{name:name('student1'),fields:encodeFields(row(220,'4級標準'))}},
-    {document:{name:name('admin'),fields:encodeFields(row(990,'準1級程度'))}},
-    {document:{name:name('student2'),fields:encodeFields(row(420,'3級基礎'))}}
-  ]);
-  if(url.endsWith(':commit')){snapshot.push(JSON.parse(options.body));return response(200,{});}
-  throw Error('unexpected '+url);
- }});
- await handle({method:'POST'},{});
- assert.equal(out.get().status,200);
- assert.equal(out.get().summary.participantCount,2);
- assert.equal(out.get().summary.averageScore,320);
- assert.equal(out.get().summary.sourceReads,3);
- assert.equal(snapshot.length,1);
- assert.equal(snapshot[0].writes.length,1);
- assert.doesNotMatch(JSON.stringify(snapshot[0]),/student1|student2|admin|assessmentLatest/);
- assert.equal(calls.filter(([,method])=>method==='POST').length,2);
-});
-
-test('fallback batchGet reads only active non-admin members when collection group index unavailable',async()=>{
- const batches=[];
- const {handle,out}=make({fetchImpl:async(url,options)=>{
-  if(url.endsWith(':runQuery'))return response(400,{error:{status:'FAILED_PRECONDITION'}});
-  if(url.endsWith(':batchGet')){
-   const docs=JSON.parse(options.body).documents;batches.push(docs);
-   return response(200,[{found:{name:name('student1'),fields:encodeFields(row(200))}},
-     {found:{name:name('student2'),fields:encodeFields(row(400))}}]);
+function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,commitStatus=200,
+ allowed=['A','B','ADMIN'],excluded=['ADMIN'],now=Date.parse(nowDate),authFails=false}={}){
+ let stored=snapshot,reads={snapshot:0,batch:0,query:0,commit:0},reqs=[],response;
+ const handle=createDiagnosticStats({
+  base:'https://firestore.test',projectId:'p',accessToken:async()=> 'token',
+  verifyAdmin:async()=>{if(authFails)throw Object.assign(Error('no admin'),{status:403});},
+  activeIds:async()=>allowed,adminIds:async()=>excluded,
+  decodeFields,encodeFields,now:()=>now,
+  fail:(message,status)=>Object.assign(Error(message),{status}),
+  send:(_res,status,data)=>{response={status,...data};},
+  fetchImpl:async(url,opt)=>{
+    reqs.push({url,opt});
+    if(url.endsWith('/analytics/level-diagnostic-summary-v1')){
+      reads.snapshot++;
+      return stored?result(200,{fields:encodeFields(stored),updateTime:'2026-11-16T13:03:00Z'}):result(404,{});
+    }
+    if(url.endsWith(':batchGet')){
+      reads.batch++;
+      return result(200,batchRows.map(x=>({found:{name:name(x.uid),fields:encodeFields(x.fields)}})));
+    }
+    if(url.endsWith(':runQuery')){
+      reads.query++;
+      return queryStatus===200?result(200,queryRows.map(x=>({document:{name:name(x.uid),fields:encodeFields(x.fields)}}))):
+        result(queryStatus,{error:{status:queryStatus===400?'FAILED_PRECONDITION':'RESOURCE_EXHAUSTED'}});
+    }
+    if(url.endsWith(':commit')){
+      reads.commit++;
+      if(commitStatus!==200)return result(commitStatus,{error:{status:'ABORTED'}});
+      stored=decodeFields(JSON.parse(opt.body).writes[0].update.fields);
+      return result(200,{});
+    }
+    throw Error('unexpected URL '+url);
   }
-  if(url.endsWith(':commit'))return response(200,{});
-  throw Error('unexpected '+url);
- }});
- await handle({method:'POST'},{});
- assert.deepEqual(batches.flat(),[name('student1'),name('student2')]);
- assert.equal(out.get().summary.source,'batchGet');
- assert.equal(out.get().summary.participantCount,2);
- assert.equal(out.get().summary.sourceReads,2);
+ });
+ return {request:async method=>{await handle({method},{});return response;},
+   get stored(){return stored;},reads,reqs};
+}
+
+test('pilot-2 record with answer counts replaces old pilot-1 and preserves grade distribution',()=>{
+ assert.equal(normalizeDiagnostic(record(500,10,'2級','pilot-1')),null);
+ const data=summarizeMembers({A:record(100,100,'4級'),B:record(500,200,'2級'),C:record(900,300,'準1級程度')});
+ assert.equal(data.averageScore,500);
+ assert.equal(data.medianScore,500);
+ assert.equal(data.minimumScore,100);
+ assert.equal(data.maximumScore,900);
+ assert.equal(data.gradeCounts['2級'],1);
+ assert.equal(data.averageVocabCorrect,7);
+ assert.equal(data.averageGrammarCorrect,6);
+ assert.equal(data.averageVocabScore,null);
 });
 
-test('query permission and internal errors fall back to per-user reads without extra writes',async()=>{
- for(const [status,reason] of [[403,'PERMISSION_DENIED'],[500,'INTERNAL']]){
-  let batches=0,commits=0;
-  const {handle,out}=make({fetchImpl:async(url,options)=>{
-   if(url.endsWith(':runQuery'))return response(status,{error:{status:reason}});
-   if(url.endsWith(':batchGet')){
-    batches++;
-    assert.deepEqual(JSON.parse(options.body).documents,[name('student1'),name('student2')]);
-    return response(200,[{found:{name:name('student1'),fields:encodeFields(row(320))}},
-      {found:{name:name('student2'),fields:encodeFields(row(420))}}]);
-   }
-   if(url.endsWith(':commit')){commits++;return response(200,{});}
-   throw Error('Unexpected call '+url);
-  }});
-  await handle({method:'POST'},{});
-  assert.equal(out.get().status,200);
-  assert.equal(out.get().summary.participantCount,2);
-  assert.equal(out.get().summary.averageScore,370);
-  assert.equal(out.get().summary.source,'batchGet');
-  assert.equal(batches,1);
-  assert.equal(commits,1);
- }
+test('first refresh migrates prior aggregate using one-time batch wallet reads',async()=>{
+ const h=harness({snapshot:{schemaVersion:1,scaleVersion:'pilot-1',participantCount:2},
+  batchRows:[{uid:'A',fields:{assessmentLatest:record(200)}},
+             {uid:'B',fields:{assessmentLatest:record(400)}},
+             {uid:'ADMIN',fields:{assessmentLatest:record(900)}}]});
+ const v=await h.request('POST');
+ assert.equal(v.status,200);
+ assert.equal(v.summary.participantCount,2);
+ assert.equal(v.summary.averageScore,300);
+ assert.equal(v.summary.source,'initialBackfill');
+ assert.equal(v.summary.sourceReads,2);
+ assert.equal(h.reads.batch,1);
+ assert.equal(h.reads.query,0);
+ assert.equal(h.reads.commit,1);
+ assert.equal(Object.keys(h.stored.members).length,2);
+ assert.deepEqual(JSON.parse(h.reqs.find(x=>x.url.endsWith(':batchGet')).opt.body).documents,[name('A'),name('B')]);
 });
 
-test('Firestore quota exhaustion does not trigger full-user fallback',async()=>{
- let queryCalls=0,batchCalls=0,writeCalls=0;
- const {handle,out}=make({fetchImpl:async(url)=>{
-  if(url.endsWith(':runQuery')){queryCalls++;return response(429,{error:{status:'RESOURCE_EXHAUSTED'}});}
-  if(url.endsWith(':batchGet'))batchCalls++;
-  if(url.endsWith(':commit'))writeCalls++;
-  return response(500,{});
- }});
- await handle({method:'POST'},{});
- assert.equal(queryCalls,1);
- assert.equal(batchCalls,0);
- assert.equal(writeCalls,0);
- assert.equal(out.get().status,429);
+test('A retakes, delta loads A only, replaces her existing contribution without recounting B',async()=>{
+ const initial={...summarizeMembers({A:record(200,100,'4級'),B:record(400,200,'3級')},
+    {through:previousDate,updatedAt:previousDate}),members:{A:record(200,100,'4級'),B:record(400,200,'3級')}};
+ const h=harness({snapshot:initial,queryRows:[
+   {uid:'A',fields:{assessmentLatest:record(700,400,'2級'),assessmentUpdatedAt:'2026-11-16T13:04:00Z'}}
+ ]});
+ const v=await h.request('POST');
+ assert.equal(v.status,200);
+ assert.equal(v.summary.source,'delta');
+ assert.equal(v.summary.sourceReads,1);
+ assert.equal(v.summary.participantCount,2);
+ assert.equal(v.summary.averageScore,550);
+ assert.equal(v.summary.medianScore,550);
+ assert.equal(v.summary.gradeCounts['4級'],0);
+ assert.equal(v.summary.gradeCounts['2級'],1);
+ assert.equal(v.summary.scoreBands[2].count,0);
+ assert.equal(v.summary.scoreBands[7].count,1);
+ assert.equal(h.reads.batch,0);
+ assert.equal(h.reads.query,1);
+ assert.equal(h.reads.commit,1);
+ const query=JSON.parse(h.reqs.find(x=>x.url.endsWith(':runQuery')).opt.body).structuredQuery;
+ assert.equal(query.from[0].allDescendants,true);
+ assert.equal(query.from[0].collectionId,'apps');
+ assert.equal(query.where.compositeFilter.filters[0].fieldFilter.field.fieldPath,'assessmentUpdatedAt');
+ assert.equal(query.select.fields[0].fieldPath,'assessmentLatest');
+ assert.equal(h.stored.members.B.score,400);
+ assert.equal(h.stored.members.A.score,700);
 });
 
-test('unauthorized caller never reads the database',async()=>{
- let calls=0;
- const {handle,out}=make({verifyAdmin:async()=>{throw Object.assign(Error('forbidden'),{status:403});},
-   fetchImpl:async()=>{calls++;throw Error('should not be called');}});
- await handle({method:'GET'},{});
- assert.equal(out.get().status,403);assert.equal(calls,0);
+test('no updates means no snapshot write',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous});
+ const v=await h.request('POST');
+ assert.equal(v.summary.source,'unchanged');
+ assert.equal(v.summary.sourceReads,0);
+ assert.equal(h.reads.query,1);
+ assert.equal(h.reads.commit,0);
 });
 
-test('failed refresh does not write or fake success',async()=>{
- let writes=0;
- const {handle,out}=make({fetchImpl:async(url)=>{
-  if(url.endsWith(':runQuery'))return response(500,{error:{status:'INTERNAL'}});
-  if(url.endsWith(':commit'))writes++;
-  return response(404,{});
- }});
- await handle({method:'POST'},{});
- assert.equal(out.get().status,502);assert.equal(writes,0);
+test('same participant retakes multiple times: latest result replaces previous once',async()=>{
+ const old={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:old,queryRows:[
+  {uid:'A',fields:{assessmentLatest:record(550,300),assessmentUpdatedAt:'2026-11-16T13:03:00Z'}},
+  {uid:'A',fields:{assessmentLatest:record(800,400),assessmentUpdatedAt:'2026-11-16T13:04:00Z'}}
+ ]});
+ const v=await h.request('POST');
+ assert.equal(v.summary.participantCount,1);
+ assert.equal(v.summary.averageScore,800);
+ assert.equal(v.summary.sourceReads,2);
+});
+
+test('GET returns public statistics without any member IDs or private records',async()=>{
+ const h=harness({snapshot:{...summarizeMembers({A:record(250)},{through:previousDate}),members:{A:record(250)}}});
+ const v=await h.request('GET');
+ assert.equal(v.status,200);
+ assert.equal(v.summary.participantCount,1);
+ assert.equal('members'in v.summary,false);
+ assert.doesNotMatch(JSON.stringify(v),/attempt-1000|\"A\"/);
+ assert.equal(h.reads.snapshot,1);
+ assert.equal(h.reads.query,0);
+});
+
+test('no index produces actionable error without whole-user fallback or writes',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous,queryStatus:400});
+ const v=await h.request('POST');
+ assert.equal(v.status,412);
+ assert.match(v.error,/assessmentUpdatedAt/);
+ assert.equal(h.reads.batch,0);
+ assert.equal(h.reads.commit,0);
+});
+
+test('quota errors avoid retriggering a full scan',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous,queryStatus:429});
+ const v=await h.request('POST');
+ assert.equal(v.status,429);
+ assert.equal(h.reads.batch,0);
+ assert.equal(h.reads.commit,0);
+});
+
+test('concurrent aggregate update uses Firestore precondition',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous,queryRows:[
+  {uid:'A',fields:{assessmentLatest:record(500),assessmentUpdatedAt:'2026-11-16T13:04:00Z'}}
+ ],commitStatus:409});
+ const v=await h.request('POST');
+ assert.equal(v.status,409);
+ const write=JSON.parse(h.reqs.find(x=>x.url.endsWith(':commit')).opt.body).writes[0];
+ assert.equal(write.currentDocument.updateTime,'2026-11-16T13:03:00Z');
+});
+
+test('unauthorized request does not read from Firestore',async()=>{
+ const h=harness({authFails:true});
+ const v=await h.request('POST');
+ assert.equal(v.status,403);
+ assert.equal(h.reads.snapshot,0);
+ assert.equal(h.reads.batch,0);
 });
