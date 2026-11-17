@@ -68,12 +68,15 @@ function starterRoster(data){
  }).filter(Boolean);
  return [pet,...team];
 }
-function spellAllowed(unit,spell){
- if(!unit||unit.hp<=0||unit.mp<spell.mp)return false;
+function spellLearned(unit,spell){
+ if(!unit||!spell)return false;
  if(unit.role===-1)return unit.level>=spell.level;
  if(unit.role===0)return false;
  if(unit.role===1)return ['mirogoro',...(unit.rarity>=2?['mirogoron']:[])].includes(spell.id);
  return ['mimuros',...(unit.rarity>=2?['mimurose','meinon']:[]),...(unit.rarity>=3?['meinoora']:[])].includes(spell.id);
+}
+function spellAllowed(unit,spell){
+ return !!unit&&unit.hp>0&&unit.mp>=spell.mp&&spellLearned(unit,spell);
 }
 function wsFrame(op,payload=''){
  const data=Buffer.isBuffer(payload)?payload:Buffer.from(payload);
