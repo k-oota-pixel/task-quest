@@ -212,6 +212,36 @@ async function writeDailyCoinSummary(accessToken,value,updateTime='',previous=nu
 }
 
 async function grantCoins(accessToken,uid,amount){const docName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:docName,fields:{coinSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['coinSchemaVersion']},updateTransforms:[{fieldPath:'coins',increment:{integerValue:String(amount)}},{fieldPath:'coinUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok)throw fail('コインを付与できませんでした。',502);const doc=await getUserDoc(accessToken,uid);return Math.max(0,Math.floor(Number(doc.coins)||0));}
+
+const QUEST_PLAZA_ITEM_IDS=new Set(['bandage','medicine','date-hospital-prescription','inter-prescription','date-water','yoteizan-water']);
+// Atomic item decrement. Compare Firestore updateTime to prevent double-spending
+// against other tabs, and only write the single inventory field being consumed.
+async function consumeQuestPlazaItem(uid,itemId){
+ if(!QUEST_PLAZA_ITEM_IDS.has(itemId))throw fail('使用できないアイテムです。',400);
+ const token=await getGoogleAccessToken(),path='users/'+encodeURIComponent(uid)+'/apps/english-playroom';
+ const url=FIRESTORE_BASE+'/documents/'+path;
+ const quote=String.fromCharCode(96);
+ const fieldId=/^[A-Za-z_][A-Za-z0-9_]*$/.test(itemId)?itemId:quote+itemId+quote;
+ for(let attempt=0;attempt<3;attempt++){
+  const res=await fetch(url,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(12000)});
+  if(!res.ok)throw fail('所持アイテムを確認できませんでした。',502);
+  const data=await res.json();
+  const current=Number(data.fields?.petDungeonItems?.mapValue?.fields?.[itemId]?.integerValue||0);
+  if(!Number.isSafeInteger(current)||current<=0)throw fail('アイテムを持っていません。',409);
+  if(!data.updateTime)throw fail('所持品の更新時刻が確認できません。',502);
+  const write={update:{name:data.name,fields:{petDungeonItems:{mapValue:{fields:{[itemId]:{integerValue:String(current-1)}}}}}},
+   updateMask:{fieldPaths:['petDungeonItems.'+fieldId]},currentDocument:{updateTime:data.updateTime}};
+  const commit=await fetch(FIRESTORE_BASE+'/documents:commit',{
+   method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+   body:JSON.stringify({writes:[write]}),signal:AbortSignal.timeout(12000)
+  });
+  if(commit.ok)return current-1;
+  if(commit.status===409||commit.status===412)continue;
+  throw fail('アイテムの使用を保存できませんでした。',502);
+ }
+ throw fail('ほかの操作と重なりました。もう一度お試しください。',409);
+}
+
 async function registerNickname(accessToken,uid,value){const nickname=normalizeNickname(value);if(!validNickname(nickname))throw fail('ニックネームは1〜20文字で入力してください。',400);const current=await getUserDoc(accessToken,uid);if(validNickname(current.nickname))return normalizeNickname(current.nickname);const key=nicknameKey(nickname),registryId=Buffer.from(key,'utf8').toString('base64url');const userDocName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}/apps/english-playroom`,registryName=`projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/nickname_registry/${registryId}`;const response=await fetch(`${FIRESTORE_BASE}/documents:commit`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({writes:[{update:{name:registryName,fields:{uid:{stringValue:uid},nickname:{stringValue:nickname}}},currentDocument:{exists:false}},{update:{name:userDocName,fields:{nickname:{stringValue:nickname},nicknameKey:{stringValue:key},nicknameSchemaVersion:{integerValue:'1'}}},updateMask:{fieldPaths:['nickname','nicknameKey','nicknameSchemaVersion']},updateTransforms:[{fieldPath:'nicknameUpdatedAt',setToServerValue:'REQUEST_TIME'}]}]})});let data={};try{data=await response.json();}catch{}if(!response.ok){if(response.status===409||data?.error?.status==='ALREADY_EXISTS')throw fail('そのニックネームはすでに使われています。別の名前を入力してください。',409);throw fail('ニックネームを登録できませんでした。',502);}return nickname;}
 
 const renameShopName=createShopNameChanges({base:FIRESTORE_BASE,projectId:FIREBASE_PROJECT_ID});
@@ -598,7 +628,7 @@ export const server=http.createServer(async(req,res)=>{
 });
 
 // Hidden direct-URL plaza. All authenticated learners are admitted; no admin-only gate.
-installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessToken,grantCoins,originAllowed});
+installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessToken,grantCoins,consumeItem:consumeQuestPlazaItem,originAllowed});
 
 if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>{
  console.log('Task Quest server ready');
