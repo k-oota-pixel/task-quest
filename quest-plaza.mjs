@@ -2,7 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 
 // WebSocket transport for the optional, unlinked Monster Quest plaza.
 // No npm dependency, no URL credentials, no Firestore polling for movement.
-const WIDTH=48,HEIGHT=32,MAX_PLAYERS=40,MOVE_MS=240,INVITE_MS=10000,BATTLE_MS=300000;
+const WIDTH=48,HEIGHT=32,MAX_PLAYERS=40,MOVE_MS=240,INVITE_MS=10000;
 const allowedGrades=new Set(['4','3','pre2','2']);
 const spellList=[
  {id:'mimuros',name:'ミムロス',level:5,kind:'heal',mp:4,base:10},
@@ -129,6 +129,11 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   })().finally(()=>{bankPending=null;});
   return bankPending;
  }
+ function sendQuestion(p){
+  const q=p.question;
+  if(!q)return;
+  send(p,{type:'question',seq:q.seq,kind:q.type,label:q.label,prompt:q.prompt,options:q.options,tokens:q.tokens});
+ }
  function nextQuestion(p){
   if(!p.battle)return;
   const bank=bankCache;
@@ -149,28 +154,27 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
       .map(r=>reverse?r.word:r.answers[0]))].filter(v=>normalizeAnswer(v)!==normalizeAnswer(answer))).slice(0,3);
     if(others.length!==3)continue;
     p.lastWord=row.word;
-    q={type:'choice',label:'単語',prompt:reverse?'次の日本語を英語に：'+row.answers[0]:'次の単語の意味は？ '+row.word,answer,options:shuffled([answer,...others]),seconds:15};
+    q={type:'choice',label:'単語',prompt:reverse?'次の日本語を英語に：'+row.answers[0]:'次の単語の意味は？ '+row.word,answer,options:shuffled([answer,...others])};
    }else if(type==='ordering'){
     const item=randomItem(extra.ordering);if(!item?.answer)continue;
     const tokens=item.answer.match(/[A-Za-z]+(?:[-'’][A-Za-z]+)*|\d+(?:st|nd|rd|th)?/g)||[];
     if(tokens.length<2||tokens.length>25)continue;
     const choices=shuffled(tokens.map((v,i)=>({id:i,text:v.toLowerCase()})));
-    q={type:'ordering',label:'並べ替え',prompt:item.prompt,answer:item.answer,accepted:item.acceptedAnswers||[],tokens:choices,seconds:Math.min(75,Math.max(40,tokens.length*4))};
+    q={type:'ordering',label:'並べ替え',prompt:item.prompt,answer:item.answer,accepted:item.acceptedAnswers||[],tokens:choices};
    }else if(type==='potato'){
     const item=randomItem(extra.potato);
     if(!item?.answer||!Array.isArray(item.options)||item.options.length<2)continue;
-    q={type:'choice',label:'ポテトマン',prompt:item.prompt,answer:item.answer,options:shuffled(item.options),seconds:25};
+    q={type:'choice',label:'ポテトマン',prompt:item.prompt,answer:item.answer,options:shuffled(item.options)};
    }
   }
   if(!q)throw Error('選択された級の問題を生成できませんでした。');
   q.seq=(p.questionSeq||0)+1;p.questionSeq=q.seq;p.question=q;
-  q.deadline=Date.now()+q.seconds*1000;
-  send(p,{type:'question',seq:q.seq,kind:q.type,label:q.label,prompt:q.prompt,options:q.options,tokens:q.tokens,deadline:q.deadline});
+  sendQuestion(p);
  }
  const alive=team=>team.some(unit=>unit.hp>0);
  const target=team=>team.findIndex(unit=>unit.hp>0);
  const fightState=b=>({
-  type:'battleState',id:b.id,grade:b.grade,remaining:Math.max(0,b.deadline-Date.now()),
+  type:'battleState',id:b.id,grade:b.grade,
   teams:[b.a,b.b].map(p=>({id:p.uid,nickname:p.nickname,units:p.units.map(({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct,level})=>({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct,level}))})),
   log:b.log.slice(-6)
  });
@@ -199,10 +203,15 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
  }
  function applyAnswer(p,answer){
   const b=p.battle,q=p.question;
-  if(!b||!q||b.ended||answer.seq!==q.seq)return;
+  if(!b||b.ended)return;
+  if(!q||answer.seq!==q.seq){
+   // Stale/duplicate answers must never leave a client stuck at 判定中.
+   if(q)sendQuestion(p);
+   else nextQuestion(p);
+   return;
+  }
   p.question=null;
-  const correct=Date.now()<=q.deadline&&
-   (q.type==='ordering'?[q.answer,...q.accepted].some(v=>normalizeAnswer(v)===normalizeAnswer(answer.value))
+  const correct=(q.type==='ordering'?[q.answer,...q.accepted].some(v=>normalizeAnswer(v)===normalizeAnswer(answer.value))
     :normalizeAnswer(answer.value)===normalizeAnswer(q.answer));
   const enemy=p===b.a?b.b:b.a,events=[];
   for(const unit of p.units.slice(1))unit.ct=Math.max(0,unit.ct-(correct?1:.5));
@@ -289,7 +298,6 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   if(!alive(p.units)&&!alive(enemy.units)){void endBattle(b,null,'両者全滅・引き分け');return;}
   if(!alive(enemy.units)){void endBattle(b,p,p.nickname+'の勝利！');return;}
   if(!alive(p.units)){void endBattle(b,enemy,enemy.nickname+'の勝利！');return;}
-  if(Date.now()>=b.deadline){void endBattle(b,null,'制限時間により引き分け');return;}
   try{nextQuestion(p);}catch{void endBattle(b,null,'問題データのエラーにより引き分け');}
  }
  async function beginBattle(invite){
@@ -303,7 +311,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    if(!a.connection||!b.connection)return;
    a.units=starterRoster(dataA);b.units=starterRoster(dataB);
    a.inventory=inventoryFrom(dataA);b.inventory=inventoryFrom(dataB);
-   const battle={id:randomUUID(),a,b,grade:invite.grade,deadline:Date.now()+BATTLE_MS,log:[],ended:false};
+   const battle={id:randomUUID(),a,b,grade:invite.grade,log:[],ended:false};
    a.battle=b.battle=battle;
    battles.set(battle.id,battle);
    publish({type:'statuses',players:[view(a),view(b)]});
@@ -387,7 +395,25 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    return;
   }
   if(msg.type==='item'){void useBattleItem(p,String(msg.id||''));return;}
-  if(msg.type==='answer'){applyAnswer(p,msg);return;}
+  if(msg.type==='syncQuestion'){
+   if(p.battle&&!p.battle.ended){
+    notifyFight(p.battle);
+    if(p.question)sendQuestion(p);else nextQuestion(p);
+   }
+   return;
+  }
+  if(msg.type==='answer'){
+   try{applyAnswer(p,msg);}
+   catch(error){
+    console.error('quest_plaza_answer_error',error?.stack||error);
+    send(p,{type:'notice',message:'解答処理で問題が起きたため、問題を再読み込みします。'});
+    if(p.battle&&!p.battle.ended){
+     try{if(p.question)sendQuestion(p);else nextQuestion(p);}
+     catch(e){console.error('quest_plaza_question_recovery_failed',e);}
+    }
+   }
+   return;
+  }
  }
  async function authenticate(connection,msg){
   if(connection.authenticating||connection.player||msg?.type!=='auth'||typeof msg.token!=='string'||msg.token.length>16384){closeConnection(connection,1008);return;}
@@ -415,8 +441,8 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    if(p.battle&&!p.battle.ended){
     send(p,{type:'battleStart',grade:p.battle.grade,opponent:(p.battle.a===p?p.battle.b:p.battle.a).nickname});
     notifyFight(p.battle);
-    if(p.question)send(p,{type:'question',seq:p.question.seq,kind:p.question.type,label:p.question.label,prompt:p.question.prompt,
-      options:p.question.options,tokens:p.question.tokens,deadline:p.question.deadline});
+    if(p.question)sendQuestion(p);
+    else nextQuestion(p);
    }
   }catch(error){sendSocket(connection,{type:'error',message:'ログインを確認できませんでした。'});closeConnection(connection,1008);}
   finally{connection.authenticating=false;}
@@ -439,12 +465,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
     p.disconnectedAt=null;
    }
   }
-  for(const b of battles.values()){
-   if(now>=b.deadline){void endBattle(b,null,'制限時間により引き分け');continue;}
-   for(const p of [b.a,b.b])if(p.connection&&p.question&&now>p.question.deadline){
-    applyAnswer(p,{seq:p.question.seq,value:null,action:{}});
-   }
-  }
+  // No per-question or match deadlines in synchronous multiplayer PvP.
   for(const p of clients.values())if(!p.connection&&!p.battle)cleanupPlayer(p);
   for(const [key,at] of recentRewards)if(now-at>3600000)recentRewards.delete(key);
  },250);
