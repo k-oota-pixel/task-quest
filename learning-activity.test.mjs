@@ -72,3 +72,27 @@ test('easy defense milestone is accepted and updates its own best-stage ranking'
  assert.ok(sentWrites[1].updateTransforms.some(t=>t.fieldPath==='typingDefenseBestEasy'&&t.maximum?.integerValue==='3'));
  assert.deepEqual(published,[{uid:'student',mode:'easy',stage:3}]);
 });
+
+test('newer learning activities and grade-3 interview attempts are accepted without extra reads',async()=>{
+ const ids=['eiken-grade3-interview','eiken-grade3-interview-q45','pet-fishing','level-diagnostic','monster-maze'];
+ for(const appId of ids){
+  let writes=0;
+  const handle=createLearningActivity({
+   base:'https://db',projectId:'p',accessToken:async()=>'token',
+   verifyUser:async()=>({uid:'u'}),readJson:async()=>({appId}),
+   send:(r,status,body)=>Object.assign(r,{status,body}),
+   fail:(msg,status)=>Object.assign(Error(msg),{status}),invalidate(){},
+   fetch:async(_url,opt)=>{
+    const body=JSON.parse(opt.body);
+    assert.equal(body.writes[1].update.fields.lastLearningAppId.stringValue,appId);
+    assert.equal(body.writes[1].updateTransforms[0].fieldPath,'lastLearningAt');
+    writes+=body.writes.length;
+    return {ok:true,status:200,json:async()=>({writeResults:[{}, {transformResults:[]}]})};
+   }
+  });
+  const r={};
+  await handle({method:'POST',headers:{'content-type':'application/json'}},r);
+  assert.equal(r.status,200,appId);
+  assert.equal(writes,2,appId);
+ }
+});
