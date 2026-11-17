@@ -96,3 +96,35 @@ test('newer learning activities and grade-3 interview attempts are accepted with
   assert.equal(writes,2,appId);
  }
 });
+
+test('diagnostic activity stores a queryable marker in the same existing summary write',async()=>{
+ let batch=false;
+ for(const format of ['single','batch']){
+  const commits=[];
+  const json=format==='single'?{appId:'level-diagnostic'}:{
+   batchId:'diag-batch-12345678',
+   events:[{appId:'level-diagnostic',eventId:'diag-event-12345678'}]
+  };
+  const handle=createLearningActivity({
+   base:'https://db',projectId:'p',accessToken:async()=>'token',
+   verifyUser:async()=>({uid:'u'}),readJson:async()=>json,
+   send:(r,status,body)=>Object.assign(r,{status,body}),
+   fail:(msg,status)=>Object.assign(Error(msg),{status}),invalidate(){},
+   fetch:async(_url,opt)=>{
+    commits.push(JSON.parse(opt.body).writes);
+    return {ok:true,status:200,json:async()=>({writeResults:[{}, {transformResults:[]}]})};
+   }
+  });
+  const res={};
+  await handle({method:'POST',headers:{'content-type':'application/json'}},res);
+  assert.equal(res.status,200);
+  assert.equal(commits.length,1);
+  assert.equal(commits[0].length,2,'do not introduce an extra Firestore document write');
+  const summary=commits[0][1];
+  const transforms=summary.updateTransforms;
+  assert.equal(summary.update.name,'projects/p/databases/(default)/documents/learning_activity/u');
+  assert.ok(transforms.some(t=>t.fieldPath==='assessmentUpdatedAt'&&t.setToServerValue==='REQUEST_TIME'));
+  assert.equal(transforms[2].fieldPath,'contents.`level-diagnostic`.titleCount',
+    'the title counter transform offset must remain unchanged');
+ }
+});
