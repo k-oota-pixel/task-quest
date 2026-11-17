@@ -204,83 +204,88 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   const correct=Date.now()<=q.deadline&&
    (q.type==='ordering'?[q.answer,...q.accepted].some(v=>normalizeAnswer(v)===normalizeAnswer(answer.value))
     :normalizeAnswer(answer.value)===normalizeAnswer(q.answer));
-  const enemy=p===b.a?b.b:b.a;
+  const enemy=p===b.a?b.b:b.a,events=[];
   for(const unit of p.units.slice(1))unit.ct=Math.max(0,unit.ct-(correct?1:.5));
   if(!correct){
    for(const unit of p.units)if(unit.hp>0)unit.hp=Math.max(0,unit.hp-Math.max(1,Math.ceil(unit.maxHp*.1)));
    b.log.push(p.nickname+'：誤答・味方全員に10％ダメージ');
+   events.push({actor:p.uid,receiver:p.uid,kind:'mistake'});
   }else{
    const action=answer.action||{},enemyUnits=enemy.units;
-   let battleFx=null;
-   const selectedIndex=Number.isInteger(action.target)&&enemyUnits[action.target]?.hp>0?action.target:target(enemyUnits);
-   const receive=(index,amount)=>{
-    const victim=enemyUnits[index];if(!victim||victim.hp<=0)return;
-    const guard=enemy.guard?.turns>0?enemy.guard.ratio:0;
-    victim.hp=Math.max(0,victim.hp-Math.max(1,Math.round(amount*(1-guard))));
+   const preferred=Number.isInteger(action.target)&&enemyUnits[action.target]?.hp>0?action.target:target(enemyUnits);
+   const nextTarget=()=>enemyUnits[preferred]?.hp>0?preferred:target(enemyUnits);
+   const emit=(sourceIndex,receiver,targetIndex,kind)=>events.push({actor:p.uid,receiver,sourceIndex,targetIndex,kind});
+   const strike=(sourceIndex,damage,index=nextTarget(),kind='physical')=>{
+    if(!Number.isInteger(index)||index<0||enemyUnits[index]?.hp<=0)return false;
+    const victim=enemyUnits[index],guard=enemy.guard?.turns>0?enemy.guard.ratio:0;
+    victim.hp=Math.max(0,victim.hp-Math.max(1,Math.round(damage*(1-guard))));
+    emit(sourceIndex,enemy.uid,index,kind);return true;
    };
-   const hit=(power,idx=selectedIndex)=>receive(idx,power);
+   const heal=(sourceIndex,amount)=>{
+    const targets=p.units.map((u,i)=>({u,i})).filter(({u})=>u.hp>0&&u.hp<u.maxHp)
+     .sort((a,d)=>a.u.hp/a.u.maxHp-d.u.hp/d.u.maxHp);
+    const victim=targets[0];if(!victim)return false;
+    victim.u.hp=Math.min(victim.u.maxHp,victim.u.hp+amount);
+    emit(sourceIndex,p.uid,victim.i,'heal');return true;
+   };
    if(action.kind==='magic'){
-    const ownerIndex=int(action.owner,0,3);
-    const owner=p.units[ownerIndex],spell=spellList.find(s=>s.id===action.spell);
-    const reviveIndex=Number.isInteger(action.reviveTarget)&&action.reviveTarget>0&&p.units[action.reviveTarget]?.hp===0
-      ?action.reviveTarget:p.units.findIndex((u,i)=>i>0&&u.hp===0);
-    // Never consume MP when a revive spell has no valid fallen companion.
+    const ownerIndex=int(action.owner,0,3),owner=p.units[ownerIndex],spell=spellList.find(s=>s.id===action.spell);
+    // Reviving the pet (index 0) is valid; only a living caster may cast.
+    const requested=action.reviveTarget;
+    const reviveIndex=Number.isInteger(requested)&&p.units[requested]?.hp===0
+      ?requested:p.units.findIndex(u=>u.hp===0);
     if(spell&&spellAllowed(owner,spell)){
-     if(spell.kind==='revive'&&reviveIndex<1){
+     if(spell.kind==='revive'&&reviveIndex<0){
       b.log.push(p.nickname+'：蘇生対象がいません（MP消費なし）');
      }else{
       owner.mp-=spell.mp;
-      if(spell.kind==='attack'){
-       hit(Math.max(1,Math.round(spell.base*(owner.role===-1?1:1.2))));
-       b.log.push(p.nickname+'：'+spell.name);
-       battleFx={actor:p.uid,receiver:enemy.uid,kind:'magic',sourceIndex:ownerIndex,targetIndex:selectedIndex};
-      }else if(spell.kind==='heal'){
-       const index=p.units.map((u,i)=>({i,u})).filter(({u})=>u.hp>0)
-        .sort((a,c)=>a.u.hp/a.u.maxHp-c.u.hp/c.u.maxHp)[0]?.i;
-       if(index!==undefined){
-        p.units[index].hp=Math.min(p.units[index].maxHp,p.units[index].hp+Math.round(spell.base*(owner.role===-1?1:1.2)));
-        battleFx={actor:p.uid,receiver:p.uid,kind:'heal',sourceIndex:ownerIndex,targetIndex:index};
-       }
-       b.log.push(p.nickname+'：'+spell.name);
-      }else{
-       const fallen=p.units[reviveIndex];
-       // メイノーラ 100% / メイノン 50%; percentage applies to max HP.
-       const success=spell.rate===1||Math.random()<spell.rate;
+      if(spell.kind==='revive'){
+       const fallen=p.units[reviveIndex],success=spell.rate===1||Math.random()<spell.rate;
        if(success){
         const percentage=spell.range[0]+Math.floor(Math.random()*(spell.range[1]-spell.range[0]+1));
         fallen.hp=Math.max(1,Math.round(fallen.maxHp*percentage/100));
         b.log.push(p.nickname+'：'+spell.name+'で'+fallen.name+'を蘇生！');
-        battleFx={actor:p.uid,receiver:p.uid,kind:'revive',sourceIndex:ownerIndex,targetIndex:reviveIndex};
+        emit(ownerIndex,p.uid,reviveIndex,'revive');
        }else b.log.push(p.nickname+'：'+spell.name+' 蘇生失敗（成功率50％）');
+      }else{
+       // As in the original Quest, another living owner of the same spell
+       // joins the casting (without spending more MP) when an ally starts it.
+       const casters=[ownerIndex];
+       if(ownerIndex!==0){
+        for(let i=0;i<p.units.length;i++)
+         if(i!==ownerIndex&&p.units[i].hp>0&&spellLearned(p.units[i],spell))casters.push(i);
+       }
+       for(const sourceIndex of casters){
+        const power=Math.max(1,Math.round(spell.base*(p.units[sourceIndex].role===-1?1:1.2)));
+        if(spell.kind==='attack')strike(sourceIndex,power,nextTarget(),'magic');
+        else heal(sourceIndex,power);
+       }
+       b.log.push(p.nickname+'：'+spell.name);
       }
      }
     }else b.log.push(p.nickname+'：魔法を使用できませんでした');
    }else{
-    if(p.units[0].hp>0)hit(p.units[0].physical);
-    for(const unit of p.units.slice(1))if(unit.hp>0&&unit.role===0){
-      const isSpecial=action.special===unit.key&&unit.ct<=0&&unit.rarity>0;
-      const power=Math.round(unit.physical*(isSpecial?1.25+unit.rarity*.33:1));
-      if(isSpecial&&unit.effect==='guard'){p.guard={ratio:unit.rarity/10,turns:unit.rarity===1?1:2};}
-      else if(isSpecial&&unit.effect.endsWith('All'))enemyUnits.forEach((enemyUnit,i)=>{if(enemyUnit.hp>0)hit(power,i);});
-      else hit(power,selectedIndex);
-      if(isSpecial)unit.ct=unit.maxCt;
+    if(p.units[0].hp>0)strike(0,p.units[0].physical);
+    for(let i=1;i<p.units.length;i++){
+     const unit=p.units[i];if(unit.hp<=0||unit.role!==0)continue;
+     const special=action.special===unit.key&&unit.ct<=0&&unit.rarity>0;
+     const power=Math.round(unit.physical*(special?1.25+unit.rarity*.33:1));
+     if(special&&unit.effect==='guard'){
+      p.guard={ratio:unit.rarity/10,turns:unit.rarity===1?1:2};
+      emit(i,p.uid,i,'guard');
+     }else if(special&&unit.effect.endsWith('All')){
+      for(let j=0;j<enemyUnits.length;j++)if(enemyUnits[j].hp>0)strike(i,power,j);
+     }else strike(i,power);
+     if(special)unit.ct=unit.maxCt;
     }
     b.log.push(p.nickname+'：攻撃成功！');
-    battleFx={actor:p.uid,receiver:enemy.uid,kind:'physical',sourceIndex:0,targetIndex:selectedIndex};
    }
-   if(battleFx)b.lastAction=battleFx;
   }
   if(p.guard?.turns>0)p.guard.turns--;
   if(enemy.guard?.turns>0)enemy.guard.turns--;
   send(p,{type:'feedback',correct,answer:q.answer});
   notifyFight(b);
-  const fx=correct?b.lastAction:null;
-  if(correct&&fx){
-   for(const participant of [b.a,b.b])send(participant,{type:'battleAction',...fx});
-   b.lastAction=null;
-  }else if(!correct){
-   for(const participant of [b.a,b.b])send(participant,{type:'battleAction',actor:p.uid,receiver:p.uid,kind:'mistake'});
-  }
+  if(events.length)for(const participant of [b.a,b.b])send(participant,{type:'battleActions',events});
   if(!alive(p.units)&&!alive(enemy.units)){void endBattle(b,null,'両者全滅・引き分け');return;}
   if(!alive(enemy.units)){void endBattle(b,p,p.nickname+'の勝利！');return;}
   if(!alive(p.units)){void endBattle(b,enemy,enemy.nickname+'の勝利！');return;}
