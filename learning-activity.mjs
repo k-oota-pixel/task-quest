@@ -5,7 +5,7 @@ import {dailyMaterialTransforms} from './material-rankings.mjs';
 import {challengePeriods} from './challenge-model.mjs';
 import {randomUUID} from 'node:crypto';
 const DEFENSE_IDS=new Set(['pet-typing-defense-easy','pet-typing-defense-normal','pet-typing-defense-hard']);
-const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','talk-quest','pet-catch','reading-training','pet-instructions','pet-chat','adventure-tower','adventure-dungeon','eigo-meter','word-wolf','pet-typing-defense-easy','pet-typing-defense-normal','pet-typing-defense-hard']);
+const CONTENT_IDS=new Set(['word-breaker','ateru','basic-quest','eiken-retry','task-quest','eiken-cloze','eiken-title','listening-training','pre2-interview-questions','eiken-pre2-interview-a','eiken-grade3-interview','eiken-grade3-interview-q45','talk-quest','pet-catch','pet-fishing','level-diagnostic','monster-maze','reading-training','pet-instructions','pet-chat','adventure-tower','adventure-dungeon','eigo-meter','word-wolf','pet-typing-defense-easy','pet-typing-defense-normal','pet-typing-defense-hard']);
 const encode=value=>typeof value==='string'?{stringValue:value}:typeof value==='number'?{integerValue:String(value)}:{nullValue:null};
 const validId=value=>typeof value==='string'&&/^[\w-]{8,100}$/.test(value);
 
