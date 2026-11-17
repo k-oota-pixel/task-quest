@@ -1,0 +1,30 @@
+name: Diagnostic live deployment smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - server.mjs
+      - diagnostic-stats.mjs
+      - learning-activity.mjs
+      - .github/workflows/diagnostic-live-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check index-free aggregation version without Firebase reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            payload="$(curl -fsS --max-time 12 'https://task-quest.onrender.com/api/status' || true)"
+            if printf '%s' "$payload" | grep -q '"diagnosticStatsVersion":"learning-activity-v3"'; then
+              echo 'Render has deployed diagnostic stats learning-activity-v3'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Render has not yet reported the index-free diagnostic stats version'
+          exit 1
