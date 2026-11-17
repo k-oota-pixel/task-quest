@@ -28,9 +28,10 @@ const nowDate='2026-11-16T13:05:00.000Z';
 const record=(score,atMs=1000,grade='4級',scaleVersion=DIAGNOSTIC_SCALE)=>({
  id:'attempt-'+atMs,score,atMs,grade,scaleVersion,vocabCorrect:7,grammarCorrect:6,vocabTotal:10,grammarTotal:10
 });
-function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,commitStatus=200,
+function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,queryMessage='',
+ indexStatus=404,indexConfig=null,commitStatus=200,
  allowed=['A','B','ADMIN'],excluded=['ADMIN'],now=Date.parse(nowDate),authFails=false}={}){
- let stored=snapshot,reads={snapshot:0,batch:0,query:0,commit:0},reqs=[],response;
+ let stored=snapshot,reads={snapshot:0,batch:0,query:0,commit:0,indexGet:0,indexPatch:0},reqs=[],response;
  const handle=createDiagnosticStats({
   base:'https://firestore.test',projectId:'p',accessToken:async()=> 'token',
   verifyAdmin:async()=>{if(authFails)throw Object.assign(Error('no admin'),{status:403});},
@@ -52,7 +53,15 @@ function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,commit
     if(url.endsWith(':runQuery')){
       reads.query++;
       return queryStatus===200?result(200,queryRows.map(x=>({document:{name:name(x.uid),fields:encodeFields(x.fields)}}))):
-        result(queryStatus,{error:{status:queryStatus===400?'FAILED_PRECONDITION':'RESOURCE_EXHAUSTED'}});
+        result(queryStatus,{error:{status:queryStatus===400?'FAILED_PRECONDITION':'RESOURCE_EXHAUSTED',message:queryMessage}});
+    }
+    if(url.includes('/collectionGroups/apps/fields/assessmentUpdatedAt')){
+      if(opt?.method==='PATCH'){
+        reads.indexPatch++;
+        return result(200,{name:'operations/index-setup'});
+      }
+      reads.indexGet++;
+      return indexStatus===200?result(200,{indexConfig:indexConfig||{indexes:[]}}):result(indexStatus,{});
     }
     if(url.endsWith(':commit')){
       reads.commit++;
@@ -196,4 +205,50 @@ test('unauthorized request does not read from Firestore',async()=>{
  assert.equal(v.status,403);
  assert.equal(h.reads.snapshot,0);
  assert.equal(h.reads.batch,0);
+});
+
+test('missing collection-group index is requested automatically without rereading users',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous,queryStatus:400,
+   queryMessage:'The query requires an index.'});
+ const v=await h.request('POST');
+ assert.equal(v.status,503);
+ assert.match(v.error,/インデックスの作成を開始/);
+ assert.equal(h.reads.indexGet,1);
+ assert.equal(h.reads.indexPatch,1);
+ assert.equal(h.reads.batch,0);
+ assert.equal(h.reads.commit,0);
+ const patch=h.reqs.find(x=>x.opt?.method==='PATCH');
+ assert.match(patch.url,/updateMask=indexConfig/);
+ const indexes=JSON.parse(patch.opt.body).indexConfig.indexes;
+ assert.equal(indexes.filter(x=>x.queryScope==='COLLECTION').length,2);
+ assert.deepEqual(indexes.find(x=>x.queryScope==='COLLECTION_GROUP'),
+   {queryScope:'COLLECTION_GROUP',fields:[{fieldPath:'assessmentUpdatedAt',order:'ASCENDING'}]});
+});
+
+test('existing index in preparation is never overwritten',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous,queryStatus:400,
+  queryMessage:'The query requires an index.',indexStatus:200,
+  indexConfig:{indexes:[{queryScope:'COLLECTION_GROUP',
+    fields:[{fieldPath:'assessmentUpdatedAt',order:'ASCENDING'}]}]}});
+ const v=await h.request('POST');
+ assert.equal(v.status,503);
+ assert.match(v.error,/まだ検索できません/);
+ assert.equal(h.reads.indexGet,1);
+ assert.equal(h.reads.indexPatch,0);
+ assert.equal(h.reads.batch,0);
+});
+
+test('index permission denial leaves data untouched and returns manual setup instructions',async()=>{
+ const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
+ const h=harness({snapshot:previous,queryStatus:400,
+  queryMessage:'The query requires an index.',indexStatus:403});
+ const v=await h.request('POST');
+ assert.equal(v.status,412);
+ assert.match(v.error,/assessmentUpdatedAt/);
+ assert.equal(h.reads.indexGet,1);
+ assert.equal(h.reads.indexPatch,0);
+ assert.equal(h.reads.batch,0);
+ assert.equal(h.reads.commit,0);
 });
