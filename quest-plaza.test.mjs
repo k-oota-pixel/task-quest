@@ -40,7 +40,8 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
  const server=new EventEmitter();
  const api=installQuestPlaza(server,{
   verifyUser:async req=>({uid:req.headers.authorization.slice(7)}),
-  getUserDoc:async(_accessToken,uid)=>({nickname:'user-'+uid,petName:'pet-'+uid,monsterMaze:{team:['1-0','7-0','13-0']}}),
+  getUserDoc:async(_accessToken,uid)=>({nickname:'user-'+uid,petName:'pet-'+uid,
+   petStrengthLevelPoints:45,petStrength:{mp:30},monsterMaze:{team:['1-0','7-0','13-0']}}),
   getGoogleAccessToken:async()=>'access',
   grantCoins:async()=>0,originAllowed:()=>true
  });
@@ -80,6 +81,41 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
    const old=before.units[i],newUnit=after.units[i];
    assert.equal(newUnit.hp,Math.max(0,old.hp-Math.max(1,Math.ceil(old.maxHp*.1))));
   }
+  // The client's action visuals are server-confirmed, not client-invented.
+  assert(messages(a).some(x=>x.type==='battleAction'&&x.kind==='mistake'));
+  const meanings={cat:'猫',dog:'犬',bird:'鳥',book:'本',pen:'ペン',desk:'机'};
+  const correctFor=q=>{
+   if(q.kind==='ordering')return 'I am a student.';
+   const prompt=q.prompt||'';
+   const ja=prompt.slice(prompt.lastIndexOf('：')+1).trim();
+   if(prompt.includes('次の日本語'))return Object.keys(meanings).find(k=>meanings[k]===ja);
+   return meanings[prompt.split(' ').at(-1)];
+  };
+  // Repeated correct attacks drop ONE companion; the caster remains alive.
+  for(let turn=0;turn<6;turn++){
+   const current=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+   if(current.units[3].hp===0)break;
+   const bQuestion=messages(b).filter(x=>x.type==='question').at(-1);
+   assert(correctFor(bQuestion),'test question must be solvable');
+   b.emit('data',frame({type:'answer',seq:bQuestion.seq,value:correctFor(bQuestion),
+     action:{kind:'attack',target:3}}));
+   await delay(12);
+  }
+  const preRevive=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+  assert.equal(preRevive.units[3].hp,0);
+  const aQuestion=messages(a).filter(x=>x.type==='question').at(-1);
+  a.emit('data',frame({type:'answer',seq:aQuestion.seq,value:correctFor(aQuestion),
+    action:{kind:'magic',owner:0,spell:'meinoora',reviveTarget:3}}));
+  await delay(20);
+  const revived=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+  assert(revived.units[3].hp>=Math.floor(revived.units[3].maxHp*.65));
+  assert(revived.units[3].hp<=Math.ceil(revived.units[3].maxHp*.80));
+  assert(messages(a).some(x=>x.type==='battleAction'&&x.kind==='revive'));
+  a.emit('data',frame({type:'forfeit'}));
+  await delay(20);
+  assert.equal(messages(a).filter(x=>x.type==='battleEnd').at(-1).winner,'two');
+  assert.equal(messages(b).filter(x=>x.type==='battleEnd').at(-1).winner,'two');
+
  }finally{
   api.close();globalThis.fetch=original;Math.random=originalRandom;
  }
