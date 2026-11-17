@@ -29,7 +29,8 @@ function messages(socket){
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const token=uid=>({url:'/ws/quest-plaza',headers:{origin:'https://k-oota-pixel.github.io',upgrade:'websocket','sec-websocket-key':'MTIzNDU2Nzg5MDEyMzQ1Ng==' }});
 test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% damage',async()=>{
- const original=globalThis.fetch;
+ const original=globalThis.fetch,originalRandom=Math.random;
+ Math.random=()=>.1;
  globalThis.fetch=async url=>({
   ok:true,
   json:async()=>String(url).includes('online-battle-vocab')
@@ -57,15 +58,29 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
   // Move to adjacent cells using a legal one-tile update (the server owns positions).
   // The test does not trust remote arbitrary teleport coordinates.
   const pa=views.find(p=>p.id==='one'),pb=views.find(p=>p.id==='two');
-  if(Math.abs(pa.x-pb.x)+Math.abs(pa.y-pb.y)>1){
-   // Rejoining is authenticated, not a new teleport API.
-   assert(!messages(a).some(x=>x.type==='battleStart'));
-  }
+  assert(Math.abs(pa.x-pb.x)+Math.abs(pa.y-pb.y)<=1);
   // A malformed/multi-square direction is never accepted.
   a.emit('data',frame({type:'move',dx:99,dy:0}));await delay(300);
   const advanced=messages(a).filter(x=>x.type==='positions').flatMap(x=>x.positions);
   assert(!advanced.some(([id,x])=>id==='one'&&x===pa.x+99));
+  a.emit('data',frame({type:'invite',to:'two',grade:'4'}));
+  await delay(25);
+  assert(messages(b).some(x=>x.type==='invite'&&x.grade==='4'));
+  b.emit('data',frame({type:'respond',from:'one',accept:true}));
+  await delay(75);
+  assert(messages(a).some(x=>x.type==='battleStart'));
+  assert(messages(b).some(x=>x.type==='battleStart'));
+  const question=messages(a).filter(x=>x.type==='question').at(-1);
+  const before=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+  assert(question?.seq);
+  a.emit('data',frame({type:'answer',seq:question.seq,value:'absolutely-wrong',action:{kind:'attack'}}));
+  await delay(25);
+  const after=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+  for(let i=0;i<before.units.length;i++){
+   const old=before.units[i],newUnit=after.units[i];
+   assert.equal(newUnit.hp,Math.max(0,old.hp-Math.max(1,Math.ceil(old.maxHp*.1))));
+  }
  }finally{
-  api.close();globalThis.fetch=original;
+  api.close();globalThis.fetch=original;Math.random=originalRandom;
  }
 });
