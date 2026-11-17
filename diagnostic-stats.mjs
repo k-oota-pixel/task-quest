@@ -120,6 +120,45 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     }
     return members;
   }
+  // Index configuration is a Firestore Admin API operation, not a billed
+  // document read/write. Preserve existing field overrides and TTL settings.
+  async function ensureGroupIndex(){
+    const fieldName='projects/'+encodeURIComponent(projectId)
+      +'/databases/(default)/collectionGroups/apps/fields/assessmentUpdatedAt';
+    const url='https://firestore.googleapis.com/v1/'+fieldName;
+    const current=await call(url);
+    if(current.status!==404&&!current.ok){
+      console.warn('diagnostic_index_check_failed',{status:current.status});
+      return 'unavailable';
+    }
+    const config=current.ok?(await current.json()).indexConfig||{}:{};
+    const sanitize=index=>({
+      queryScope:index.queryScope,
+      fields:(index.fields||[]).map(field=>({
+        fieldPath:field.fieldPath,
+        ...(field.order?{order:field.order}:{}),
+        ...(field.arrayConfig?{arrayConfig:field.arrayConfig}:{})
+      }))
+    });
+    let indexes=Array.isArray(config.indexes)?config.indexes.map(sanitize):[];
+    if((current.status===404||config.usesAncestorConfig)&&!indexes.length){
+      indexes=['ASCENDING','DESCENDING'].map(order=>({
+        queryScope:'COLLECTION',fields:[{fieldPath:'assessmentUpdatedAt',order}]
+      }));
+    }
+    const exists=indexes.some(index=>index.queryScope==='COLLECTION_GROUP'&&
+      index.fields?.length===1&&index.fields[0].fieldPath==='assessmentUpdatedAt'&&
+      index.fields[0].order==='ASCENDING');
+    if(exists)return 'building';
+    indexes.push({queryScope:'COLLECTION_GROUP',
+      fields:[{fieldPath:'assessmentUpdatedAt',order:'ASCENDING'}]});
+    const response=await call(url+'?updateMask=indexConfig',{
+      method:'PATCH',body:JSON.stringify({name:fieldName,indexConfig:{indexes}})
+    });
+    if(response.ok||response.status===409)return 'requested';
+    console.warn('diagnostic_index_setup_failed',{status:response.status});
+    return 'unavailable';
+  }
   async function changedMembers(after,before){
     // A single-field COLLECTION_GROUP ASCENDING index on assessmentUpdatedAt
     // allows this query to read just the updated wallets.
@@ -150,8 +189,23 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
         console.warn('diagnostic_delta_query_failed',{status:response.status,reason});
         if(response.status===429||reason==='RESOURCE_EXHAUSTED')
           throw fail('Firestoreの読み取り上限または利用制限に達しています。',429);
-        if(response.status===400||reason==='FAILED_PRECONDITION')
+        if(response.status===400||reason==='FAILED_PRECONDITION'){
+          const message=String(error?.error?.message||'');
+          if(/index/i.test(message)){
+            let status='unavailable';
+            try{status=await ensureGroupIndex();}
+            catch(indexError){
+              console.warn('diagnostic_index_setup_unavailable',{
+                kind:indexError?.name||'Error'
+              });
+            }
+            if(status==='requested')
+              throw fail('集計用インデックスの作成を開始しました。Firestoreで構築が完了した後、もう一度「集計を更新」を押してください。受験データや集計結果は変更していません。',503);
+            if(status==='building')
+              throw fail('集計用インデックスは設定されていますが、まだ検索できません。構築完了後に再度お試しください。',503);
+          }
           throw fail(PREFIX_ERROR,412);
+        }
         throw fail('差分集計用の検索に失敗しました。集計結果は変更していません。',502);
       }
       const rows=await response.json();
