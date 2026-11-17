@@ -3,9 +3,9 @@
 // existing assessmentUpdatedAt timestamp; no extra writes by learners.
 export const DIAGNOSTIC_SCALE='pilot-2-grade2';
 export const DIAGNOSTIC_SNAPSHOT='admin_diagnostic_stats/current';
-const SNAPSHOT_VERSION=2;
+const SNAPSHOT_VERSION=3;
 const grades=['4級','3級','準2級','2級','準1級程度'];
-const PREFIX_ERROR='集計用のFirestoreインデックスが未設定です。appsコレクショングループのassessmentUpdatedAt（昇順）を設定してください。';
+const PREFIX_ERROR='学習記録の差分検索に失敗しました。Firestoreのlearning_activityコレクションにassessmentUpdatedAt（昇順）の単一フィールドインデックスがあるか確認してください。';
 const asNumber=value=>value===null||value===undefined||value===''?NaN:Number(value);
 const average=values=>values.length?Math.round(values.reduce((a,b)=>a+b,0)*10/values.length)/10:null;
 const safeCount=value=>Number.isInteger(value)&&value>=0?value:null;
@@ -89,7 +89,7 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     if(response.status===404)return null;
     if(!response.ok)throw fail('保存済みのレベル判定集計を読み込めませんでした。',502);
     const doc=await response.json(),value=decodeFields(doc.fields||{});
-    if(![1,SNAPSHOT_VERSION].includes(value.schemaVersion))
+    if(![1,2,SNAPSHOT_VERSION].includes(value.schemaVersion))
       throw fail('集計データの形式が不正です。',502);
     return {value,updateTime:doc.updateTime};
   }
@@ -120,50 +120,18 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     }
     return members;
   }
-  // Index configuration is a Firestore Admin API operation, not a billed
-  // document read/write. Preserve existing field overrides and TTL settings.
-  async function ensureGroupIndex(){
-    const fieldName='projects/'+encodeURIComponent(projectId)
-      +'/databases/(default)/collectionGroups/apps/fields/assessmentUpdatedAt';
-    const url='https://firestore.googleapis.com/v1/'+fieldName;
-    const current=await call(url);
-    if(current.status!==404&&!current.ok){
-      console.warn('diagnostic_index_check_failed',{status:current.status});
-      return 'unavailable';
-    }
-    const config=current.ok?(await current.json()).indexConfig||{}:{};
-    const sanitize=index=>({
-      queryScope:index.queryScope,
-      fields:(index.fields||[]).map(field=>({
-        fieldPath:field.fieldPath,
-        ...(field.order?{order:field.order}:{}),
-        ...(field.arrayConfig?{arrayConfig:field.arrayConfig}:{})
-      }))
-    });
-    let indexes=Array.isArray(config.indexes)?config.indexes.map(sanitize):[];
-    if((current.status===404||config.usesAncestorConfig)&&!indexes.length){
-      indexes=['ASCENDING','DESCENDING'].map(order=>({
-        queryScope:'COLLECTION',fields:[{fieldPath:'assessmentUpdatedAt',order}]
-      }));
-    }
-    const exists=indexes.some(index=>index.queryScope==='COLLECTION_GROUP'&&
-      index.fields?.length===1&&index.fields[0].fieldPath==='assessmentUpdatedAt'&&
-      index.fields[0].order==='ASCENDING');
-    if(exists)return 'building';
-    indexes.push({queryScope:'COLLECTION_GROUP',
-      fields:[{fieldPath:'assessmentUpdatedAt',order:'ASCENDING'}]});
-    const response=await call(url+'?updateMask=indexConfig',{
-      method:'PATCH',body:JSON.stringify({name:fieldName,indexConfig:{indexes}})
-    });
-    if(response.ok||response.status===409)return 'requested';
-    console.warn('diagnostic_index_setup_failed',{status:response.status});
-    return 'unavailable';
-  }
-  async function changedMembers(after,before){
-    // A single-field COLLECTION_GROUP ASCENDING index on assessmentUpdatedAt
-    // allows this query to read just the updated wallets.
-    let cursor=null,readCount=0;
-    const changes={};
+  // A top-level collection uses Firestore's default single-field index.
+  // Each completed diagnostic already updates its own learning_activity doc
+  // in the same transaction as the wallet and attempt receipt.
+  const activityPrefix='projects/'+projectId+'/databases/(default)/documents/learning_activity/';
+  const uidFromActivityDoc=name=>{
+    if(!name?.startsWith(activityPrefix))return '';
+    const uid=name.slice(activityPrefix.length);
+    return validUid(uid)?uid:'';
+  };
+  async function changedMembers(after,before,allowed){
+    let cursor=null,markerReads=0;
+    const updates=new Map();
     while(true){
       const filters=[
         {fieldFilter:{field:{fieldPath:'assessmentUpdatedAt'},op:'GREATER_THAN_OR_EQUAL',
@@ -172,8 +140,8 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
           value:{timestampValue:before}}}
       ];
       const structuredQuery={
-        from:[{collectionId:'apps',allDescendants:true}],
-        select:{fields:[{fieldPath:'assessmentLatest'},{fieldPath:'assessmentUpdatedAt'}]},
+        from:[{collectionId:'learning_activity'}],
+        select:{fields:[{fieldPath:'assessmentUpdatedAt'}]},
         where:{compositeFilter:{op:'AND',filters}},
         orderBy:[{field:{fieldPath:'assessmentUpdatedAt'},direction:'ASCENDING'},
           {field:{fieldPath:'__name__'},direction:'ASCENDING'}],
@@ -186,48 +154,37 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
       if(!response.ok){
         const error=await response.json().catch(()=>({}));
         const reason=String(error?.error?.status||'UNKNOWN');
-        console.warn('diagnostic_delta_query_failed',{status:response.status,reason});
+        console.warn('diagnostic_activity_delta_query_failed',{status:response.status,reason});
         if(response.status===429||reason==='RESOURCE_EXHAUSTED')
           throw fail('Firestoreの読み取り上限または利用制限に達しています。',429);
-        if(response.status===400||reason==='FAILED_PRECONDITION'){
-          const message=String(error?.error?.message||'');
-          if(/index/i.test(message)){
-            let status='unavailable';
-            try{status=await ensureGroupIndex();}
-            catch(indexError){
-              console.warn('diagnostic_index_setup_unavailable',{
-                kind:indexError?.name||'Error'
-              });
-            }
-            if(status==='requested')
-              throw fail('集計用インデックスの作成を開始しました。Firestoreで構築が完了した後、もう一度「集計を更新」を押してください。受験データや集計結果は変更していません。',503);
-            if(status==='building')
-              throw fail('集計用インデックスは設定されていますが、まだ検索できません。構築完了後に再度お試しください。',503);
-          }
+        if(response.status===400||reason==='FAILED_PRECONDITION')
           throw fail(PREFIX_ERROR,412);
-        }
-        throw fail('差分集計用の検索に失敗しました。集計結果は変更していません。',502);
+        throw fail('学習記録の差分検索に失敗しました。集計結果は変更していません。',502);
       }
       const rows=await response.json();
-      if(!Array.isArray(rows))throw fail('差分検索の応答が不正です。',502);
+      if(!Array.isArray(rows))throw fail('学習記録の差分検索の応答が不正です。',502);
       const docs=rows.map(x=>x.document).filter(Boolean);
-      readCount+=docs.length;
-      if(readCount>10000)throw fail('差分が多すぎます。管理者に確認してください。',413);
+      markerReads+=docs.length;
+      if(markerReads>10000)throw fail('差分が多すぎます。管理者に確認してください。',413);
       for(const doc of docs){
-        const uid=uidFromDoc(doc.name);
-        if(!uid)continue;
-        const fields=decodeFields(doc.fields||{});
-        const at=String(fields.assessmentUpdatedAt||'');
-        if(!at)continue;
-        changes[uid]={at,record:normalizeDiagnostic(fields.assessmentLatest)};
+        const uid=uidFromActivityDoc(doc.name);
+        if(!uid||!allowed.has(uid))continue;
+        const at=String(decodeFields(doc.fields||{}).assessmentUpdatedAt||'');
+        if(at)updates.set(uid,at);
       }
       if(docs.length<200)break;
       const last=docs.at(-1);
       const at=String(decodeFields(last.fields||{}).assessmentUpdatedAt||'');
-      if(!at||last.name===cursor?.name)throw fail('差分集計を安全に継続できませんでした。',502);
+      if(!at||last.name===cursor?.name)
+        throw fail('学習記録の差分検索を安全に継続できませんでした。',502);
       cursor={name:last.name,at};
     }
-    return {changes,readCount};
+    const uids=[...updates.keys()];
+    const members=uids.length?await batchGetMembers(uids):{};
+    const changes=Object.fromEntries(uids.map(uid=>[uid,{
+      at:updates.get(uid),record:members[uid]||null
+    }]));
+    return {changes,readCount:markerReads+uids.length};
   }
   async function saveSnapshot(snapshot,previous){
     const encoded=encodeFields(snapshot);
@@ -253,8 +210,8 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     const allowed=new Set(active.filter(validUid));
     for(const uid of admins)allowed.delete(uid);
     const upper=new Date(now()-1000).toISOString();
-    // Existing v1 snapshots contain only totals; a one-time scan is required
-    // to retain each person's previous contribution for accurate replacements.
+    // Migrate earlier snapshots once so no attempts saved before the activity
+    // marker rollout can be missed. This is the only full-user backfill.
     if(!previous||previous.value.schemaVersion!==SNAPSHOT_VERSION||
       previous.value.scaleVersion!==DIAGNOSTIC_SCALE||
       !previous.value.through||!previous.value.members){
@@ -268,7 +225,7 @@ export function createDiagnosticStats({base,projectId,accessToken,verifyAdmin,ac
     }
     const snapshot=previous.value;
     if(snapshot.through>=upper)return {...publicView(snapshot),source:'unchanged',sourceReads:0};
-    const {changes,readCount}=await changedMembers(snapshot.through,upper);
+    const {changes,readCount}=await changedMembers(snapshot.through,upper,allowed);
     const members={...snapshot.members};
     let changed=false;
     // Also handle accounts that were disabled after the last snapshot.
