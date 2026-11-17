@@ -41,7 +41,7 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
  const api=installQuestPlaza(server,{
   verifyUser:async req=>({uid:req.headers.authorization.slice(7)}),
   getUserDoc:async(_accessToken,uid)=>({nickname:'user-'+uid,petName:'pet-'+uid,
-   petStrengthLevelPoints:45,petStrength:{mp:30},monsterMaze:{team:['1-0','7-0','13-0']}}),
+   petStrengthLevelPoints:45,petStrength:{mp:30},monsterMaze:{team:['1-0','7-0','13-3'],owned:{'13-3':{level:1}}}}),
   getGoogleAccessToken:async()=>'access',
   grantCoins:async()=>0,originAllowed:()=>true
  });
@@ -82,7 +82,7 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
    assert.equal(newUnit.hp,Math.max(0,old.hp-Math.max(1,Math.ceil(old.maxHp*.1))));
   }
   // The client's action visuals are server-confirmed, not client-invented.
-  assert(messages(a).some(x=>x.type==='battleAction'&&x.kind==='mistake'));
+  assert(messages(a).some(x=>x.type==='battleActions'&&x.events.some(e=>e.kind==='mistake')));
   const meanings={cat:'猫',dog:'犬',bird:'鳥',book:'本',pen:'ペン',desk:'机'};
   const correctFor=q=>{
    if(q.kind==='ordering')return 'I am a student.';
@@ -110,7 +110,42 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
   const revived=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
   assert(revived.units[3].hp>=Math.floor(revived.units[3].maxHp*.65));
   assert(revived.units[3].hp<=Math.ceil(revived.units[3].maxHp*.80));
-  assert(messages(a).some(x=>x.type==='battleAction'&&x.kind==='revive'));
+  assert(messages(a).some(x=>x.type==='battleActions'&&x.events.some(e=>e.kind==='revive'&&e.targetIndex===3)));
+  const enemyAttacks=messages(a).filter(x=>x.type==='battleActions')
+    .flatMap(x=>x.events).filter(x=>x.actor==='two'&&x.kind==='physical');
+  assert(enemyAttacks.some(e=>e.sourceIndex===0),'enemy pet attack must animate from pet');
+  assert(enemyAttacks.some(e=>e.sourceIndex===1),'enemy physical ally attack must animate from ally');
+  // The pet can also die and be revived by an SSR healer: this is the
+  // reported UI/server mismatch that previously said '蘇生対象なし'.
+  for(let i=0;i<4;i++){
+   const state=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+   if(state.units[0].hp===0)break;
+   const currentQ=messages(b).filter(x=>x.type==='question').at(-1);
+   b.emit('data',frame({type:'answer',seq:currentQ.seq,value:correctFor(currentQ),
+     action:{kind:'attack',target:0}}));
+   await delay(15);
+  }
+  const deadPet=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+  assert.equal(deadPet.units[0].hp,0);
+  assert(deadPet.units[3].hp>0,'SSR healer must still be alive');
+  const attackerQ=messages(a).filter(x=>x.type==='question').at(-1);
+  a.emit('data',frame({type:'answer',seq:attackerQ.seq,value:correctFor(attackerQ),
+    action:{kind:'attack'}}));
+  await delay(20);
+  const allyAttack=messages(a).filter(x=>x.type==='battleActions').at(-1).events;
+  assert(allyAttack.some(e=>e.actor==='one'&&e.sourceIndex===1&&e.kind==='physical'),
+    'living ally should fire its own physical energy');
+  assert(!allyAttack.some(e=>e.actor==='one'&&e.sourceIndex===0&&e.kind==='physical'),
+    'a defeated pet cannot launch an energy attack');
+  const revivePetQuestion=messages(a).filter(x=>x.type==='question').at(-1);
+  a.emit('data',frame({type:'answer',seq:revivePetQuestion.seq,value:correctFor(revivePetQuestion),
+    action:{kind:'magic',owner:3,spell:'meinoora',reviveTarget:0}}));
+  await delay(20);
+  const petResurrected=messages(a).filter(x=>x.type==='battleState').at(-1).teams.find(t=>t.id==='one');
+  assert(petResurrected.units[0].hp>=Math.floor(petResurrected.units[0].maxHp*.65));
+  assert(petResurrected.units[0].hp<=Math.ceil(petResurrected.units[0].maxHp*.80));
+  assert(messages(a).filter(x=>x.type==='battleActions').at(-1).events
+    .some(e=>e.kind==='revive'&&e.sourceIndex===3&&e.targetIndex===0));
   a.emit('data',frame({type:'forfeit'}));
   await delay(20);
   assert.equal(messages(a).filter(x=>x.type==='battleEnd').at(-1).winner,'two');
