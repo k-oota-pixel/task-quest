@@ -23,15 +23,15 @@ const decodeValue=v=>{
 const decodeFields=fields=>Object.fromEntries(Object.entries(fields).map(([k,x])=>[k,decodeValue(x)]));
 const result=(status,data)=>({status,ok:status>=200&&status<300,json:async()=>data});
 const name=uid=>'projects/p/databases/(default)/documents/users/'+uid+'/apps/english-playroom';
+const activityName=uid=>'projects/p/databases/(default)/documents/learning_activity/'+uid;
 const previousDate='2026-11-16T13:00:00.000Z';
 const nowDate='2026-11-16T13:05:00.000Z';
 const record=(score,atMs=1000,grade='4級',scaleVersion=DIAGNOSTIC_SCALE)=>({
  id:'attempt-'+atMs,score,atMs,grade,scaleVersion,vocabCorrect:7,grammarCorrect:6,vocabTotal:10,grammarTotal:10
 });
-function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,queryMessage='',
- indexStatus=404,indexConfig=null,commitStatus=200,
+function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,queryMessage='',commitStatus=200,
  allowed=['A','B','ADMIN'],excluded=['ADMIN'],now=Date.parse(nowDate),authFails=false}={}){
- let stored=snapshot,reads={snapshot:0,batch:0,query:0,commit:0,indexGet:0,indexPatch:0},reqs=[],response;
+ let stored=snapshot,reads={snapshot:0,batch:0,query:0,commit:0},reqs=[],response;
  const handle=createDiagnosticStats({
   base:'https://firestore.test',projectId:'p',accessToken:async()=> 'token',
   verifyAdmin:async()=>{if(authFails)throw Object.assign(Error('no admin'),{status:403});},
@@ -48,20 +48,13 @@ function harness({snapshot=null,queryRows=[],batchRows=[],queryStatus=200,queryM
     if(url.endsWith(':batchGet')){
       reads.batch++;
       const asked=new Set(JSON.parse(opt.body).documents);
-      return result(200,batchRows.filter(x=>asked.has(name(x.uid))).map(x=>({found:{name:name(x.uid),fields:encodeFields(x.fields)}})));
+      const rows=batchRows.length?batchRows:[...new Map(queryRows.map(x=>[x.uid,x])).values()].map(x=>({uid:x.uid,fields:{assessmentLatest:x.fields.assessmentLatest}}));
+      return result(200,rows.filter(x=>asked.has(name(x.uid))).map(x=>({found:{name:name(x.uid),fields:encodeFields(x.fields)}})));
     }
     if(url.endsWith(':runQuery')){
       reads.query++;
-      return queryStatus===200?result(200,queryRows.map(x=>({document:{name:name(x.uid),fields:encodeFields(x.fields)}}))):
+      return queryStatus===200?result(200,queryRows.map(x=>({document:{name:activityName(x.uid),fields:encodeFields(x.fields)}}))):
         result(queryStatus,{error:{status:queryStatus===400?'FAILED_PRECONDITION':'RESOURCE_EXHAUSTED',message:queryMessage}});
-    }
-    if(url.includes('/collectionGroups/apps/fields/assessmentUpdatedAt')){
-      if(opt?.method==='PATCH'){
-        reads.indexPatch++;
-        return result(200,{name:'operations/index-setup'});
-      }
-      reads.indexGet++;
-      return indexStatus===200?result(200,{indexConfig:indexConfig||{indexes:[]}}):result(indexStatus,{});
     }
     if(url.endsWith(':commit')){
       reads.commit++;
@@ -116,7 +109,7 @@ test('A retakes, delta loads A only, replaces her existing contribution without 
  const v=await h.request('POST');
  assert.equal(v.status,200);
  assert.equal(v.summary.source,'delta');
- assert.equal(v.summary.sourceReads,1);
+ assert.equal(v.summary.sourceReads,2);
  assert.equal(v.summary.participantCount,2);
  assert.equal(v.summary.averageScore,550);
  assert.equal(v.summary.medianScore,550);
@@ -124,14 +117,14 @@ test('A retakes, delta loads A only, replaces her existing contribution without 
  assert.equal(v.summary.gradeCounts['2級'],1);
  assert.equal(v.summary.scoreBands[2].count,0);
  assert.equal(v.summary.scoreBands[7].count,1);
- assert.equal(h.reads.batch,0);
+ assert.equal(h.reads.batch,1);
  assert.equal(h.reads.query,1);
  assert.equal(h.reads.commit,1);
  const query=JSON.parse(h.reqs.find(x=>x.url.endsWith(':runQuery')).opt.body).structuredQuery;
- assert.equal(query.from[0].allDescendants,true);
- assert.equal(query.from[0].collectionId,'apps');
+ assert.equal(query.from[0].allDescendants,undefined);
+ assert.equal(query.from[0].collectionId,'learning_activity');
  assert.equal(query.where.compositeFilter.filters[0].fieldFilter.field.fieldPath,'assessmentUpdatedAt');
- assert.equal(query.select.fields[0].fieldPath,'assessmentLatest');
+ assert.equal(query.select.fields[0].fieldPath,'assessmentUpdatedAt');
  assert.equal(h.stored.members.B.score,400);
  assert.equal(h.stored.members.A.score,700);
 });
@@ -155,7 +148,7 @@ test('same participant retakes multiple times: latest result replaces previous o
  const v=await h.request('POST');
  assert.equal(v.summary.participantCount,1);
  assert.equal(v.summary.averageScore,800);
- assert.equal(v.summary.sourceReads,2);
+ assert.equal(v.summary.sourceReads,3);
 });
 
 test('GET returns public statistics without any member IDs or private records',async()=>{
@@ -207,48 +200,32 @@ test('unauthorized request does not read from Firestore',async()=>{
  assert.equal(h.reads.batch,0);
 });
 
-test('missing collection-group index is requested automatically without rereading users',async()=>{
- const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
- const h=harness({snapshot:previous,queryStatus:400,
-   queryMessage:'The query requires an index.'});
+
+test('a prior schema-v2 snapshot migrates once using wallet reads, not the missing group index',async()=>{
+ const old={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)},schemaVersion:2};
+ const h=harness({snapshot:old,batchRows:[{uid:'A',fields:{assessmentLatest:record(350)}},
+  {uid:'B',fields:{assessmentLatest:record(600)}}]});
  const v=await h.request('POST');
- assert.equal(v.status,503);
- assert.match(v.error,/インデックスの作成を開始/);
- assert.equal(h.reads.indexGet,1);
- assert.equal(h.reads.indexPatch,1);
- assert.equal(h.reads.batch,0);
- assert.equal(h.reads.commit,0);
- const patch=h.reqs.find(x=>x.opt?.method==='PATCH');
- assert.match(patch.url,/updateMask=indexConfig/);
- const indexes=JSON.parse(patch.opt.body).indexConfig.indexes;
- assert.equal(indexes.filter(x=>x.queryScope==='COLLECTION').length,2);
- assert.deepEqual(indexes.find(x=>x.queryScope==='COLLECTION_GROUP'),
-   {queryScope:'COLLECTION_GROUP',fields:[{fieldPath:'assessmentUpdatedAt',order:'ASCENDING'}]});
+ assert.equal(v.status,200);
+ assert.equal(v.summary.source,'initialBackfill');
+ assert.equal(v.summary.schemaVersion,3);
+ assert.equal(v.summary.participantCount,2);
+ assert.equal(h.reads.batch,1);
+ assert.equal(h.reads.query,0);
+ assert.equal(h.reads.commit,1);
 });
 
-test('existing index in preparation is never overwritten',async()=>{
+test('diagnostic delta does not query apps collection group or alter wallets',async()=>{
  const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
- const h=harness({snapshot:previous,queryStatus:400,
-  queryMessage:'The query requires an index.',indexStatus:200,
-  indexConfig:{indexes:[{queryScope:'COLLECTION_GROUP',
-    fields:[{fieldPath:'assessmentUpdatedAt',order:'ASCENDING'}]}]}});
+ const h=harness({snapshot:previous,queryRows:[
+  {uid:'A',fields:{assessmentUpdatedAt:'2026-11-16T13:04:00Z',assessmentLatest:record(800)}}
+ ]});
  const v=await h.request('POST');
- assert.equal(v.status,503);
- assert.match(v.error,/まだ検索できません/);
- assert.equal(h.reads.indexGet,1);
- assert.equal(h.reads.indexPatch,0);
- assert.equal(h.reads.batch,0);
-});
-
-test('index permission denial leaves data untouched and returns manual setup instructions',async()=>{
- const previous={...summarizeMembers({A:record(300)},{through:previousDate}),members:{A:record(300)}};
- const h=harness({snapshot:previous,queryStatus:400,
-  queryMessage:'The query requires an index.',indexStatus:403});
- const v=await h.request('POST');
- assert.equal(v.status,412);
- assert.match(v.error,/assessmentUpdatedAt/);
- assert.equal(h.reads.indexGet,1);
- assert.equal(h.reads.indexPatch,0);
- assert.equal(h.reads.batch,0);
- assert.equal(h.reads.commit,0);
+ assert.equal(v.status,200);
+ assert.equal(v.summary.averageScore,800);
+ const query=JSON.parse(h.reqs.find(x=>x.url.endsWith(':runQuery')).opt.body).structuredQuery;
+ assert.deepEqual(query.from,[{collectionId:'learning_activity'}]);
+ assert.equal(query.orderBy[0].field.fieldPath,'assessmentUpdatedAt');
+ assert.equal(h.reads.batch,1);
+ assert.equal(h.reads.commit,1);
 });
