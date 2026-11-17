@@ -87,7 +87,7 @@ function sendSocket(client,message){
  try{client.socket.write(wsFrame(1,JSON.stringify(message)));return true;}catch{return false;}
 }
 export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessToken,grantCoins,consumeItem=async()=>{throw Error('アイテム連携が未設定です。');},originAllowed}){
- const clients=new Map(),battles=new Map(),moves=new Map(),recentRewards=new Map();
+ const clients=new Map(),battles=new Map(),moves=new Map(),recentRewards=new Map(),sockets=new Set();
  let bankCache=null,bankPending=null,bankCachedAt=0;
  const send=(p,obj)=>sendSocket(p?.connection,obj);
  const publish=obj=>{for(const p of clients.values())if(p.connection)send(p,obj);};
@@ -368,6 +368,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    }
    if(p.connection&&p.connection!==connection)closeConnection(p.connection,1000);
    p.connection=connection;p.disconnectedAt=null;connection.player=p;
+   connection.authenticatedAt=Date.now();
    send(p,{type:'welcome',self:p.uid,width:WIDTH,height:HEIGHT,maxPlayers:MAX_PLAYERS,players:[...clients.values()].map(view)});
    publish({type:'statuses',players:[view(p)]});
    if(p.battle&&!p.battle.ended){
@@ -409,7 +410,10 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
  monitor.unref?.();
  server.on('upgrade',(req,socket,head)=>{
   let path;try{path=new URL(req.url,'http://localhost').pathname;}catch{socket.destroy();return;}
-  if(path!=='/ws/quest-plaza')return; // No other upgrade consumers in this server.
+  if(path!=='/ws/quest-plaza'){socket.destroy();return;} // No other upgrade consumers.
+  if(sockets.size>=MAX_PLAYERS*3){
+   socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');socket.destroy();return;
+  }
   const key=String(req.headers['sec-websocket-key']||''),origin=req.headers.origin;
   if(!origin||!originAllowed(req)||!/^[-A-Za-z0-9+/]{22}==$/.test(key)||req.headers.upgrade?.toLowerCase()!=='websocket'){
    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');socket.destroy();return;
@@ -417,6 +421,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   const accept=createHash('sha1').update(key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+accept+'\r\n\r\n');
   const connection={socket,player:null,authenticating:false,buffer:Buffer.alloc(0),lastPong:Date.now()};
+  sockets.add(socket);socket.on('close',()=>sockets.delete(socket));
   const onData=data=>{
    connection.buffer=Buffer.concat([connection.buffer,data]);
    if(connection.buffer.length>65536){closeConnection(connection,1009);return;}
@@ -445,7 +450,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   if(head?.length)onData(head);
   const ping=setInterval(()=>{
    if(socket.destroyed){clearInterval(ping);return;}
-   if(Date.now()-connection.lastPong>65000){closeConnection(connection,1001);clearInterval(ping);return;}
+   if(Date.now()-connection.lastPong>65000||connection.authenticatedAt&&Date.now()-connection.authenticatedAt>55*60000){closeConnection(connection,1001);clearInterval(ping);return;}
    socket.write(wsFrame(9,'q'));
   },20000);
   ping.unref?.();socket.on('close',()=>clearInterval(ping));
