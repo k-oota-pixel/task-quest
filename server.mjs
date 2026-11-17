@@ -38,6 +38,7 @@ import {createTodayNewsGenerator,verifyGithubOidcToken} from './today-news.mjs';
 import {createContactMessage} from './contact-message.mjs';
 import {createAdminUserIndex} from './admin-user-index.mjs';
 import {createAdminMessagePages} from './admin-message-pages.mjs';
+import {installQuestPlaza} from './quest-plaza.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -595,6 +596,9 @@ export const server=http.createServer(async(req,res)=>{
     }finally{active--;}
   }catch(e){send(res,e.status||502,{error:e.name==='TimeoutError'?'AI判定がタイムアウトしました。再挑戦してください。':e.message&&e.status?e.message:'判定結果を取得できませんでした。再挑戦してください。'});}
 });
+
+// Hidden direct-URL plaza. All authenticated learners are admitted; no admin-only gate.
+installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessToken,grantCoins,originAllowed});
 
 if(process.env.NODE_ENV!=='test')server.listen(Number(process.env.PORT||10000),'0.0.0.0',()=>{
  console.log('Task Quest server ready');
