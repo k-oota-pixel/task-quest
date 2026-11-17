@@ -208,6 +208,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    b.log.push(p.nickname+'：誤答・味方全員に10％ダメージ');
   }else{
    const action=answer.action||{},enemyUnits=enemy.units;
+   let battleFx=null;
    const selectedIndex=Number.isInteger(action.target)&&enemyUnits[action.target]?.hp>0?action.target:target(enemyUnits);
    const receive=(index,amount)=>{
     const victim=enemyUnits[index];if(!victim||victim.hp<=0)return;
@@ -216,21 +217,39 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    };
    const hit=(power,idx=selectedIndex)=>receive(idx,power);
    if(action.kind==='magic'){
-    const owner=p.units[int(action.owner,0,3)],spell=spellList.find(s=>s.id===action.spell);
+    const ownerIndex=int(action.owner,0,3);
+    const owner=p.units[ownerIndex],spell=spellList.find(s=>s.id===action.spell);
+    const reviveIndex=Number.isInteger(action.reviveTarget)&&action.reviveTarget>0&&p.units[action.reviveTarget]?.hp===0
+      ?action.reviveTarget:p.units.findIndex((u,i)=>i>0&&u.hp===0);
+    // Never consume MP when a revive spell has no valid fallen companion.
     if(spell&&spellAllowed(owner,spell)){
-     owner.mp-=spell.mp;
-     if(spell.kind==='attack'){hit(Math.max(1,Math.round(spell.base*(owner.role===-1?1:1.2))));b.log.push(p.nickname+'：'+spell.name);}
-     else if(spell.kind==='heal'){
-      const index=p.units.map((u,i)=>({i,u})).filter(({u})=>u.hp>0).sort((a,c)=>a.u.hp/a.u.maxHp-c.u.hp/c.u.maxHp)[0]?.i;
-      if(index!==undefined)p.units[index].hp=Math.min(p.units[index].maxHp,p.units[index].hp+Math.round(spell.base*(owner.role===-1?1:1.2)));
-      b.log.push(p.nickname+'：'+spell.name);
+     if(spell.kind==='revive'&&reviveIndex<1){
+      b.log.push(p.nickname+'：蘇生対象がいません（MP消費なし）');
      }else{
-      const fallen=p.units.find((u,i)=>i>0&&u.hp===0);
-      if(fallen&&Math.random()<spell.rate){
-       const percentage=spell.range[0]+Math.floor(Math.random()*(spell.range[1]-spell.range[0]+1));
-       fallen.hp=Math.max(1,Math.round(fallen.maxHp*percentage/100));
-       b.log.push(p.nickname+'：'+spell.name+'で蘇生！');
-      }else b.log.push(p.nickname+'：'+spell.name+' 蘇生失敗');
+      owner.mp-=spell.mp;
+      if(spell.kind==='attack'){
+       hit(Math.max(1,Math.round(spell.base*(owner.role===-1?1:1.2))));
+       b.log.push(p.nickname+'：'+spell.name);
+       battleFx={actor:p.uid,receiver:enemy.uid,kind:'magic',sourceIndex:ownerIndex,targetIndex:selectedIndex};
+      }else if(spell.kind==='heal'){
+       const index=p.units.map((u,i)=>({i,u})).filter(({u})=>u.hp>0)
+        .sort((a,c)=>a.u.hp/a.u.maxHp-c.u.hp/c.u.maxHp)[0]?.i;
+       if(index!==undefined){
+        p.units[index].hp=Math.min(p.units[index].maxHp,p.units[index].hp+Math.round(spell.base*(owner.role===-1?1:1.2)));
+        battleFx={actor:p.uid,receiver:p.uid,kind:'heal',sourceIndex:ownerIndex,targetIndex:index};
+       }
+       b.log.push(p.nickname+'：'+spell.name);
+      }else{
+       const fallen=p.units[reviveIndex];
+       // メイノーラ 100% / メイノン 50%; percentage applies to max HP.
+       const success=spell.rate===1||Math.random()<spell.rate;
+       if(success){
+        const percentage=spell.range[0]+Math.floor(Math.random()*(spell.range[1]-spell.range[0]+1));
+        fallen.hp=Math.max(1,Math.round(fallen.maxHp*percentage/100));
+        b.log.push(p.nickname+'：'+spell.name+'で'+fallen.name+'を蘇生！');
+        battleFx={actor:p.uid,receiver:p.uid,kind:'revive',sourceIndex:ownerIndex,targetIndex:reviveIndex};
+       }else b.log.push(p.nickname+'：'+spell.name+' 蘇生失敗（成功率50％）');
+      }
      }
     }else b.log.push(p.nickname+'：魔法を使用できませんでした');
    }else{
@@ -244,12 +263,21 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
       if(isSpecial)unit.ct=unit.maxCt;
     }
     b.log.push(p.nickname+'：攻撃成功！');
+    battleFx={actor:p.uid,receiver:enemy.uid,kind:'physical',sourceIndex:0,targetIndex:selectedIndex};
    }
+   if(battleFx)b.lastAction=battleFx;
   }
   if(p.guard?.turns>0)p.guard.turns--;
   if(enemy.guard?.turns>0)enemy.guard.turns--;
   send(p,{type:'feedback',correct,answer:q.answer});
   notifyFight(b);
+  const fx=correct?b.lastAction:null;
+  if(correct&&fx){
+   for(const participant of [b.a,b.b])send(participant,{type:'battleAction',...fx});
+   b.lastAction=null;
+  }else if(!correct){
+   for(const participant of [b.a,b.b])send(participant,{type:'battleAction',actor:p.uid,receiver:p.uid,kind:'mistake'});
+  }
   if(!alive(p.units)&&!alive(enemy.units)){void endBattle(b,null,'両者全滅・引き分け');return;}
   if(!alive(enemy.units)){void endBattle(b,p,p.nickname+'の勝利！');return;}
   if(!alive(p.units)){void endBattle(b,enemy,enemy.nickname+'の勝利！');return;}
@@ -343,6 +371,11 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    cancelInvite(invite);
    if(msg.accept===true)void beginBattle(invite);
    else send(invite.from,{type:'notice',message:p.nickname+'が対戦を辞退しました。'});
+   return;
+  }
+  if(msg.type==='forfeit'){
+   const b=p.battle;
+   if(b&&!b.ended)void endBattle(b,b.a===p?b.b:b.a,p.nickname+'が対戦を終了しました（降参）');
    return;
   }
   if(msg.type==='item'){void useBattleItem(p,String(msg.id||''));return;}
