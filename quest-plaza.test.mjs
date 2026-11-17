@@ -155,3 +155,75 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
   api.close();globalThis.fetch=original;Math.random=originalRandom;
  }
 });
+
+
+test('Ally Mirogoron remains responsive without question or match timers, and stale answers resync',async()=>{
+ const originalFetch=globalThis.fetch,originalRandom=Math.random,originalNow=Date.now;
+ Math.random=()=>.1;
+ const dictionary={cat:'猫',dog:'犬',bird:'鳥',book:'本',pen:'ペン',desk:'机'};
+ globalThis.fetch=async()=>({ok:true,json:async()=>({grades:{'4':{words:Object.entries(dictionary)
+  .map(([word,japanese])=>({word,answers:[japanese]}))}}})});
+ const server=new EventEmitter();
+ const api=installQuestPlaza(server,{
+  verifyUser:async req=>({uid:req.headers.authorization.slice(7)}),
+  getUserDoc:async(_token,uid)=>({
+   nickname:uid,petName:uid,petStrengthLevelPoints:45,petStrength:{mp:40},
+   monsterMaze:{team:['1-0','7-3','13-3'],owned:{'7-3':{level:1},'13-3':{level:1}}}
+  }),getGoogleAccessToken:async()=>'test',grantCoins:async()=>0,originAllowed:()=>true
+ });
+ const join=async uid=>{
+  const sock=new FakeSocket();
+  server.emit('upgrade',token(uid),sock,Buffer.alloc(0));
+  sock.emit('data',frame({type:'auth',token:uid}));
+  await delay(20);
+  assert(messages(sock).some(m=>m.type==='welcome'));
+  return sock;
+ };
+ try{
+  const a=await join('caster'),b=await join('opponent');
+  a.emit('data',frame({type:'invite',to:'opponent',grade:'4'}));
+  await delay(20);
+  b.emit('data',frame({type:'respond',from:'caster',accept:true}));
+  await delay(60);
+  const q=messages(a).filter(m=>m.type==='question').at(-1);
+  assert(q?.seq,'question was served');
+  assert.equal('deadline' in q,false,'question has no timer');
+  const initial=messages(a).filter(m=>m.type==='battleState').at(-1);
+  assert(initial&&!('remaining' in initial),'battle has no five-minute clock');
+  const ally=initial.teams.find(t=>t.id==='caster').units[2];
+  assert(ally.hp>0&&ally.maxMp>=14);
+  const correct=q.prompt.startsWith('次の日本語を英語に：')
+   ? Object.keys(dictionary).find(w=>dictionary[w]===q.prompt.split('：')[1])
+   : dictionary[q.prompt.split(' ').at(-1)];
+  assert(q.options.includes(correct),'correct answer is among options');
+  // The clock advances by twenty minutes, but there is no timeout or penalty.
+  Date.now=()=>originalNow()+20*60*1000;
+  a.emit('data',frame({type:'answer',seq:q.seq,value:correct,
+   action:{kind:'magic',owner:2,spell:'mirogoron',target:0}}));
+  Date.now=originalNow;
+  await delay(30);
+  const feedback=messages(a).filter(m=>m.type==='feedback').at(-1);
+  assert.equal(feedback?.correct,true,'no forced wrong answer after elapsed time');
+  const after=messages(a).filter(m=>m.type==='battleState').at(-1).teams.find(t=>t.id==='caster');
+  assert.equal(after.units[2].mp,ally.mp-14,'Mirogoron spends exactly 14MP');
+  assert(messages(a).some(m=>m.type==='battleActions'&&
+    m.events.some(e=>e.kind==='magic'&&e.sourceIndex===2)));
+  const following=messages(a).filter(m=>m.type==='question').at(-1);
+  assert(following.seq>q.seq,'next question arrives after ally attack');
+  // A late/duplicate answer is answered with the authoritative current question.
+  const priorCount=messages(a).filter(m=>m.type==='question').length;
+  a.emit('data',frame({type:'answer',seq:q.seq,value:correct,
+   action:{kind:'magic',owner:2,spell:'mirogoron'}}));
+  await delay(15);
+  const resent=messages(a).filter(m=>m.type==='question');
+  assert.equal(resent.length,priorCount+1);
+  assert.equal(resent.at(-1).seq,following.seq);
+  a.emit('data',frame({type:'syncQuestion'}));
+  await delay(15);
+  assert.equal(messages(a).filter(m=>m.type==='question').at(-1).seq,following.seq);
+  const afterStale=messages(a).filter(m=>m.type==='battleState').at(-1).teams.find(t=>t.id==='caster');
+  assert.equal(afterStale.units[2].mp,ally.mp-14,'duplicate answer does not double spend');
+ }finally{
+  api.close();globalThis.fetch=originalFetch;Math.random=originalRandom;Date.now=originalNow;
+ }
+});
