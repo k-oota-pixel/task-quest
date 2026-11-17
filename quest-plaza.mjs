@@ -157,7 +157,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
  const target=team=>team.findIndex(unit=>unit.hp>0);
  const fightState=b=>({
   type:'battleState',id:b.id,grade:b.grade,remaining:Math.max(0,b.deadline-Date.now()),
-  teams:[b.a,b.b].map(p=>({id:p.uid,nickname:p.nickname,units:p.units.map(({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct})=>({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct}))})),
+  teams:[b.a,b.b].map(p=>({id:p.uid,nickname:p.nickname,units:p.units.map(({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct,level})=>({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct,level}))})),
   log:b.log.slice(-6)
  });
  const notifyFight=b=>{const state=fightState(b);send(b.a,state);send(b.b,state);};
@@ -331,7 +331,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
     clients.set(p.uid,p);
    }
    if(p.connection&&p.connection!==connection)closeConnection(p.connection,1000);
-   p.connection=connection;connection.player=p;
+   p.connection=connection;p.disconnectedAt=null;connection.player=p;
    send(p,{type:'welcome',self:p.uid,width:WIDTH,height:HEIGHT,maxPlayers:MAX_PLAYERS,players:[...clients.values()].map(view)});
    publish({type:'statuses',players:[view(p)]});
    if(p.battle&&!p.battle.ended){
