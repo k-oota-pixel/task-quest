@@ -12,6 +12,17 @@ const spellList=[
  {id:'meinon',name:'メイノン',level:30,kind:'revive',mp:8,rate:.5,range:[25,35]},
  {id:'meinoora',name:'メイノーラ',level:45,kind:'revive',mp:20,rate:1,range:[65,80]}
 ];
+
+const battleItems=Object.freeze([
+ {id:'bandage',name:'ばんそうこう',kind:'hp',amount:10},
+ {id:'medicine',name:'きずぐすり',kind:'hp',amount:20},
+ {id:'date-hospital-prescription',name:'伊達医院の処方箋',kind:'hp',amount:100},
+ {id:'inter-prescription',name:'インターの処方箋',kind:'hp',amount:100},
+ {id:'date-water',name:'だてのみず',kind:'mp',amount:10},
+ {id:'yoteizan-water',name:'ようていざんのみず',kind:'mp',amount:20}
+]);
+const inventoryFrom=data=>Object.fromEntries(battleItems.map(item=>[item.id,int(data?.petDungeonItems?.[item.id],0,100000)]));
+
 const cards=[
  ['鉄甲ガメル',0,6,'guard'],['紅蓮フォクス',0,5,'physical'],['岩王ゴロン',0,7,'physicalAll'],
  ['トゲマル',0,4,'physical'],['シザーク',0,5,'physical'],['獅子王レオン',0,7,'physicalAll'],
@@ -75,7 +86,7 @@ function sendSocket(client,message){
  if(!client?.socket||client.socket.destroyed||client.socket.writableLength>256000)return false;
  try{client.socket.write(wsFrame(1,JSON.stringify(message)));return true;}catch{return false;}
 }
-export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessToken,grantCoins,originAllowed}){
+export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessToken,grantCoins,consumeItem=async()=>{throw Error('アイテム連携が未設定です。');},originAllowed}){
  const clients=new Map(),battles=new Map(),moves=new Map(),recentRewards=new Map();
  let bankCache=null,bankPending=null,bankCachedAt=0;
  const send=(p,obj)=>sendSocket(p?.connection,obj);
@@ -160,7 +171,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   teams:[b.a,b.b].map(p=>({id:p.uid,nickname:p.nickname,units:p.units.map(({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct,level})=>({name,hp,maxHp,mp,maxMp,role,id,rarity,key,ct,level}))})),
   log:b.log.slice(-6)
  });
- const notifyFight=b=>{const state=fightState(b);send(b.a,state);send(b.b,state);};
+ const notifyFight=b=>{const state=fightState(b);send(b.a,{...state,inventory:b.a.inventory||{}});send(b.b,{...state,inventory:b.b.inventory||{}});};
  async function endBattle(b,winner=null,reason='対戦終了'){
   if(!b||b.ended)return;
   b.ended=true;battles.delete(b.id);
@@ -255,6 +266,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    const [dataA,dataB]=await Promise.all([getUserDoc(token,a.uid),getUserDoc(token,b.uid)]);
    if(!a.connection||!b.connection)return;
    a.units=starterRoster(dataA);b.units=starterRoster(dataB);
+   a.inventory=inventoryFrom(dataA);b.inventory=inventoryFrom(dataB);
    const battle={id:randomUUID(),a,b,grade:invite.grade,deadline:Date.now()+BATTLE_MS,log:[],ended:false};
    a.battle=b.battle=battle;
    battles.set(battle.id,battle);
@@ -268,6 +280,29 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    send(b,{type:'notice',message:'対戦を開始できませんでした。'+String(error.message||'')});
   }finally{a.preparing=b.preparing=false;}
  }
+
+ async function useBattleItem(p,itemId){
+  const b=p.battle,item=battleItems.find(row=>row.id===itemId);
+  if(!b||b.ended||!item||p.itemBusy||!p.connection)return;
+  const key=item.kind==='hp'?'hp':'mp',maxKey=item.kind==='hp'?'maxHp':'maxMp';
+  const targetUnit=p.units.filter(unit=>unit.hp>0&&unit[maxKey]>0&&unit[key]<unit[maxKey])
+    .sort((a,c)=>a[key]/a[maxKey]-c[key]/c[maxKey])[0];
+  if(!targetUnit){send(p,{type:'notice',message:'回復が必要な仲間はいません。'});return;}
+  if(int(p.inventory?.[itemId],0,100000)<=0){send(p,{type:'notice',message:'アイテムを持っていません。'});return;}
+  p.itemBusy=true;
+  try{
+   // The inventory write is committed before its effects are applied.
+   // Concurrent tabs cannot consume the same last item twice.
+   const nextCount=await consumeItem(p.uid,itemId);
+   p.inventory[itemId]=nextCount;
+   if(b.ended||p.battle!==b){send(p,{type:'notice',message:'対戦終了とアイテム使用が重なりました。'});return;}
+   targetUnit[key]=Math.min(targetUnit[maxKey],targetUnit[key]+item.amount);
+   b.log.push(p.nickname+'：'+item.name+'を使用（'+targetUnit.name+'を回復）');
+   notifyFight(b);
+  }catch(error){send(p,{type:'notice',message:String(error?.message||'アイテムの使用に失敗しました。')});}
+  finally{p.itemBusy=false;}
+ }
+
  async function handle(p,msg){
   if(!msg||typeof msg.type!=='string')return;
   if(msg.type==='move'){
@@ -310,6 +345,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    else send(invite.from,{type:'notice',message:p.nickname+'が対戦を辞退しました。'});
    return;
   }
+  if(msg.type==='item'){void useBattleItem(p,String(msg.id||''));return;}
   if(msg.type==='answer'){applyAnswer(p,msg);return;}
  }
  async function authenticate(connection,msg){
