@@ -1,0 +1,26 @@
+name: Quest plaza checks
+on:
+  push:
+    paths:
+      - 'quest-plaza.mjs'
+      - 'quest-plaza.test.mjs'
+      - 'server.mjs'
+      - '.github/workflows/quest-plaza-checks.yml'
+  pull_request:
+    paths:
+      - 'quest-plaza.mjs'
+      - 'quest-plaza.test.mjs'
+      - 'server.mjs'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: node --check quest-plaza.mjs && node --check server.mjs
+      - name: WebSocket checks
+        run: node --test quest-plaza.test.mjs
