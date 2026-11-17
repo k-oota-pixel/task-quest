@@ -44,7 +44,7 @@ export function validateCareerRequest(body){
     total:values.reduce((sum,v,i)=>sum+v.weight*ratings[i*4+j],0),
     criteria:values.map((v,i)=>({name:v.label,weight:v.weight,rating:ratings[i*4+j]}))
   })).sort((a,b)=>b.total-a.total);
-  return {step,matrix,history:responses,scores};
+  return {step:body.step,matrix,history:responses,scores};
 }
 
 export function careerInstructions(step){
