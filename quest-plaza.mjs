@@ -91,7 +91,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
  let bankCache=null,bankPending=null,bankCachedAt=0;
  const send=(p,obj)=>sendSocket(p?.connection,obj);
  const publish=obj=>{for(const p of clients.values())if(p.connection)send(p,obj);};
- const view=p=>({id:p.uid,nickname:p.nickname,petName:p.petName,appearance:p.appearance,shop:p.shop,x:p.x,y:p.y,status:p.battle?'battle':'plaza'});
+ const view=p=>({id:p.uid,nickname:p.nickname,petName:p.petName,appearance:p.appearance,hatched:p.hatched,adult:p.adult,shop:p.shop,x:p.x,y:p.y,status:p.battle?'battle':'plaza'});
  const recordMove=p=>moves.set(p.uid,[p.uid,p.x,p.y]);
  const closeConnection=(connection,code=1000)=>{
   if(!connection||connection.socket.destroyed)return;
@@ -319,7 +319,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    try{
     p.data=await getUserDoc(await getGoogleAccessToken(),p.uid);
     p.nickname=cleanName(p.data.nickname,'冒険者');p.petName=cleanName(p.data.petName,'ぺっと');
-    p.appearance=p.data.petAppearance||null;p.shop={equipped:p.data.petShop?.equipped||{},ownedItems:p.data.petShop?.ownedItems||[]};
+    p.appearance=p.data.petAppearance||null;p.hatched=!!p.data.petHatched;p.adult=p.data.petAdult!==false;p.shop={equipped:p.data.petShop?.equipped||{},ownedItems:p.data.petShop?.ownedItems||[]};
     publish({type:'statuses',players:[view(p)]});
     send(p,{type:'notice',message:'編成を更新しました。'});
    }catch{send(p,{type:'notice',message:'編成の読み込みに失敗しました。'});}
@@ -360,7 +360,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
     if(clients.size>=MAX_PLAYERS){sendSocket(connection,{type:'error',message:'広場は満員です（40人）。'});closeConnection(connection,1008);return;}
     const data=await getUserDoc(await getGoogleAccessToken(),user.uid);
     p={uid:user.uid,nickname:cleanName(data.nickname,'冒険者'),petName:cleanName(data.petName,'ぺっと'),
-     appearance:data.petAppearance||null,shop:{equipped:data.petShop?.equipped||{},ownedItems:data.petShop?.ownedItems||[]},
+     appearance:data.petAppearance||null,hatched:!!data.petHatched,adult:data.petAdult!==false,shop:{equipped:data.petShop?.equipped||{},ownedItems:data.petShop?.ownedItems||[]},
      x:6+Math.floor(Math.random()*36),y:4+Math.floor(Math.random()*24),lastMove:0,lastInvite:0,
      data,connection:null,battle:null,invite:null,incoming:null,preparing:false};
     if(blocked(p.x,p.y)){p.x=9;p.y=9;}
