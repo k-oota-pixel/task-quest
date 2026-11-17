@@ -1,67 +1,43 @@
-# 英語レベル判定の差分集計：Firestoreインデックス
+# 英語レベル判定の差分集計：インデックス不要版
 
-差分集計は `users/{uid}/apps/english-playroom` の既存フィールド
-`assessmentUpdatedAt`（受験結果保存時の serverTimestamp）を使います。
-受験者側には新たな write は不要です。
+2026-11-17 の変更で、`apps` コレクショングループの
+`assessmentUpdatedAt` インデックスは不要になりました。
 
-## 一度だけ行う設定
+## 仕組み
 
-Firebase Console → Firestore Database → インデックス → 「単一フィールド」で、以下の設定を追加します。
+英語レベル判定の保存トランザクションで、既存の2ドキュメント
+（受験履歴＋ウォレット）に加えて、`learning_activity/{uid}` に次の値を
+**同じトランザクション**で記録します。
 
-- コレクション ID: `apps`
-- フィールドパス: `assessmentUpdatedAt`
-- クエリスコープ: **コレクショングループ**
-- 並べ替え: **昇順（Ascending）**
+- `assessmentUpdatedAt`：受験保存時のサーバー時刻
+- `lastLearningAt`：管理画面の最終学習日時
+- `lastLearningAppId`：`level-diagnostic`
+- `contents.level-diagnostic.lastLearningAt`：教材ごとの最終学習日時
+- `contents.level-diagnostic.titleCount`：既存の学習回数カウントを増分更新
 
-単一フィールドの Collection Group Scope のインデックスです。
-`apps` の全サブコレクションに適用されますが、
-実際の検索は `assessmentUpdatedAt` があるデータだけを返します。
+1回の受験保存で、新たな学習記録ドキュメント1件を同じトランザクションで更新します。
+従来の学習活動APIへの非同期別送信は実力診断について廃止しました。
+**追加readはなく、記録の二重送信もありません。**
 
-Firebase CLI で既存のインデックス定義を管理している場合は、
-既存の `firestore.indexes.json` の `fieldOverrides` に
-次の設定を **マージ** してください（既存定義を上書きしないこと）。
+集計更新時はトップレベルの `learning_activity` コレクションを
+`assessmentUpdatedAt` の昇順で検索します。
+これはFirestoreの標準の単一フィールドインデックスを使用します。
+`apps` コレクショングループインデックスや新たな複合インデックスは不要です。
 
-```json
-{
-  "collectionGroup": "apps",
-  "fieldPath": "assessmentUpdatedAt",
-  "indexes": [
-    {"order": "ASCENDING", "queryScope": "COLLECTION"},
-    {"order": "DESCENDING", "queryScope": "COLLECTION"},
-    {"order": "ASCENDING", "queryScope": "COLLECTION_GROUP"}
-  ]
-}
-```
+## 初回更新とread/write
 
-## 自動設定（管理API）
+- 以前の集計形式（schemaVersion 1/2）から3へ移行するとき、管理者以外の登録者について
+  既存の受験結果だけを一度バッチ取得します。登録者約160名なら最大約160件のドキュメントread、
+  集計スナップショット1writeが発生します。結果がない利用者は人数に含めません。
+- 2回目以降は変更のあった `learning_activity` を検索し、その利用者のウォレットだけを取得します。
+  Aさんが再受験した場合は通常、学習記録約1read＋ウォレット約1read＋
+  集計スナップショット1read/1writeです（クエリ最低課金などは別）。
+- 新しい受験がなければ集計スナップショットは書き換えません。
+- 通常の「保存済み集計を表示」はスナップショット1readです。
+- インデックスがない場合に、毎回全登録者のウォレットを読み直すフォールバックはありません。
 
-管理画面の「集計を更新」でコレクショングループインデックス不足を検出した場合、
-管理APIは、既存の単一フィールドインデックス設定を読み取り、
-`COLLECTION_GROUP / ASCENDING` だけを追加するように試みます。
-既存のインデックスは保持し、TTL設定は変更しません。
-
-- 作成開始に成功した場合：構築完了後に再度「集計を更新」を押してください。
-- すでに設定がある場合：構築中の可能性があるため、完了後に再実行してください。
-- 管理サーバーのサービスアカウントに`datastore.indexes.update`権限がない場合：
-  自動設定はできません。Firebaseコンソールの「単一フィールド」で
-  上記のインデックスを1回だけ手動追加してください。
-- 自動設定処理は利用者のデータを取得し直したり、集計を上書きしたりしません。
-  インデックスの構築にはFirestore側の索引作成処理が発生します。
-
-## 動作とread
-
-- 初回更新：従来の統計には利用者別の内訳がないため、管理者以外の利用者の
-  `assessmentLatest` だけをバッチ取得し、利用者別の前回スコアを
-  管理者用集計ドキュメントへ保存します（人数分のread＋1write）。
-- 2回目以降：このインデックスで `assessmentUpdatedAt` が
-  前回集計以降のドキュメントのみ検索し、該当者の点数だけ置き換えます。
-  Aさんだけ1回再受験なら概ね1件の変更を取得（＋集計ドキュメント1read＋1write）。
-- 変更がなければ集計ドキュメントを書き換えません。
-- インデックスが未作成の場合、管理APIは HTTP 412 を返し、
-  **全ユーザーの再読込にフォールバックしません**。
-- このインデックスは新しいデータ保存を要求しません。
-- 最新版の英語レベル判定 `pilot-2-grade2` のみを集計します。
-  旧尺度 `pilot-1` のスコアと混在させません。
-
-※Firestoreコンソール側のインデックス作成は、このリポジトリへの
-コード反映とは別作業です。Firestore設定完了前に差分更新すると412が返ります。
+旧版の実力診断ページがキャッシュされていた場合には、
+`learning_activity.assessmentUpdatedAt` が記録されないことがあります。
+最新版の `level-diagnostic/app.js` を使う必要があります。
+そのため移行時には全登録者の最新結果を一度取り直し、保存済みスコアを保持します。
+既存受験履歴は削除しません。
