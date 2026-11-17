@@ -28,6 +28,7 @@ import {createAdminData} from './admin-data.mjs';
 import {createDiagnosticStats} from './diagnostic-stats.mjs';
 import {createRetryQuestionStats} from './retry-question-stats.mjs';
 import {createTalkQuest} from './talk-quest.mjs';
+import {createCareerReflection} from './career-reflection.mjs';
 import {createPre2Interview} from './pre2-interview.mjs';
 import {publishDailyCoinBoard,readDailyCoinBoard} from './daily-coins.mjs';
 import {createOnlineBattle} from './online-battle.mjs';
@@ -374,6 +375,7 @@ Do not claim to be a human. Stay in character as the student's pet.
 
 const todayNews=createTodayNewsGenerator({apiKey:process.env.TODAY_GEMINI_API_KEY||backupKey||key,model:process.env.TODAY_GEMINI_MODEL||model,send,fail});
 const handleTalkQuest=createTalkQuest({verifyUser,readJson,send,fail});
+const handleCareerReflection=createCareerReflection({verifyUser,readJson,send,fail});
 const handlePre2Interview=createPre2Interview({readJson,send,fail});
 const handleContactMessage=createContactMessage({verifyUser,readJson,send,fail,getAdminUids:adminData.adminIds,onPersisted:message=>adminMessagePages.append(message)});
 const liveRoomStore=createRealtimeRoomStore({
@@ -495,7 +497,7 @@ export const server=http.createServer(async(req,res)=>{
   // Public GET is intentionally anonymous, while publishing (POST) still requires authentication.
   const publicWordBreakerRead=req.method==='GET'&&path==='/api/word-breaker/records';
   if(path.startsWith('/api/')&&path!=='/api/status'&&path!=='/api/today/generate'&&!publicWordBreakerRead){try{await verifyUser(req);}catch(error){return send(res,error.status||503,{error:error.message});}}
-  if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest","/api/vocabulary/gemini"].includes(path)){
+  if(req.method==='POST'&&["/api/evaluate","/api/pre2-interview-grade","/api/pet-chat","/api/talk-quest","/api/vocabulary/gemini","/api/career-reflection"].includes(path)){
     try{await verifyUser(req);await checkApp(req);}catch(e){return send(res,e.status||503,{error:e.message});}
   }
   if(req.method==='GET'&&['/firebase-security.js','/app-check-config.js'].includes(path)){
@@ -514,6 +516,7 @@ export const server=http.createServer(async(req,res)=>{
   if(path==='/api/contact-message')return handleContactMessage(req,res);
   if(path==='/api/pet-chat')return handlePetChat(req,res);
   if(path==='/api/vocabulary/gemini')return handleVocabularyGemini(req,res);
+  if(path==='/api/career-reflection')return handleCareerReflection(req,res);
   if(path==='/api/talk-quest')return handleTalkQuest(req,res);
   if(path==='/api/pre2-interview-grade')return handlePre2Interview(req,res);
   if(path==='/api/learning/challenges')return handleLearningChallenges(req,res);
