@@ -123,7 +123,7 @@ test('Quest awards cover all five grades and the 15 milestones using wallet coun
  const raw={clearsByGrade:{'4':1,'3':1,pre2:1,'2':1,pre1:1},clears:50,defeats:200,chestsOpened:20,
   correctAnswers:100,perfectRuns:1,revivals:1,allAliveClears:1};
  const state=titleState({wallet:{monsterMaze:{achievements:raw}}});
- const quest=state.titles.filter(t=>t.appId==='monster-maze'&&t.category!=='master');
+ const quest=state.titles.filter(t=>t.appId==='monster-maze'&&!t.id.startsWith('master:'));
  assert.equal(quest.length,15);assert.ok(quest.every(t=>t.unlocked));
  assert.equal(state.titles.find(t=>t.id==='master:monster-maze').unlocked,true);
  assert.equal(validTitleName('creative:monster-maze:05'),'深淵を越えし勇者');
