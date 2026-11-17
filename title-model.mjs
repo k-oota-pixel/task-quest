@@ -86,7 +86,7 @@ export function weeklyTitleName(appId){
 export function weeklyTitles({earnedIds=[],progress={}}={}){
  const earned=new Set(Array.isArray(earnedIds)?earnedIds:[]);
  return [{id:'weekly:coins',appId:'coins',label:'獲得コイン',name:weeklyTitleName('coins'),condition:'1週間で4日以上、獲得コインTOP3に入る'},
-  ...[...TITLE_CONTENTS.filter(app=>![DEFENSE_TITLE_APP,ONLINE_TITLE_APP].includes(app.id)),...RANKING_ONLY_CONTENTS].map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
+  ...[...TITLE_CONTENTS.filter(app=>![DEFENSE_TITLE_APP,ONLINE_TITLE_APP,QUEST_TITLE_APP].includes(app.id)),...RANKING_ONLY_CONTENTS].map(app=>({id:'weekly:'+app.id,appId:app.id,label:app.label,name:weeklyTitleName(app.id),condition:'1週間で4日以上、この教材の取り組み数1位になる'}))]
    .map(item=>{const done=Math.max(0,Math.min(7,Math.floor(Number(progress[item.appId])||0)));return {...item,need:WEEKLY_DAYS_TARGET,done:earned.has(item.id)?WEEKLY_DAYS_TARGET:done,unlocked:earned.has(item.id),category:'weekly'};});
 }
 const MASTER_NAMES=Object.freeze({
