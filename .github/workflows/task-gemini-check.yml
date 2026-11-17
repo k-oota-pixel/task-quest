@@ -4,6 +4,7 @@ on:
     paths:
       - 'task-gemini.mjs'
       - 'task-gemini.test.mjs'
+      - 'task-language-level.test.mjs'
       - 'server.mjs'
       - 'index.html'
       - 'public/index.html'
@@ -12,6 +13,7 @@ on:
     paths:
       - 'task-gemini.mjs'
       - 'task-gemini.test.mjs'
+      - 'task-language-level.test.mjs'
       - 'server.mjs'
       - 'index.html'
       - 'public/index.html'
@@ -30,3 +32,4 @@ jobs:
       - run: node --check server.mjs
       - run: node --check task-gemini.mjs
       - run: node --test task-gemini.test.mjs
+      - run: node --test task-language-level.test.mjs
