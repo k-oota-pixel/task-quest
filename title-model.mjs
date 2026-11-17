@@ -11,6 +11,27 @@ const wordTowerEndgameTitles=[
 ];
 export const DEFENSE_TITLE_APP='pet-typing-defense';
 export const ONLINE_TITLE_APP='online-battle';
+export const QUEST_TITLE_APP='monster-maze';
+const questGrades=['4','3','pre2','2','pre1'];
+// 15 permanent achievements, persisted as signed title IDs in the normal collection.
+const questTitleCatalog=[
+ {id:'creative:monster-maze:01',name:'はじまりの勇者',condition:'4級の迷宮を初めてクリアする',metric:'clear4',need:1},
+ {id:'creative:monster-maze:02',name:'王国の冒険者',condition:'3級の迷宮を初めてクリアする',metric:'clear3',need:1},
+ {id:'creative:monster-maze:03',name:'歴戦の勇者',condition:'準2級の迷宮を初めてクリアする',metric:'clearPre2',need:1},
+ {id:'creative:monster-maze:04',name:'伝説の勇者',condition:'2級の迷宮を初めてクリアする',metric:'clear2',need:1},
+ {id:'creative:monster-maze:05',name:'深淵を越えし勇者',condition:'準1級の迷宮を初めてクリアする',metric:'clearPre1',need:1},
+ {id:'creative:monster-maze:06',name:'五迷宮の覇者',condition:'4級・3級・準2級・2級・準1級すべての迷宮をクリアする',metric:'allGrades',need:5},
+ {id:'creative:monster-maze:07',name:'迷宮の探求者',condition:'迷宮を累計10回クリアする',metric:'clears',need:10},
+ {id:'creative:monster-maze:08',name:'迷宮の支配者',condition:'迷宮を累計50回クリアする',metric:'clears',need:50},
+ {id:'creative:monster-maze:09',name:'魔物ハンター',condition:'魔物を累計50体討伐する',metric:'defeats',need:50},
+ {id:'creative:monster-maze:10',name:'百戦錬磨',condition:'魔物を累計200体討伐する',metric:'defeats',need:200},
+ {id:'creative:monster-maze:11',name:'宝探しの名人',condition:'宝箱を累計20個開封する',metric:'chestsOpened',need:20},
+ {id:'creative:monster-maze:12',name:'知恵の剣士',condition:'英語問題に累計100問正解する',metric:'correctAnswers',need:100},
+ {id:'creative:monster-maze:13',name:'完全なる賢者',condition:'1回の探索で10問以上解き、全問正解する',metric:'perfectRuns',need:1},
+ {id:'creative:monster-maze:14',name:'命をつなぐ者',condition:'蘇生魔法で仲間を初めて復活させる',metric:'revivals',need:1},
+ {id:'creative:monster-maze:15',name:'絆の守護者',condition:'ぺっとと仲間3体が全員生存した状態で5階をクリアする',metric:'allAliveClears',need:1}
+];
+
 const onlineBattleTitleCatalog=[
  {id:'creative:online-battle:01',name:"はじめての決闘",condition:"オンライン対戦を初めて1戦する",metric:'games',need:1},
  {id:'creative:online-battle:02',name:"勝利の第一歩",condition:"オンライン対戦で初めて勝利する",metric:'wins',need:1},
@@ -46,7 +67,7 @@ const defenseTitleCatalog=[
  {id:'creative:pet-typing-defense:14',name:"三界の守護神",condition:"3難易度すべて完全クリアする",metric:'modesCleared',need:3},
  {id:'creative:pet-typing-defense:15',name:"究極の防衛王",condition:"ハードを城の耐久力を失わず完全クリアする",metric:'hardFlawlessClears',need:1}
 ];
-export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog,'pet-fishing':petFishingCatalog,[DEFENSE_TITLE_APP]:defenseTitleCatalog,[ONLINE_TITLE_APP]:onlineBattleTitleCatalog};
+export const creativeCatalog={...baseCreativeCatalog,'word-tower':[...wordTowerBaseTitles,...wordTowerEndgameTitles],'case-talk':caseTalkCatalog,'pet-fishing':petFishingCatalog,[DEFENSE_TITLE_APP]:defenseTitleCatalog,[ONLINE_TITLE_APP]:onlineBattleTitleCatalog,[QUEST_TITLE_APP]:questTitleCatalog};
 const HIDDEN_TITLE_PREFIXES=['creative:pet-instructions:'];
 export const WEEKLY_DAYS_TARGET=4;
 // These gameplay modes participate in daily rankings and weekly titles without adding
@@ -80,7 +101,8 @@ const MASTER_NAMES=Object.freeze({
  'eiken-dungeon':'深淵を制する者',
  'pet-fishing':'深海の探究者',
  'pet-catch':'百発百中の捕獲者',
- 'online-battle':'闘技場の覇王'
+ 'online-battle':'闘技場の覇王',
+ 'monster-maze':'もんすた王国の英雄'
 });
 export function masterTitleName(appId){
  const content=TITLE_CONTENTS.find(item=>item.id===appId);
@@ -98,7 +120,7 @@ export function masterTitles(titles=[]){
 }
 export function creativeTitles(appId,progress={}){return (creativeCatalog[appId]||[]).map(t=>{const raw=count(progress.metrics?.[t.metric]),unlocked=raw>=t.need,displayNeed=count(t.displayNeed)||t.need;return {...t,appId,label:TITLE_CONTENTS.find(x=>x.id===appId)?.label||appId,need:displayNeed,done:t.displayNeed?(unlocked?displayNeed:0):raw,unlocked};});}
 export function validTitleName(id){if(HIDDEN_TITLE_PREFIXES.some(prefix=>id?.startsWith(prefix)))return '';if(id?.startsWith('master:'))return masterTitleName(id.slice(7));if(id?.startsWith('weekly:'))return weeklyTitleName(id.slice(7));const t=Object.values(creativeCatalog).flat().find(t=>t.id===id);if(t)return t.name;if(id?.startsWith('retry:'))return retryCatalog.titles.find(t=>'retry:'+t.id===id)?.name||'';return activityTitles('eiken-retry',0).find(t=>t.id===id)?.name||'';}
-export const TITLE_CONTENTS=[{id:'basic-grammar',label:'並べ替え問題（基本文法）'},{id:'grammar',label:'並べ替え問題（文法別）'},{id:'today',label:'TODAY'},...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'case-talk',label:'サポート付きケーストーク'},{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'pet-fishing',label:'PET FISHING'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'},{id:DEFENSE_TITLE_APP,label:'もんすた城の防衛'},{id:ONLINE_TITLE_APP,label:'オンライン対戦'}];
+export const TITLE_CONTENTS=[{id:'basic-grammar',label:'並べ替え問題（基本文法）'},{id:'grammar',label:'並べ替え問題（文法別）'},{id:'today',label:'TODAY'},...CHALLENGE_CONTENTS.map(({id,label})=>({id,label})),{id:'case-talk',label:'サポート付きケーストーク'},{id:'pet-catch',label:'PET CATCH'},{id:'pet-chat',label:'ペットと英会話'},{id:'pet-fishing',label:'PET FISHING'},{id:'word-tower',label:'魔王の塔'},{id:'eiken-dungeon',label:'魔物の巣窟'},{id:DEFENSE_TITLE_APP,label:'もんすた城の防衛'},{id:ONLINE_TITLE_APP,label:'オンライン対戦'},{id:QUEST_TITLE_APP,label:'もんすたクエスト'}];
 const count=value=>Math.max(0,Math.floor(Number(value)||0));
 export function activityTitles(appId,total){
  if(appId!=='eiken-retry')return [];
@@ -138,6 +160,19 @@ export function nextOnlineBattleTitleStats(previous={},gradeKey,won){
  };
 }
 
+/** One wallet field is the Quest source of truth, with no extra progress document. */
+export function questTitleProgress(wallet={}){
+ const stats=wallet.monsterMaze?.achievements||{},clears=stats.clearsByGrade||{};
+ const c=value=>Math.max(0,Math.floor(Number(value)||0));
+ const byGrade=questGrades.map(grade=>c(clears[grade]));
+ return {metrics:{
+  clear4:byGrade[0],clear3:byGrade[1],clearPre2:byGrade[2],clear2:byGrade[3],clearPre1:byGrade[4],
+  allGrades:byGrade.filter(value=>value>0).length,
+  clears:Math.max(c(stats.clears),byGrade.reduce((sum,value)=>sum+value,0)),
+  defeats:c(stats.defeats),chestsOpened:c(stats.chestsOpened),correctAnswers:c(stats.correctAnswers),
+  perfectRuns:c(stats.perfectRuns),revivals:c(stats.revivals),allAliveClears:c(stats.allAliveClears)
+ }};
+}
 /** Wallet-derived defense titles: zero additional title_progress reads. */
 export function defenseTitleProgress(activity={},wallet={}){
  const raw=wallet.typingDefenseTitleStats||{},c=v=>Math.max(0,Math.floor(Number(v)||0));
@@ -154,7 +189,7 @@ export function defenseTitleProgress(activity={},wallet={}){
 }
 
 export function titleState({activity={},retry={},selection={},progress={},wallet={},weeklyEarnedIds=[],weeklyProgress={}}={}){
- progress={...progress,[DEFENSE_TITLE_APP]:defenseTitleProgress(activity,wallet),[ONLINE_TITLE_APP]:onlineBattleTitleProgress(wallet)};
+ progress={...progress,[DEFENSE_TITLE_APP]:defenseTitleProgress(activity,wallet),[ONLINE_TITLE_APP]:onlineBattleTitleProgress(wallet),[QUEST_TITLE_APP]:questTitleProgress(wallet)};
  for(const [app,field] of [['word-tower','wordTowerBest'],['eiken-dungeon','eikenDungeonBest']]){const prior=progress[app]||{};progress[app]={...prior,metrics:{...prior.metrics,bestFloor:Math.max(count(prior.metrics?.bestFloor),count(wallet[field]))}};}
  const titles=TITLE_CONTENTS.flatMap(x=>[...activityTitles(x.id,activity.contents?.[x.id]?.titleCount),...creativeTitles(x.id,progress[x.id])]);
  const done={};for(const [id,r] of Object.entries(retry.state?.records||{})){const grade=retryCatalog.questions[id];if(grade&&count(r?.attempts)>0)done[grade]=(done[grade]||0)+1;}

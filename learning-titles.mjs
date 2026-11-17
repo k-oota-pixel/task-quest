@@ -1,5 +1,5 @@
-import {titleState,TITLE_CONTENTS,validTitleName,DEFENSE_TITLE_APP,ONLINE_TITLE_APP} from './title-model.mjs';
-import {awardTitleIds,collectionTitleState,hasTitleCollection,titleCollectionVersion,walletTitleIds} from './title-collection.mjs';
+import {titleState,TITLE_CONTENTS,validTitleName,DEFENSE_TITLE_APP,ONLINE_TITLE_APP,QUEST_TITLE_APP} from './title-model.mjs';
+import {awardTitleIds,collectionTitleState,hasTitleCollection,titleCollectionVersion,walletTitleIds,titleIdsTransform} from './title-collection.mjs';
 import {titleCountTransforms} from './title-count-summary.mjs';
 import {fixtureTitleAuthority} from './title-authority.mjs';
 const encode=value=>typeof value==='string'?{stringValue:value}:{nullValue:null};
@@ -56,7 +56,7 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   }
  }
  async function restore(uid,showProgress){
-  const progressApps=TITLE_CONTENTS.filter(x=>x.id!==DEFENSE_TITLE_APP&&x.id!==ONLINE_TITLE_APP);
+  const progressApps=TITLE_CONTENTS.filter(x=>![DEFENSE_TITLE_APP,ONLINE_TITLE_APP,QUEST_TITLE_APP].includes(x.id));
   const token=await accessToken(),paths=[`learning_activity/${uid}`,`users/${uid}/apps/eiken-retry`,`user_titles/${uid}`,...progressApps.map(x=>`title_progress/${uid}/activities/${x.id}`),walletPath(uid)];
   const response=await request(base+'/documents:batchGet',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({documents:paths.map(p=>prefix+p),newTransaction:{readOnly:{}}})});
   if(!response.ok)throw fail('称号を取得できませんでした。',502);
@@ -86,10 +86,43 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
   }
   return {wallet,state};
  }
+ // Quest stats are already committed to the wallet with the run's coin/card reward.
+ // Sign only newly earned titles; zero extra progress reads, and no write on ordinary reads.
+ async function synchronizeQuestAwards(uid,token,snapshot,authority){
+  let current=snapshot;
+  for(let attempt=0;attempt<4;attempt++){
+   const wallet=current.fields,owned=walletTitleIds(wallet,authority,uid);
+   const eligible=titleState({wallet}).titles.filter(title=>title.appId===QUEST_TITLE_APP&&title.unlocked);
+   const freshTitles=eligible.filter(title=>!owned.has(title.id));
+   if(!freshTitles.length)return {wallet,state:collectionTitleState(wallet,authority,uid),snapshot:current,freshTitles:[]};
+   const ids=freshTitles.map(title=>title.id);
+   const synchronized=wallet.titleCountSummaryVersion===1
+     && Number(wallet.titleCountRevision||0)===Number(wallet.titleCountSyncedRevision||0);
+   const transforms=[titleIdsTransform(ids,authority,uid),
+     ...titleCountTransforms(synchronized?ids.length:0,{invalidate:!synchronized})];
+   const write={update:{name:prefix+walletPath(uid),fields:{}},updateMask:{fieldPaths:[]},
+     updateTransforms:transforms};
+   if(current.updateTime)write.currentDocument={updateTime:current.updateTime};
+   const result=await request(base+'/documents:commit',{method:'POST',
+     headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+     body:JSON.stringify({writes:[write]})});
+   if(result.ok){
+    const updated={...wallet,earnedTitleIds:[...(wallet.earnedTitleIds||[]),...ids.map(id=>authority.award(uid,id))]};
+    const state=collectionTitleState(updated,authority,uid);
+    try{await onTitleCountChanged({uid,petName:wallet.petName||'',unlockedTitleCount:state.unlockedTitleCount});}
+    catch(error){console.warn('Quest title count update deferred',error?.message||error);}
+    return {wallet:updated,state,snapshot:{...current,fields:updated},freshTitles};
+   }
+   if(![409,412].includes(result.status))throw fail('もんすたクエストの称号を保存できませんでした。',502);
+   current=await fetchWallet(uid,token);
+   if(!hasTitleCollection(current?.fields,authority,uid))throw fail('称号の保存状態を確認できませんでした。',409);
+  }
+  throw fail('称号の保存が混み合っています。',409);
+ }
  async function ensureCollection(uid,token){
   const [snapshot,authority]=await Promise.all([fetchWallet(uid,token),getAuthority()]);
-  if(hasTitleCollection(snapshot?.fields,authority,uid))return {wallet:snapshot.fields,state:collectionTitleState(snapshot.fields,authority,uid),snapshot};
-  return migrate(uid);
+  if(hasTitleCollection(snapshot?.fields,authority,uid))return synchronizeQuestAwards(uid,token,snapshot,authority);
+  return {...await migrate(uid),freshTitles:[]};
  }
  async function recordAwards(uid,token,ids,transforms=[]){
   if(!ids.length)return;
@@ -175,11 +208,11 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  // Ownership comes from the existing collection read; do not migrate or write here.
  async function readAppProgress(uid,appId){
   if(!TITLE_CONTENTS.some(item=>item.id===appId))throw fail('教材が不正です。',400);
-  const walletNeeded=[DEFENSE_TITLE_APP,ONLINE_TITLE_APP,'word-tower','eiken-dungeon'].includes(appId);
+  const walletNeeded=[DEFENSE_TITLE_APP,ONLINE_TITLE_APP,QUEST_TITLE_APP,'word-tower','eiken-dungeon'].includes(appId);
   const progressPath=`title_progress/${uid}/activities/${appId}`;
   const activityPath=`learning_activity/${uid}`,retryPath=`users/${uid}/apps/eiken-retry`;
   const paths=[
-   ...([DEFENSE_TITLE_APP,ONLINE_TITLE_APP].includes(appId)?[]:[progressPath]),
+   ...([DEFENSE_TITLE_APP,ONLINE_TITLE_APP,QUEST_TITLE_APP].includes(appId)?[]:[progressPath]),
    ...(appId==='eiken-retry'?[retryPath,activityPath]:[]),
    ...(appId===DEFENSE_TITLE_APP?[activityPath]:[]),
    ...(walletNeeded?[walletPath(uid)]:[])
@@ -200,7 +233,12 @@ export function createLearningTitles({base,projectId,accessToken,verifyUser,deco
  }
  async function handle(req,res){try{
   if(!['GET','POST'].includes(req.method))throw fail('GETまたはPOSTのみ対応しています。',405);
-  const user=await verifyUser(req),view=new URL(req.url,'http://localhost').searchParams.get('view');
+  const user=await verifyUser(req),params=new URL(req.url,'http://localhost').searchParams,view=params.get('view');
+  if(req.method==='POST'&&params.get('action')==='quest-sync'){
+   const token=await accessToken();
+   const {freshTitles=[]}=await ensureCollection(user.uid,token);
+   return send(res,200,{ok:true,freshTitles});
+  }
   if(req.method==='GET'&&view==='selection')return send(res,200,await readSelection(user.uid));
   if(req.method==='GET'&&view==='app-progress')return send(res,200,await readAppProgress(user.uid,new URL(req.url,'http://localhost').searchParams.get('appId')));
   if(req.method==='GET'){

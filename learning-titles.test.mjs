@@ -5,7 +5,7 @@ import {createLearningTitles} from './learning-titles.mjs';
 import {fixtureTitleAuthority} from './title-authority.mjs';
 import {createLearningActivity} from './learning-activity.mjs';
 import catalog from './retry-title-catalog.json' with {type:'json'};
-test('creative title catalogs replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,23);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,id==='word-tower'?18:15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
+test('creative title catalogs replace generic tiers; retry retains its four tiers',()=>{assert.equal(TITLE_CONTENTS.length,24);assert.equal(TITLE_CONTENTS.some(({id})=>id==='pet-instructions'),false);for(const {id}of TITLE_CONTENTS){assert.equal(creativeTitles(id).length,id==='word-tower'?18:15);assert.equal(activityTitles(id,10).length,id==='eiken-retry'?4:0);}});
 test('retry titles and selected title migrate using distinct answered questions, with no badges',()=>{
  const ids=Object.keys(catalog.questions).filter(id=>catalog.questions[id]==='4級').slice(0,50);
  const retry={state:{records:Object.fromEntries(ids.map(id=>[id,{attempts:100}]))},profile:{equippedTitle:'g4-50'}};
@@ -117,4 +117,56 @@ test('expanded title group reads only that progress document, with no writes',as
  assert.equal(r.body.appId,'word-breaker');
  assert.ok(r.body.titles.some(title=>Number.isFinite(title.done)&&title.done>0));
  assert.deepEqual(methods,['POST']);
+});
+
+test('Quest awards cover all five grades and the 15 milestones using wallet counters',()=>{
+ const raw={clearsByGrade:{'4':1,'3':1,pre2:1,'2':1,pre1:1},clears:50,defeats:200,chestsOpened:20,
+  correctAnswers:100,perfectRuns:1,revivals:1,allAliveClears:1};
+ const state=titleState({wallet:{monsterMaze:{achievements:raw}}});
+ const quest=state.titles.filter(t=>t.appId==='monster-maze'&&t.category!=='master');
+ assert.equal(quest.length,15);assert.ok(quest.every(t=>t.unlocked));
+ assert.equal(state.titles.find(t=>t.id==='master:monster-maze').unlocked,true);
+ assert.equal(validTitleName('creative:monster-maze:05'),'深淵を越えし勇者');
+});
+test('Quest collection signs awards once without another progress read',async()=>{
+ const authority=await fixtureTitleAuthority();
+ const wallet={titleCollectionVersion:1,titleCollectionProof:authority.marker('u'),
+  earnedTitleIds:[],monsterMaze:{achievements:{clearsByGrade:{'4':1},clears:1}}};
+ let reads=0,writes=0;
+ const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'t',
+  verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,send:(r,status,body)=>Object.assign(r,{status,body}),fail,
+  fetch:async(url,opt={})=>{
+   if(url.endsWith('/users/u/apps/english-playroom')){reads++;return {ok:true,json:async()=>({fields:wallet,updateTime:'2026-11-17T00:00:00.000Z'})};}
+   if(url.endsWith(':commit')){
+    writes++;
+    const write=JSON.parse(opt.body).writes[0];
+    assert.ok(write.currentDocument.updateTime);
+    const awarded=write.updateTransforms.find(t=>t.fieldPath==='earnedTitleIds');
+    wallet.earnedTitleIds.push(...awarded.appendMissingElements.values.map(v=>v.stringValue));
+    return {ok:true};
+   }
+   throw Error('Unexpected extra document access: '+url);
+  }});
+ const first={};await api.handle({method:'POST',url:'/api/learning/titles?action=quest-sync'},first);
+ assert.equal(first.status,200);assert.equal(first.body.freshTitles.length,1);
+ assert.equal(first.body.freshTitles[0].id,'creative:monster-maze:01');
+ assert.equal(writes,1);assert.equal(reads,1);
+ assert.equal(authority.verifyAward('u',wallet.earnedTitleIds[0]),'creative:monster-maze:01');
+ const again={};await api.handle({method:'POST',url:'/api/learning/titles?action=quest-sync'},again);
+ assert.equal(again.status,200);assert.equal(again.body.freshTitles.length,0);
+ assert.equal(writes,1);assert.equal(reads,2);
+});
+test('Quest app progress reads only the user wallet',async()=>{
+ const requested=[];
+ const api=createLearningTitles({base:'https://db',projectId:'p',accessToken:async()=>'t',
+  verifyUser:async()=>({uid:'u'}),decodeFields:x=>x,send:(r,status,body)=>Object.assign(r,{status,body}),fail,
+  fetch:async(url,opt={})=>{
+   assert.ok(url.endsWith(':batchGet'));
+   const documents=JSON.parse(opt.body).documents;requested.push(...documents);
+   return {ok:true,json:async()=>documents.map(name=>({found:{name,fields:{monsterMaze:{achievements:{clearsByGrade:{'3':1}}}}}}))};
+  }});
+ const r={};await api.handle({method:'GET',url:'/api/learning/titles?view=app-progress&appId=monster-maze'},r);
+ assert.equal(r.status,200);
+ assert.deepEqual(requested,['projects/p/databases/(default)/documents/users/u/apps/english-playroom']);
+ assert.equal(r.body.titles.find(t=>t.id==='creative:monster-maze:02').done,1);
 });
