@@ -259,7 +259,7 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
       const power=Math.round(unit.physical*(isSpecial?1.25+unit.rarity*.33:1));
       if(isSpecial&&unit.effect==='guard'){p.guard={ratio:unit.rarity/10,turns:unit.rarity===1?1:2};}
       else if(isSpecial&&unit.effect.endsWith('All'))enemyUnits.forEach((enemyUnit,i)=>{if(enemyUnit.hp>0)hit(power,i);});
-      else hit(power,target(enemyUnits));
+      else hit(power,selectedIndex);
       if(isSpecial)unit.ct=unit.maxCt;
     }
     b.log.push(p.nickname+'：攻撃成功！');
