@@ -4,6 +4,8 @@ import {createHash,randomUUID} from 'node:crypto';
 // No npm dependency, no URL credentials, no Firestore polling for movement.
 const WIDTH=48,HEIGHT=32,MAX_PLAYERS=40,MOVE_MS=240,INVITE_MS=10000;
 const allowedGrades=new Set(['4','3','pre2','2']);
+const allowedEmotes=new Set(['jump','heart','sparkle','spin']);
+const EMOTE_COOLDOWN_MS=2000;
 const spellList=[
  {id:'mimuros',name:'ミムロス',level:5,kind:'heal',mp:4,base:10},
  {id:'mirogoro',name:'ミロゴロ',level:15,kind:'attack',mp:6,base:15},
@@ -349,6 +351,16 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
 
  async function handle(p,msg){
   if(!msg||typeof msg.type!=='string')return;
+  if(msg.type==='emote'){
+   // Only authenticated connection owners can trigger a plaza emote.
+   // Do not accept a client-supplied player ID or touch Firebase.
+   if(!p.connection||p.battle||p.preparing||!allowedEmotes.has(msg.kind))return;
+   const now=Date.now();
+   if(now-(p.lastEmote||0)<EMOTE_COOLDOWN_MS)return;
+   p.lastEmote=now;
+   publish({type:'emote',id:p.uid,kind:msg.kind});
+   return;
+  }
   if(msg.type==='move'){
    if(p.battle||p.preparing||!p.connection)return;
    const now=Date.now();if(now-p.lastMove<MOVE_MS)return;
