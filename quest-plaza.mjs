@@ -120,13 +120,35 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   if(bankCache&&Date.now()-bankCachedAt<3600000)return bankCache;
   if(bankPending)return bankPending;
   bankPending=(async()=>{
-   const urls=['pet-adventure/online-battle-vocab.json','monster-maze/supplemental-question-bank.json'];
-   const rows=await Promise.all(urls.map(async path=>{
-    const r=await fetch(sourceBase+path,{signal:AbortSignal.timeout(18000)});
-    if(!r.ok)throw Error('英語問題データを取得できませんでした。');
-    return r.json();
+   const urls=[
+    sourceBase+'pet-adventure/online-battle-vocab.json',
+    sourceBase+'monster-maze/supplemental-question-bank.json',
+    'https://raw.githubusercontent.com/k-oota-pixel/eiken-retry/main/assets/question-data.js'
+   ];
+   const [vocabulary,supplemental,retrySource]=await Promise.all(urls.map(async(url,index)=>{
+    const response=await fetch(url,{signal:AbortSignal.timeout(18000)});
+    if(!response.ok)throw Error('英語問題データを取得できませんでした。');
+    return index===2?response.text():response.json();
    }));
-   bankCache={vocab:rows[0].grades||{},supp:rows[1].grades||{}};
+   // Retry Note publishes a JSON array wrapped in a window assignment.
+   // Parse the data without evaluating JavaScript from another site.
+   const prefix=/^\s*window\.RETRY_QUESTIONS\s*=\s*/;
+   if(!prefix.test(retrySource))throw Error('文法問題データの形式が不正です。');
+   const retryQuestions=JSON.parse(retrySource.replace(prefix,'').replace(/;\s*$/,''));
+   const gradeMap={'4級':'4','3級':'3','準2級':'pre2','2級':'2'};
+   const grammaticalRoles=new Set(['grammar','verbform','infinitive','participle']);
+   const grammar={'4':[],'3':[],pre2:[],'2':[]};
+   for(const item of retryQuestions){
+    const grade=gradeMap[item?.grade];
+    if(!grade||!(grade==='3'?Number(item.question_number)>=13:grammaticalRoles.has(item.review_role)))continue;
+    const choices=Array.isArray(item.choices)?item.choices.map(c=>String(c?.text||'').trim()):[];
+    const index=Array.isArray(item.choices)?item.choices.findIndex(c=>Number(c?.number)===Number(item.answer_number)):-1;
+    const prompt=String(item.question||'').trim();
+    if(!prompt||choices.length!==4||choices.some(v=>!v)||new Set(choices).size!==4||index<0)continue;
+    grammar[grade].push({id:item.id,prompt,answer:choices[index],options:choices});
+   }
+   if(Object.values(grammar).some(items=>items.length===0))throw Error('級別の文法問題が不足しています。');
+   bankCache={vocab:vocabulary.grades||{},supp:supplemental.grades||{},grammar};
    bankCachedAt=Date.now();return bankCache;
   })().finally(()=>{bankPending=null;});
   return bankPending;
@@ -141,12 +163,10 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
   const bank=bankCache;
   if(!bank)throw Error('問題データの読み込みが必要です。');
   const grade=p.battle.grade,vocab=bank.vocab[grade]?.words||[],extra=bank.supp[grade]||{};
-  const kinds=['vocab'];
-  if((extra.ordering||[]).length)kinds.push('ordering');
-  if((extra.potato||[]).length)kinds.push('potato');
+  const kinds=grade==='4'?['vocab','grammar']:['vocab','grammar','ordering'];
+  const type=kinds[(p.battleQuestionCount||0)%kinds.length];
   let q=null;
   for(let attempts=0;attempts<10&&!q;attempts++){
-   const type=randomItem(kinds);
    if(type==='vocab'&&vocab.length>=5){
     const rows=vocab.filter(r=>r.word&&r.answers?.[0]);
     const row=randomItem(rows.filter(r=>r.word!==p.lastWord).length?rows.filter(r=>r.word!==p.lastWord):rows);
@@ -157,20 +177,24 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
     if(others.length!==3)continue;
     p.lastWord=row.word;
     q={type:'choice',label:'単語',prompt:reverse?'次の日本語を英語に：'+row.answers[0]:'次の単語の意味は？ '+row.word,answer,options:shuffled([answer,...others])};
+   }else if(type==='grammar'){
+    const rows=bank.grammar[grade]||[];
+    const other=rows.filter(r=>r.id!==p.lastGrammarId);
+    const item=randomItem(other.length?other:rows);
+    if(!item)continue;
+    p.lastGrammarId=item.id;
+    q={type:'choice',label:'文法',prompt:item.prompt,answer:item.answer,options:shuffled(item.options)};
    }else if(type==='ordering'){
-    const item=randomItem(extra.ordering);if(!item?.answer)continue;
+    const item=randomItem(extra.ordering||[]);if(!item?.answer)continue;
     const tokens=item.answer.match(/[A-Za-z]+(?:[-'’][A-Za-z]+)*|\d+(?:st|nd|rd|th)?/g)||[];
     if(tokens.length<2||tokens.length>25)continue;
     const choices=shuffled(tokens.map((v,i)=>({id:i,text:v.toLowerCase()})));
     q={type:'ordering',label:'並べ替え',prompt:item.prompt,answer:item.answer,accepted:item.acceptedAnswers||[],tokens:choices};
-   }else if(type==='potato'){
-    const item=randomItem(extra.potato);
-    if(!item?.answer||!Array.isArray(item.options)||item.options.length<2)continue;
-    q={type:'choice',label:'ポテトマン',prompt:item.prompt,answer:item.answer,options:shuffled(item.options)};
    }
   }
   if(!q)throw Error('選択された級の問題を生成できませんでした。');
   q.seq=(p.questionSeq||0)+1;p.questionSeq=q.seq;p.question=q;
+  p.battleQuestionCount=(p.battleQuestionCount||0)+1;
   sendQuestion(p);
  }
  const alive=team=>team.some(unit=>unit.hp>0);
@@ -314,6 +338,10 @@ export function installQuestPlaza(server,{verifyUser,getUserDoc,getGoogleAccessT
    a.units=starterRoster(dataA);b.units=starterRoster(dataB);
    a.inventory=inventoryFrom(dataA);b.inventory=inventoryFrom(dataB);
    const battle={id:randomUUID(),a,b,grade:invite.grade,log:[],ended:false};
+   for(const player of [a,b]){
+    // Reset the category cycle each battle; preserve monotonic question sequence IDs.
+    player.battleQuestionCount=0;player.lastWord=null;player.lastGrammarId=null;
+   }
    a.battle=b.battle=battle;
    battles.set(battle.id,battle);
    publish({type:'statuses',players:[view(a),view(b)]});
