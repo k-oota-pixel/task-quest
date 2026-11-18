@@ -28,11 +28,20 @@ function messages(socket){
 }
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const token=uid=>({url:'/ws/quest-plaza',headers:{origin:'https://k-oota-pixel.github.io',upgrade:'websocket','sec-websocket-key':'MTIzNDU2Nzg5MDEyMzQ1Ng==' }});
+const grammarSource='window.RETRY_QUESTIONS = '+JSON.stringify(
+ ['4級','3級','準2級','2級'].map((grade,index)=>({
+  id:'test-grammar-'+index,grade,question_number:13,review_role:'grammar',
+  question:'He (____) a student.',
+  choices:[{number:1,text:'are'},{number:2,text:'is'},{number:3,text:'am'},{number:4,text:'be'}],
+  answer_number:2
+ }))
+)+';';
 test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% damage',async()=>{
  const original=globalThis.fetch,originalRandom=Math.random;
  Math.random=()=>.1;
  globalThis.fetch=async url=>({
   ok:true,
+  text:async()=>grammarSource,
   json:async()=>String(url).includes('online-battle-vocab')
    ?{grades:{'4':{words:[{word:'cat',answers:['猫']},{word:'dog',answers:['犬']},{word:'bird',answers:['鳥']},{word:'book',answers:['本']},{word:'pen',answers:['ペン']},{word:'desk',answers:['机']} ]}}}
    :{grades:{'4':{ordering:[{id:'o1',prompt:'私は学生です。',answer:'I am a student.'}],potato:[]}}}
@@ -86,6 +95,7 @@ test('Authenticated 4-direction plaza, request/accept, and incorrect-answer 10% 
   const meanings={cat:'猫',dog:'犬',bird:'鳥',book:'本',pen:'ペン',desk:'机'};
   const correctFor=q=>{
    if(q.kind==='ordering')return 'I am a student.';
+   if(q.label==='文法')return 'is';
    const prompt=q.prompt||'';
    const ja=prompt.slice(prompt.lastIndexOf('：')+1).trim();
    if(prompt.includes('次の日本語'))return Object.keys(meanings).find(k=>meanings[k]===ja);
@@ -161,7 +171,7 @@ test('Ally Mirogoron remains responsive without question or match timers, and st
  const originalFetch=globalThis.fetch,originalRandom=Math.random,originalNow=Date.now;
  Math.random=()=>.1;
  const dictionary={cat:'猫',dog:'犬',bird:'鳥',book:'本',pen:'ペン',desk:'机'};
- globalThis.fetch=async()=>({ok:true,json:async()=>({grades:{'4':{words:Object.entries(dictionary)
+ globalThis.fetch=async()=>({ok:true,text:async()=>grammarSource,json:async()=>({grades:{'4':{words:Object.entries(dictionary)
   .map(([word,japanese])=>({word,answers:[japanese]}))}}})});
  const server=new EventEmitter();
  const api=installQuestPlaza(server,{
@@ -279,4 +289,54 @@ test('Authenticated emotes are broadcast once per 2 seconds without database acc
  }finally{
   api.close();Date.now=originalNow;
  }
+});
+
+
+test('Plaza PvP follows grade-specific word, grammar, ordering cycles without 4th-grade ordering',async()=>{
+ const originalFetch=globalThis.fetch,originalRandom=Math.random;
+ Math.random=()=>.1;
+ const words=['cat','dog','bird','book','pen','desk'].map((word,i)=>({word,answers:['訳'+i]}));
+ const ordering={id:'order-1',prompt:'私は学生です。',answer:'I am a student.'};
+ globalThis.fetch=async url=>({
+  ok:true,text:async()=>grammarSource,
+  json:async()=>String(url).includes('online-battle-vocab')
+   ?{grades:Object.fromEntries(['4','3','pre2','2'].map(grade=>[grade,{words}]))}
+   :{grades:Object.fromEntries(['4','3','pre2','2'].map(grade=>[grade,{ordering:[ordering],potato:[]}]))}
+ });
+ const join=async(server,uid)=>{
+  const socket=new FakeSocket();
+  server.emit('upgrade',token(uid),socket,Buffer.alloc(0));
+  socket.emit('data',frame({type:'auth',token:uid}));
+  await delay(20);
+  assert(messages(socket).some(message=>message.type==='welcome'));
+  return socket;
+ };
+ try{
+  for(const grade of ['4','3','pre2','2']){
+   const server=new EventEmitter();
+   const api=installQuestPlaza(server,{
+    verifyUser:async req=>({uid:req.headers.authorization.slice(7)}),
+    getUserDoc:async(_token,uid)=>({nickname:uid,petName:uid}),
+    getGoogleAccessToken:async()=>'access',grantCoins:async()=>0,originAllowed:()=>true
+   });
+   try{
+    const a=await join(server,'first'),b=await join(server,'second');
+    a.emit('data',frame({type:'invite',to:'second',grade}));
+    await delay(20);
+    b.emit('data',frame({type:'respond',from:'first',accept:true}));
+    await delay(80);
+    const expected=grade==='4'
+     ?['単語','文法','単語','文法','単語','文法','単語','文法']
+     :['単語','文法','並べ替え','単語','文法','並べ替え','単語'];
+    for(const [turn,label] of expected.entries()){
+     const question=messages(a).filter(m=>m.type==='question').at(-1);
+     assert(question,'question exists at '+grade+' turn '+(turn+1));
+     assert.equal(question.label,label,grade+' turn '+(turn+1));
+     a.emit('data',frame({type:'answer',seq:question.seq,value:'intentionally-incorrect'}));
+     await delay(18);
+    }
+    assert(!messages(a).some(m=>m.type==='battleEnd'),'test battle should remain active');
+   }finally{api.close();}
+  }
+ }finally{globalThis.fetch=originalFetch;Math.random=originalRandom;}
 });
