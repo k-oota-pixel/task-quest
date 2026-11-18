@@ -227,3 +227,56 @@ test('Ally Mirogoron remains responsive without question or match timers, and st
   api.close();globalThis.fetch=originalFetch;Math.random=originalRandom;Date.now=originalNow;
  }
 });
+
+
+test('Authenticated emotes are broadcast once per 2 seconds without database access or ID spoofing',async()=>{
+ const server=new EventEmitter(),originalNow=Date.now;
+ let now=originalNow(),userReads=0;
+ Date.now=()=>now;
+ const api=installQuestPlaza(server,{
+  verifyUser:async req=>({uid:req.headers.authorization.slice(7)}),
+  getGoogleAccessToken:async()=> 'test',
+  getUserDoc:async(_token,uid)=>{userReads++;return {nickname:'user-'+uid,petName:'pet-'+uid};},
+  grantCoins:async()=>0,originAllowed:()=>true
+ });
+ const join=async uid=>{
+  const socket=new FakeSocket();
+  server.emit('upgrade',token(uid),socket,Buffer.alloc(0));
+  socket.emit('data',frame({type:'auth',token:uid}));
+  await delay(20);
+  assert(messages(socket).some(m=>m.type==='welcome'));
+  return socket;
+ };
+ try{
+  const a=await join('one'),b=await join('two');
+  assert.equal(api.connectedCount(),2);
+  const readsBefore=userReads;
+  const emotes=s=>messages(s).filter(m=>m.type==='emote');
+  // Client-supplied actor ID is ignored; sender identity comes from Firebase auth.
+  a.emit('data',frame({type:'emote',kind:'jump',id:'two'}));
+  await delay(10);
+  assert.deepEqual(emotes(a),[{type:'emote',id:'one',kind:'jump'}]);
+  assert.deepEqual(emotes(b),[{type:'emote',id:'one',kind:'jump'}]);
+  a.emit('data',frame({type:'emote',kind:'heart'})); // still cooling down
+  a.emit('data',frame({type:'emote',kind:'not-an-emote'}));
+  a.emit('data',frame({type:'emote',kind:'jump',id:'two'}));
+  await delay(10);
+  assert.equal(emotes(b).length,1,'cooldown and allowlist suppress extra events');
+  now+=2000;
+  for(const kind of ['heart','sparkle','spin']){
+   a.emit('data',frame({type:'emote',kind}));
+   await delay(10);
+   now+=2000;
+  }
+  assert.deepEqual(emotes(b).map(x=>x.kind),['jump','heart','sparkle','spin']);
+  assert.deepEqual(emotes(a).map(x=>x.kind),['jump','heart','sparkle','spin']);
+  assert.equal(userReads,readsBefore,'emotes never read Firestore');
+  // A disconnected socket must not trigger events.
+  a.destroy();
+  b.emit('data',frame({type:'emote',kind:'heart'}));
+  await delay(10);
+  assert(emotes(b).every(x=>x.id==='one'||x.id==='two'));
+ }finally{
+  api.close();Date.now=originalNow;
+ }
+});
