@@ -18,8 +18,8 @@ export function initialCodes(seed){
 export function specialCodes(raw=''){return [...new Set(String(raw).split(',').map(normalizeCode).filter(code=>/^[A-Z0-9]{6}$/.test(code)&&/[A-Z]/.test(code)&&/[0-9]/.test(code)))];}
 const configuredCodes=[...initialCodes(process.env.REGISTRATION_CODE_SEED),...specialCodes(process.env.SPECIAL_REGISTRATION_CODES)];
 const preissued=new Set(configuredCodes.map(digest));
-export async function passwordRecord(password){
- if(typeof password!=='string'||password.length<6||password.length>12)throw Object.assign(Error('パスワードは6〜12文字で設定してください。'),{status:400});
+export async function passwordRecord(password,{temporary=false}={}){
+ if(typeof password!=='string'||(temporary?!/^\d{5}$/.test(password):password.length<6||password.length>12))throw Object.assign(Error('パスワードは6〜12文字で設定してください。'),{status:400});
  const salt=randomBytes(16).toString('hex'),hash=Buffer.from(await derive(password,salt,64,{N:16384,r:8,p:5})).toString('hex');
  return {salt,hash};
 }
@@ -145,8 +145,8 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     const account=await state(code.value.uid);if(!account)throw fail('登録情報が見つかりません。',404);
     if(route==='/api/admin/code-lookup')return send(res,200,{uid:account.value.uid,loginId:account.value.loginId});
     if(route==='/api/admin/code-reset'){
-     const temporaryPassword=randomBytes(9).toString('base64url'),record=await passwordRecord(temporaryPassword),version=Number(account.value.version||0)+1;
-     const updated={...account.value,...record,resetRequired:true,version,temporaryUntil:Date.now()+86400000};
+     const temporaryPassword=String(randomInt(100000)).padStart(5,'0'),record=await passwordRecord(temporaryPassword,{temporary:true}),version=Number(account.value.version||0)+1;
+     const updated={...account.value,...record,resetRequired:true,version,temporaryUntil:Date.now()+86400000,temporaryAttempts:0};
      await commit([write('code_accounts',digest(account.value.loginId),updated,account),updateExisting('account_uids',account.value.uid,{idKey:digest(account.value.loginId),loginId:account.value.loginId,version,resetRequired:true})]);
      onAdmissionChanged(account.value.uid);
      return send(res,200,{loginId:account.value.loginId,temporaryPassword,expiresHours:24});
@@ -161,6 +161,7 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
    }
    if(route==='/api/account/password'){
     throttle(req);const user=await verifyUser(req),account=await state(user.uid);if(!account)throw fail('コードの紐づけが必要です。',400);
+    if(account.value.resetRequired&&Number.isInteger(account.value.temporaryAttempts)&&(user.provider!=='custom'||Number(user.codeVersion||0)!==Number(account.value.version||0)||Date.now()>account.value.temporaryUntil))throw fail('仮パスワードでログインし直してください。',401);
     if(!await passwordMatches(body.currentPassword,account.value))throw fail('現在のパスワードが違います。',403);
     if(body.currentPassword===body.password)throw fail('現在のパスワードとは異なるものにしてください。',400);
     const record=await passwordRecord(body.password),version=Number(account.value.version||0),updated={...account.value,...record,resetRequired:false,temporaryUntil:0};
@@ -177,6 +178,11 @@ export function createCodeAuth({base,projectId,accessToken,serviceAccount,verify
     if(!/^[a-z0-9][a-z0-9_-]{3,31}$/.test(loginId))throw fail('IDは4〜32文字で入力してください。',400);
     if(route==='/api/account/login'){
      const account=await read('code_accounts',idKey);
+     if(account?.value.resetRequired&&Number.isInteger(account.value.temporaryAttempts)){
+      if(Date.now()>account.value.temporaryUntil||account.value.temporaryAttempts>=5)throw fail('仮パスワードの期限切れ、または試行回数の上限に達しました。再発行を依頼してください。',401);
+      // Persist the attempt before checking the secret; the update-time precondition prevents parallel bypasses.
+      await commit([write('code_accounts',idKey,{...account.value,temporaryAttempts:account.value.temporaryAttempts+1},account)]);
+     }
      const dummy={salt:'0'.repeat(32),hash:'0'.repeat(128)};
      const valid=await passwordMatches(body.password,account?.value||dummy);
      if(!account||!valid||(account.value.resetRequired&&Date.now()>account.value.temporaryUntil))throw fail('IDまたはパスワードが違うか、仮パスワードの期限が切れています。',401);
